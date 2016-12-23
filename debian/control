@@ -1,0 +1,19 @@
+Source: libopx-sai-common
+Section: net
+Priority: optional
+Maintainer: Dell <support@dell.com>
+Build-Depends: debhelper (>= 9), autotools-dev, dh-autoreconf, libopx-common-dev,libopx-logging-dev, opx-sai-api-dev, libopx-sai-common-utils-dev
+Standards-Version: 3.9.3
+
+Package: libopx-sai-common1
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},libopx-common1,libopx-logging1,libopx-sai-common-utils1
+Description: This package provides the Dell SAI implementation. It provides NPU-agnostic functionality and interfaces with the NPU-specific implementation using NPU plugin APIs.contains utility functions that is used by the Dell SAI implementation.
+
+
+Package: libopx-sai-common-dev
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},libopx-common-dev,libopx-logging-dev,opx-sai-api-dev,libopx-sai-common-utils-dev,libopx-sai-common1
+Description: This package provides the Dell SAI implementation. It provides NPU-agnostic functionality and interfaces with the NPU-specific implementation using NPU plugin APIs.contains utility functions that is used by the Dell SAI implementation.
+
+
