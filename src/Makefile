@@ -178,6 +178,6 @@ sai-common_SRCS+= ${HASH_SRCS}
 
 sai-common_SRCS+= ${TUNNEL_SRCS}
 
-sai-common_LDFLAGS+= -ldn_common -levent_log -lsai-common-utils -ldl
+sai-common_LDFLAGS+= -ldn_common -levent_log -lsai_common_utils -ldl
 
 include ${MAKE_INC}/workspace.mak
