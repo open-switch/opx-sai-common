@@ -1,7 +1,7 @@
 ACLOCAL_AMFLAGS=-I m4
 SUBDIRS = inc
 
-lib_LTLIBRARIES = libsai-common.la
+lib_LTLIBRARIES = libsai_common.la
 
 libsai_common_la_SOURCES = \
 src/acl/sai_acl_counter.c src/acl/sai_acl_debug.c \
@@ -35,6 +35,6 @@ src/udf/sai_udf.c  src/udf/sai_udf_group.c  src/udf/sai_udf_utils.c
 
 libsai_common_la_CFLAGS= -I$(top_srcdir)/inc/opx -I$(includedir)/opx
 libsai_common_la_LDFLAGS= -shared -version-info 1:1:0
-libsai_common_la_LIBADD= -lopx_common -lopx_logging -lsai-common-utils -lpthread -lrt
+libsai_common_la_LIBADD= -lopx_common -lopx_logging -lsai_common_utils -lpthread -ldl
 
 
