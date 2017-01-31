@@ -1,7 +1,7 @@
 Source: libopx-sai-common
 Section: net
 Priority: optional
-Maintainer: Dell <support@dell.com>
+Maintainer: OpenSwitch Developers <ops-dev@lists.openswitch.net>
 Build-Depends: debhelper (>= 9), autotools-dev, dh-autoreconf, libopx-common-dev,libopx-logging-dev, opx-sai-api-dev, libopx-sai-common-utils-dev
 Standards-Version: 3.9.3
 
