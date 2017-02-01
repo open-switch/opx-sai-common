@@ -1,4 +1,4 @@
-Source: libopx-sai-common
+Source: opx-sai-common
 Section: net
 Priority: optional
 Maintainer: Dell EMC <ops-dev@lists.openswitch.net>
