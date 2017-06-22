@@ -115,6 +115,7 @@ class saiTunnelTest : public ::testing::Test
         static const unsigned int SAI_TEST_MAX_PORTS = 256;
         static const unsigned int test_vlan = 100;
 
+        static sai_object_id_t   test_vlan_obj_id;
         static sai_object_id_t   dflt_vr_id;
         static sai_object_id_t   dflt_overlay_vr_id;
         static sai_object_id_t   dflt_port_rif_id;

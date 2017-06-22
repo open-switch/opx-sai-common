@@ -529,31 +529,36 @@ static sai_status_t sai_qos_map_list_default_set(dn_sai_qos_map_t *p_map_node)
 
     switch(p_map_node->map_type){
 
-        case SAI_QOS_MAP_TC_TO_QUEUE:
+        case SAI_QOS_MAP_TYPE_TC_TO_QUEUE:
             sai_rc = sai_qos_map_tc_to_queue_default_set(p_map_node);
             break;
-
-        case SAI_QOS_MAP_DOT1P_TO_TC_AND_COLOR:
+        /* Fall through  */
+        case SAI_QOS_MAP_TYPE_DOT1P_TO_TC:
+        case SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR:
+        case SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR:
             sai_rc = sai_qos_map_dot1p_to_tc_and_color_default_set(p_map_node);
             break;
 
-        case SAI_QOS_MAP_DSCP_TO_TC_AND_COLOR:
+        /* Fall through  */
+        case SAI_QOS_MAP_TYPE_DSCP_TO_TC:
+        case SAI_QOS_MAP_TYPE_DSCP_TO_COLOR:
+        case SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR:
             sai_rc = sai_qos_map_dscp_to_tc_and_color_default_set(p_map_node);
             break;
 
-        case SAI_QOS_MAP_TC_AND_COLOR_TO_DSCP:
+        case SAI_QOS_MAP_TYPE_TC_AND_COLOR_TO_DSCP:
             sai_rc = sai_qos_map_tc_and_color_to_dscp_default_set(p_map_node);
             break;
 
-        case SAI_QOS_MAP_TC_AND_COLOR_TO_DOT1P:
+        case SAI_QOS_MAP_TYPE_TC_AND_COLOR_TO_DOT1P:
             sai_rc = sai_qos_map_tc_and_color_to_dot1p_default_set(p_map_node);
             break;
 
-        case SAI_QOS_MAP_TC_TO_PRIORITY_GROUP:
+        case SAI_QOS_MAP_TYPE_TC_TO_PRIORITY_GROUP:
             sai_rc = sai_qos_map_tc_to_pg_default_set (p_map_node);
             break;
 
-        case SAI_QOS_MAP_PFC_PRIORITY_TO_QUEUE:
+        case SAI_QOS_MAP_TYPE_PFC_PRIORITY_TO_QUEUE:
             sai_rc = sai_qos_map_pfc_pri_to_queue_default_set (p_map_node);
             break;
 
@@ -581,35 +586,39 @@ dn_sai_qos_map_t *p_map_node, sai_qos_map_list_t map_list, dn_sai_operations_t o
 
     switch(p_map_node->map_type){
 
-        case SAI_QOS_MAP_TC_TO_QUEUE:
+        case SAI_QOS_MAP_TYPE_TC_TO_QUEUE:
             sai_rc = sai_qos_map_tc_to_queue_map_value_set(p_map_node, map_list, op_type);
             break;
 
-        case SAI_QOS_MAP_DOT1P_TO_TC_AND_COLOR:
+        case SAI_QOS_MAP_TYPE_DOT1P_TO_TC:
+        case SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR:
+        case SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR:
             sai_rc = sai_qos_map_dot1p_to_tc_and_color_map_value_set
                 (p_map_node, map_list, op_type);
             break;
 
-        case SAI_QOS_MAP_DSCP_TO_TC_AND_COLOR:
+        case SAI_QOS_MAP_TYPE_DSCP_TO_TC:
+        case SAI_QOS_MAP_TYPE_DSCP_TO_COLOR:
+        case SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR:
             sai_rc = sai_qos_map_dscp_to_tc_and_color_map_value_set
                 (p_map_node, map_list, op_type);
             break;
 
-        case SAI_QOS_MAP_TC_AND_COLOR_TO_DSCP:
+        case SAI_QOS_MAP_TYPE_TC_AND_COLOR_TO_DSCP:
             sai_rc = sai_qos_map_tc_and_color_to_dscp_map_value_set
                 (p_map_node, map_list, op_type);
             break;
 
-        case SAI_QOS_MAP_TC_AND_COLOR_TO_DOT1P:
+        case SAI_QOS_MAP_TYPE_TC_AND_COLOR_TO_DOT1P:
             sai_rc = sai_qos_map_tc_and_color_to_dot1p_map_value_set
                 (p_map_node, map_list, op_type);
             break;
 
-        case SAI_QOS_MAP_TC_TO_PRIORITY_GROUP:
+        case SAI_QOS_MAP_TYPE_TC_TO_PRIORITY_GROUP:
             sai_rc = sai_qos_map_tc_to_pg_map_value_set(p_map_node, map_list, op_type);
             break;
 
-        case SAI_QOS_MAP_PFC_PRIORITY_TO_QUEUE:
+        case SAI_QOS_MAP_TYPE_PFC_PRIORITY_TO_QUEUE:
             sai_rc = sai_qos_map_pfc_pri_to_queue_map_value_set(p_map_node, map_list, op_type);
             break;
 
@@ -728,6 +737,7 @@ static sai_status_t sai_qos_parse_update_attributes(
 /* SAI QOS Maps API Implementations. */
 
 static sai_status_t sai_qos_map_create(sai_object_id_t *map_id,
+                          _In_ sai_object_id_t switch_id,
                           uint32_t attr_count,
                           const sai_attribute_t *attr_list)
 {

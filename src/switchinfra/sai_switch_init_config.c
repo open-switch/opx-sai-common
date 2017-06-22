@@ -53,6 +53,8 @@ static void sai_generic_qos_info_handler(sai_switch_init_config_t *switch_info,
                                    &switch_info->max_supported_tc, 0);
         sai_std_config_attr_update(qos_node, SAI_ATTR_MAX_BUFFER_SIZE,
                                    &switch_info->max_buffer_size, 0);
+        sai_std_config_attr_update(qos_node, SAI_ATTR_MAX_TILE_BUFFER_SIZE,
+                                   &switch_info->max_tile_buffer_size, 0);
         sai_std_config_attr_update(qos_node, SAI_ATTR_NUM_PG,
                                    &switch_info->num_pg, 0);
         sai_std_config_attr_update(qos_node, SAI_ATTR_CELL_SIZE,
@@ -61,7 +63,10 @@ static void sai_generic_qos_info_handler(sai_switch_init_config_t *switch_info,
                                    &switch_info->ing_max_buf_pools, 0);
         sai_std_config_attr_update(qos_node, SAI_ATTR_EGR_MAX_BUF_POOLS,
                                    &switch_info->egr_max_buf_pools, 0);
-
+        sai_std_config_attr_update(qos_node, SAI_ATTR_TILES_PER_BUF_POOL,
+                                   &switch_info->tiles_per_buf_pool, 0);
+        sai_std_config_attr_bool_update(qos_node, SAI_ATTR_HIERARCHY_FIXED,
+                                        &switch_info->hierarchy_fixed, 1);
     } else if(strncmp(std_config_name_get(qos_node),
                       SAI_NODE_NAME_PORT_QUEUE, SAI_MAX_NAME_LEN) == 0) {
 
@@ -85,8 +90,7 @@ static void sai_generic_qos_info_handler(sai_switch_init_config_t *switch_info,
     }
 }
 
-static sai_status_t sai_generic_switch_info_handler(sai_switch_id_t switch_id,
-                                                    std_config_node_t switch_node)
+static sai_status_t sai_generic_switch_info_handler(std_config_node_t switch_node)
 {
     std_config_node_t sai_node = NULL;
     sai_status_t ret_code = SAI_STATUS_SUCCESS;
@@ -120,8 +124,10 @@ static sai_status_t sai_generic_switch_info_handler(sai_switch_id_t switch_id,
 
             sai_std_config_attr_update(sai_node, SAI_ATTR_L2_TABLE_SIZE,
                                        &init_info.l2_table_size, 0);
-            sai_std_config_attr_update(sai_node, SAI_ATTR_L3_TABLE_SIZE,
-                                       &init_info.l3_table_size, 0);
+            sai_std_config_attr_update(sai_node, SAI_ATTR_L3_HOST_TABLE_SIZE,
+                                       &init_info.l3_host_table_size, 0);
+            sai_std_config_attr_update(sai_node, SAI_ATTR_L3_ROUTE_TABLE_SIZE,
+                                       &init_info.l3_route_table_size, 0);
         } else {
 
             sai_generic_qos_info_handler(&init_info, sai_node);
@@ -129,13 +135,12 @@ static sai_status_t sai_generic_switch_info_handler(sai_switch_id_t switch_id,
     }
 
     /* Update the global switch info based on init config */
-    sai_switch_info_initialize(switch_id, &init_info);
+    sai_switch_info_initialize(&init_info);
 
     return ret_code;
 }
 
-static sai_status_t sai_generic_info_handler(sai_switch_id_t switch_id,
-                                             std_config_node_t generic_node)
+static sai_status_t sai_generic_info_handler(std_config_node_t generic_node)
 {
     std_config_node_t sai_node = NULL;
     uint_t switch_instance = UINT_MAX;
@@ -152,15 +157,7 @@ static sai_status_t sai_generic_info_handler(sai_switch_id_t switch_id,
 
             sai_std_config_attr_update(sai_node, SAI_ATTR_INSTANCE, &switch_instance, 0);
 
-            /* A config file will contain only one switch instance;
-             * On instance mismatch it is expected to return failure */
-            if(switch_instance != switch_id) {
-                SAI_SWITCH_LOG_ERR("Switch instance id %d in the config doesn't match"
-                                   "the Hardware id %d", switch_instance, switch_id);
-                return SAI_STATUS_INVALID_PARAMETER;
-            }
-
-            sai_generic_switch_info_handler(switch_id, sai_node);
+            sai_generic_switch_info_handler(sai_node);
         } else if(strncmp(std_config_name_get(sai_node),
                           SAI_NODE_NAME_HIERARCHY, SAI_MAX_NAME_LEN) == 0) {
 
@@ -183,7 +180,7 @@ static sai_status_t sai_generic_info_handler(sai_switch_id_t switch_id,
     return SAI_STATUS_SUCCESS;
 }
 
-static sai_status_t sai_switch_init_file_handler(sai_switch_id_t switch_id,
+static sai_status_t sai_switch_init_file_handler(sai_switch_info_t *sai_switch_info,
                                                  std_config_node_t root_node)
 {
     std_config_node_t sai_node = NULL;
@@ -205,7 +202,7 @@ static sai_status_t sai_switch_init_file_handler(sai_switch_id_t switch_id,
             }
 
             if(strncmp(node_attr, SAI_ATTR_VAL_PLATFORM_INFO_GENERIC, SAI_MAX_NAME_LEN) == 0) {
-                ret_code = sai_generic_info_handler(switch_id, sai_node);
+                ret_code = sai_generic_info_handler(sai_node);
                 if(ret_code != SAI_STATUS_SUCCESS) {
                     SAI_SWITCH_LOG_ERR("Generic init config handler failed with err %d", ret_code);
                     return ret_code;
@@ -214,7 +211,7 @@ static sai_status_t sai_switch_init_file_handler(sai_switch_id_t switch_id,
             } else if(strncmp(node_attr, SAI_ATTR_VAL_PLATFORM_INFO_VENDOR,
                               SAI_MAX_NAME_LEN) == 0) {
 
-                ret_code = sai_switch_npu_api_get()->switch_init_config(switch_id, sai_node);
+                ret_code = sai_switch_npu_api_get()->switch_init_config(sai_switch_info, sai_node);
                 if(ret_code != SAI_STATUS_SUCCESS) {
                     SAI_SWITCH_LOG_ERR("Vendor init config handler failed with err %d", ret_code);
                     return ret_code;
@@ -233,7 +230,7 @@ static sai_status_t sai_switch_init_file_handler(sai_switch_id_t switch_id,
 }
 
 /* A Init config file while hold information about a single switch id instance. */
-sai_status_t sai_switch_init_config(sai_switch_id_t switch_id, const char * sai_cfg_file)
+sai_status_t sai_switch_init_config(sai_switch_info_t *sai_switch_info, const char * sai_cfg_file)
 {
 
     std_config_hdl_t cfg_hdl = NULL;
@@ -256,7 +253,7 @@ sai_status_t sai_switch_init_config(sai_switch_id_t switch_id, const char * sai_
     root =  std_config_get_root(cfg_hdl);
     STD_ASSERT(root != NULL);
 
-    ret_code = sai_switch_init_file_handler(switch_id, root);
+    ret_code = sai_switch_init_file_handler(sai_switch_info, root);
     if(ret_code != SAI_STATUS_SUCCESS) {
         SAI_SWITCH_LOG_ERR("Switch Init file handler failed with err %d", ret_code);
     }

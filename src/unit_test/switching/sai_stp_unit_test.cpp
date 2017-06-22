@@ -36,6 +36,7 @@ extern "C" {
 }
 
 #define SAI_STP_NO_OF_ATTRIB 1
+#define SAI_STP_NO_OF_PORT_ATTRIB 3
 #define SAI_STP_DEF_VLAN 1
 #define SAI_STP_VLAN_2 2
 #define SAI_STP_VLAN_3 3
@@ -43,6 +44,7 @@ extern "C" {
 #define SAI_MAX_PORTS 106
 
 static uint32_t port_count = 0;
+static sai_object_id_t switch_id =0;
 
 static sai_object_id_t port_list[SAI_MAX_PORTS] = {0};
 
@@ -58,39 +60,6 @@ sai_object_id_t stpTest ::sai_stp_port_id_get (uint32_t port_index)
 sai_object_id_t stpTest ::sai_stp_invalid_port_id_get ()
 {
     return (port_list[port_count-1] + 1);
-}
-
-/*
- * Stubs for Callback functions to be passed from adaptor host/application
- * upon switch initialization API call.
- */
-static inline void sai_port_evt_callback (uint32_t count,
-                                         sai_port_event_notification_t *data)
-{
-    uint32_t port_idx = 0;
-    sai_object_id_t port_id = 0;
-    sai_port_event_t port_event;
-
-    for(port_idx = 0; port_idx < count; port_idx++) {
-        port_id = data[port_idx].port_id;
-        port_event = data[port_idx].port_event;
-
-        if(port_event == SAI_PORT_EVENT_ADD) {
-            if(port_count < SAI_MAX_PORTS) {
-                port_list[port_count] = port_id;
-                port_count++;
-            }
-
-            printf("PORT ADD EVENT FOR port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else if(port_event == SAI_PORT_EVENT_DELETE) {
-
-            printf("PORT DELETE EVENT for  port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else {
-            printf("Invalid PORT EVENT for port 0x%"PRIx64" \r\n", port_id);
-        }
-    }
 }
 
 static inline void sai_port_state_evt_callback (uint32_t count,
@@ -118,12 +87,7 @@ static inline void sai_packet_event_callback (const void *buffer,
 static inline void  sai_switch_shutdown_callback (void) {
 }
 
-
 void stpTest ::SetUpTestCase (void) {
-    sai_switch_notification_t notification;
-    memset (&notification, 0, sizeof(sai_switch_notification_t));
-
-    memset(&notification, 0, sizeof(sai_switch_notification_t));
     /*
      * Query and populate the SAI Switch API Table.
      */
@@ -136,21 +100,38 @@ void stpTest ::SetUpTestCase (void) {
     /*
      * Switch Initialization.
      */
-    ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
 
-    /*
-     * Fill in notification callback routines with stubs.
-     */
-    notification.on_switch_state_change = sai_switch_operstate_callback;
-    notification.on_fdb_event = sai_fdb_evt_callback;
-    notification.on_port_state_change = sai_port_state_evt_callback;
-    notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-    notification.on_packet_event = sai_packet_event_callback;
-    notification.on_port_event = sai_port_evt_callback;
+    sai_attribute_t sai_attr_set[7];
+    uint32_t attr_count = 7;
+
+    memset(sai_attr_set,0, sizeof(sai_attr_set));
+
+    sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+    sai_attr_set[0].value.booldata = 1;
+
+    sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+    sai_attr_set[1].value.u32 = 0;
+
+    sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+    sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+    sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+    sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+    sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+    sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+    sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+    sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+    sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+    sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+    ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-               (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                         &notification)));
+               (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                         sai_attr_set)));
     /*
      * Query and populate the SAI Virtual Router API Table.
      */
@@ -171,6 +152,19 @@ void stpTest ::SetUpTestCase (void) {
 
     ASSERT_TRUE (p_sai_stp_api_tbl != NULL);
 
+    sai_attribute_t sai_port_attr;
+    sai_status_t ret = SAI_STATUS_SUCCESS;
+
+    memset (&sai_port_attr, 0, sizeof (sai_port_attr));
+
+    sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+    sai_port_attr.value.objlist.count = SAI_MAX_PORTS;
+    sai_port_attr.value.objlist.list  = port_list;
+
+    ret = p_sai_switch_api_tbl->get_switch_attribute(0,1,&sai_port_attr);
+    port_count = sai_port_attr.value.objlist.count;
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
     sai_port_id_1 = sai_stp_port_id_get (0);
 }
 
@@ -178,8 +172,6 @@ sai_switch_api_t* stpTest ::p_sai_switch_api_tbl = NULL;
 sai_vlan_api_t* stpTest ::p_sai_vlan_api_tbl = NULL;
 sai_stp_api_t* stpTest ::p_sai_stp_api_tbl = NULL;
 sai_object_id_t stpTest ::sai_port_id_1 = 0;
-
-
 
 TEST_F(stpTest, def_stp_get)
 {
@@ -191,10 +183,10 @@ TEST_F(stpTest, def_stp_get)
     attr[0].value.u16 = 0;
 
     EXPECT_EQ(SAI_STATUS_INVALID_ATTRIBUTE_0,p_sai_switch_api_tbl->
-                  set_switch_attribute(attr));
+                  set_switch_attribute(switch_id,attr));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_switch_api_tbl->
-                  get_switch_attribute(SAI_STP_NO_OF_ATTRIB, attr));
+                  get_switch_attribute(switch_id,SAI_STP_NO_OF_ATTRIB, attr));
 
     def_stp_id = attr[0].value.oid;
 
@@ -223,28 +215,31 @@ TEST_F(stpTest, create_stp_group)
     sai_attribute_t attr[SAI_STP_NO_OF_ATTRIB] = {0};
     sai_object_id_t stp_id = 0;
     sai_object_id_t def_inst_id = 0;
+    sai_object_id_t vlan_obj_id = 0;
 
     attr[SAI_STP_NO_OF_ATTRIB - 1].id =  SAI_SWITCH_ATTR_DEFAULT_STP_INST_ID;
 
     EXPECT_EQ(SAI_STATUS_INVALID_ATTRIBUTE_0,p_sai_switch_api_tbl->
-                  set_switch_attribute(attr));
+                  set_switch_attribute(switch_id,attr));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_switch_api_tbl->
-                  get_switch_attribute(SAI_STP_NO_OF_ATTRIB, attr));
+                  get_switch_attribute(switch_id,SAI_STP_NO_OF_ATTRIB, attr));
 
     def_inst_id = attr[0].value.oid;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_stp_api_tbl->
-            create_stp(&stp_id,0,attr));
+            create_stp(&stp_id,switch_id,0,attr));
 
+    attr[0].id = SAI_VLAN_ATTR_VLAN_ID;
+    attr[0].value.u16 = SAI_STP_VLAN_2;
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            create_vlan(SAI_STP_VLAN_2));
+            create_vlan(&vlan_obj_id,1,SAI_STP_NO_OF_ATTRIB,attr));
 
     attr[0].id = SAI_VLAN_ATTR_STP_INSTANCE;
     attr[0].value.oid = stp_id;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            set_vlan_attribute(SAI_STP_VLAN_2,attr));
+            set_vlan_attribute(vlan_obj_id,attr));
 
     EXPECT_EQ(SAI_STATUS_OBJECT_IN_USE, p_sai_stp_api_tbl->
             remove_stp(stp_id));
@@ -253,69 +248,97 @@ TEST_F(stpTest, create_stp_group)
     attr[0].value.oid = def_inst_id;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            set_vlan_attribute(SAI_STP_VLAN_2,attr));
+            set_vlan_attribute(vlan_obj_id,attr));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
             remove_stp(stp_id));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            remove_vlan(SAI_STP_VLAN_2));
+            remove_vlan(vlan_obj_id));
 }
 
 TEST_F(stpTest, stp_port_state)
 {
-    sai_attribute_t attr[SAI_STP_NO_OF_ATTRIB] = {0};
+    sai_attribute_t attr[SAI_STP_NO_OF_PORT_ATTRIB] = {0};
     sai_object_id_t stp_id = 0;
-    sai_port_stp_state_t port_state;
-    sai_object_id_t port_id = sai_port_id_1;
+    sai_object_id_t stp_port_id_1 = 0;
     sai_object_id_t invalid_port_id = sai_stp_invalid_port_id_get();
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_stp_api_tbl->
-            create_stp(&stp_id,0,attr));
+            create_stp(&stp_id,0,0,attr));
+
+    attr[0].id = SAI_STP_PORT_ATTR_STP;
+    attr[0].value.oid = stp_id;
+    attr[1].id = SAI_STP_PORT_ATTR_PORT;
+    attr[1].value.oid = invalid_port_id;
+    attr[2].id = SAI_STP_PORT_ATTR_STATE;
+    attr[2].value.s32 = SAI_STP_PORT_STATE_BLOCKING;
+    EXPECT_EQ(SAI_STATUS_INVALID_ATTR_VALUE_0+1, p_sai_stp_api_tbl->
+            create_stp_port(&stp_port_id_1, switch_id, SAI_STP_NO_OF_PORT_ATTRIB, attr));
+
+    attr[0].id = SAI_STP_PORT_ATTR_STP;
+    attr[0].value.oid = 10;
+    attr[1].id = SAI_STP_PORT_ATTR_PORT;
+    attr[1].value.oid = invalid_port_id;
+    attr[2].id = SAI_STP_PORT_ATTR_STATE;
+    attr[2].value.s32 = SAI_STP_PORT_STATE_BLOCKING;
+    EXPECT_EQ(SAI_STATUS_INVALID_ATTR_VALUE_0, p_sai_stp_api_tbl->
+            create_stp_port(&stp_port_id_1, switch_id, SAI_STP_NO_OF_PORT_ATTRIB, attr));
+
+    attr[0].id = SAI_STP_PORT_ATTR_STP;
+    attr[0].value.oid = stp_id;
+    attr[1].id = SAI_STP_PORT_ATTR_PORT;
+    attr[1].value.oid = sai_port_id_1;
+    attr[2].id = SAI_STP_PORT_ATTR_STATE;
+    attr[2].value.s32 = 3;
+    EXPECT_EQ(SAI_STATUS_INVALID_ATTR_VALUE_0+2, p_sai_stp_api_tbl->
+            create_stp_port(&stp_port_id_1, switch_id, SAI_STP_NO_OF_PORT_ATTRIB, attr));
 
     EXPECT_EQ(SAI_STATUS_INVALID_OBJECT_ID, p_sai_stp_api_tbl->
-            set_stp_port_state (stp_id, invalid_port_id, SAI_PORT_STP_STATE_FORWARDING));
+            remove_stp_port(stp_port_id_1));
 
-    EXPECT_EQ(SAI_STATUS_INVALID_OBJECT_TYPE, p_sai_stp_api_tbl->
-            set_stp_port_state (10, port_id, SAI_PORT_STP_STATE_FORWARDING));
+    attr[0].id = SAI_STP_PORT_ATTR_STP;
+    attr[0].value.oid = stp_id;
+    attr[1].id = SAI_STP_PORT_ATTR_PORT;
+    attr[1].value.oid = sai_port_id_1;
+    attr[2].id = SAI_STP_PORT_ATTR_STATE;
+    attr[2].value.s32 = SAI_STP_PORT_STATE_LEARNING;
+    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
+            create_stp_port(&stp_port_id_1, switch_id, SAI_STP_NO_OF_PORT_ATTRIB, attr));
 
-    EXPECT_EQ(SAI_STATUS_INVALID_OBJECT_TYPE, p_sai_stp_api_tbl->
-            get_stp_port_state (10, port_id, &port_state));
+    attr[0].id = SAI_STP_PORT_ATTR_STATE;
+    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
+            get_stp_port_attribute(stp_port_id_1,SAI_STP_NO_OF_ATTRIB,attr));
+    EXPECT_EQ(attr[0].value.s32,SAI_STP_PORT_STATE_LEARNING);
 
-    /* Set to some random number */
-    port_state = SAI_PORT_STP_STATE_LEARNING;
-    EXPECT_EQ(SAI_STATUS_INVALID_OBJECT_ID, p_sai_stp_api_tbl->
-            get_stp_port_state (stp_id, invalid_port_id, &port_state));
+    attr[0].id = SAI_STP_PORT_ATTR_STATE;
+    attr[0].value.s32 = SAI_STP_PORT_STATE_FORWARDING;
+    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
+            set_stp_port_attribute(stp_port_id_1,&attr[0]));
+
+    attr[0].id = SAI_STP_PORT_ATTR_STATE;
+    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
+            get_stp_port_attribute(stp_port_id_1,SAI_STP_NO_OF_ATTRIB,attr));
+    EXPECT_EQ(attr[0].value.s32,SAI_STP_PORT_STATE_FORWARDING);
+
+    attr[0].id = SAI_STP_PORT_ATTR_STATE;
+    attr[0].value.s32 = SAI_STP_PORT_STATE_BLOCKING;
+    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
+            set_stp_port_attribute(stp_port_id_1,&attr[0]));
+
+    attr[0].id = SAI_STP_PORT_ATTR_STATE;
+    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
+            get_stp_port_attribute(stp_port_id_1,SAI_STP_NO_OF_ATTRIB,attr));
+    EXPECT_EQ(attr[0].value.s32,SAI_STP_PORT_STATE_BLOCKING);
+
+    EXPECT_EQ(SAI_STATUS_OBJECT_IN_USE, p_sai_stp_api_tbl->
+            remove_stp(stp_id));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
-            set_stp_port_state (stp_id, port_id, SAI_PORT_STP_STATE_FORWARDING));
+            remove_stp_port(stp_port_id_1));
 
-    /* Set to some random number */
-    port_state = SAI_PORT_STP_STATE_LEARNING;
-    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
-            get_stp_port_state (stp_id, port_id, &port_state));
-
-    EXPECT_EQ(SAI_PORT_STP_STATE_FORWARDING, port_state);
-
-    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
-            set_stp_port_state (stp_id, port_id, SAI_PORT_STP_STATE_LEARNING));
-
-    /* Set to some random number */
-    port_state = SAI_PORT_STP_STATE_BLOCKING;
-    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
-            get_stp_port_state (stp_id, port_id, &port_state));
-
-    EXPECT_EQ(SAI_PORT_STP_STATE_LEARNING, port_state);
-
-    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
-            set_stp_port_state (stp_id, port_id, SAI_PORT_STP_STATE_BLOCKING));
-
-    /* Set to some random number */
-    port_state = SAI_PORT_STP_STATE_LEARNING;
-    EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
-            get_stp_port_state (stp_id, port_id, &port_state));
-
-    EXPECT_EQ(SAI_PORT_STP_STATE_BLOCKING, port_state);
+    EXPECT_EQ(SAI_STATUS_ITEM_NOT_FOUND, p_sai_stp_api_tbl->
+            remove_stp_port(stp_port_id_1));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
             remove_stp(stp_id));
@@ -325,39 +348,45 @@ TEST_F(stpTest, delet_vlan)
 {
     sai_attribute_t attr[SAI_STP_NO_OF_ATTRIB] = {0};
     sai_object_id_t stp_id = 0;
+    sai_object_id_t vlan_obj_id1 = 0;
+    sai_object_id_t vlan_obj_id2 = 0;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_stp_api_tbl->
-            create_stp(&stp_id,0,attr));
+            create_stp(&stp_id,0,0,attr));
 
+    attr[0].id = SAI_VLAN_ATTR_VLAN_ID;
+    attr[0].value.u16 = SAI_STP_VLAN_2;
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            create_vlan(SAI_STP_VLAN_2));
+            create_vlan(&vlan_obj_id1,1,SAI_STP_NO_OF_ATTRIB,attr));
 
+    attr[0].id = SAI_VLAN_ATTR_VLAN_ID;
+    attr[0].value.u16 = SAI_STP_VLAN_3;
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            create_vlan(SAI_STP_VLAN_3));
+            create_vlan(&vlan_obj_id2,1,SAI_STP_NO_OF_ATTRIB,attr));
 
     attr[0].id = SAI_VLAN_ATTR_STP_INSTANCE;
     attr[0].value.oid = stp_id;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            set_vlan_attribute(SAI_STP_VLAN_3,attr));
+            set_vlan_attribute(vlan_obj_id2,attr));
 
     attr[0].id = SAI_VLAN_ATTR_STP_INSTANCE;
     attr[0].value.oid = 10;
 
     EXPECT_EQ(SAI_STATUS_INVALID_OBJECT_ID, p_sai_vlan_api_tbl->
-            set_vlan_attribute(SAI_STP_VLAN_2, attr));
+            set_vlan_attribute(vlan_obj_id1, attr));
 
     attr[0].id = SAI_VLAN_ATTR_STP_INSTANCE;
     attr[0].value.oid = stp_id;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_vlan_api_tbl->
-            set_vlan_attribute(SAI_STP_VLAN_2, attr));
+            set_vlan_attribute(vlan_obj_id1, attr));
 
     memset (attr, 0, sizeof(attr));
     attr[0].id = SAI_VLAN_ATTR_STP_INSTANCE;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            get_vlan_attribute(SAI_STP_VLAN_3, SAI_STP_NO_OF_ATTRIB, attr));
+            get_vlan_attribute(vlan_obj_id2, SAI_STP_NO_OF_ATTRIB, attr));
 
     EXPECT_EQ (attr->value.oid, stp_id);
 
@@ -365,7 +394,7 @@ TEST_F(stpTest, delet_vlan)
     attr[0].id = SAI_VLAN_ATTR_STP_INSTANCE;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            get_vlan_attribute(SAI_STP_VLAN_2, SAI_STP_NO_OF_ATTRIB, attr));
+            get_vlan_attribute(vlan_obj_id1, SAI_STP_NO_OF_ATTRIB, attr));
 
     EXPECT_EQ (attr->value.oid, stp_id);
 
@@ -397,10 +426,10 @@ TEST_F(stpTest, delet_vlan)
             remove_stp(stp_id));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            remove_vlan(SAI_STP_VLAN_3));
+            remove_vlan(vlan_obj_id2));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->
-            remove_vlan(SAI_STP_VLAN_2));
+            remove_vlan(vlan_obj_id1));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_stp_api_tbl->
             remove_stp(stp_id));

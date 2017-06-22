@@ -39,6 +39,50 @@ extern "C" {
 #include "sairoute.h"
 }
 
+#include <unordered_map>
+
+typedef struct _sai_l3_test_nh_grp_info_t {
+    sai_object_id_t nh_grp_id;
+    sai_object_id_t nh_id;
+} sai_l3_test_nh_grp_info_t;
+
+struct _test_l3_nh_grp_info_hash {
+    size_t operator ()(const sai_l3_test_nh_grp_info_t& key) const {
+        size_t hash;
+        hash = std::hash<uint64_t>()(key.nh_grp_id) ^ std::hash<uint64_t>()(key.nh_id);
+        return hash;
+    }
+};
+
+struct _test_l3_nh_grp_info_equal {
+    bool operator()(const sai_l3_test_nh_grp_info_t& key1, const sai_l3_test_nh_grp_info_t& key2) const {
+        if ((key1.nh_grp_id == key2.nh_grp_id) && (key1.nh_id == key2.nh_id)) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+};
+
+static inline bool operator==(const sai_l3_test_nh_grp_info_t& key1, const sai_l3_test_nh_grp_info_t& key2)
+{
+    return _test_l3_nh_grp_info_equal()(key1, key2);
+}
+
+struct _test_l3_nh_member_hash {
+    size_t operator ()(const sai_object_id_t& key) const {
+        size_t hash;
+        hash = std::hash<uint64_t>()(key);
+        return hash;
+    }
+};
+
+typedef std::unordered_map <sai_l3_test_nh_grp_info_t, sai_object_id_t,
+        _test_l3_nh_grp_info_hash, _test_l3_nh_grp_info_equal> sai_l3_test_nh_grp_info_2_member_t;
+typedef std::unordered_map <sai_object_id_t, sai_l3_test_nh_grp_info_t,
+        _test_l3_nh_member_hash> sai_l3_test_member_2_nh_grp_info_t;
+
 class saiL3Test : public ::testing::Test
 {
     public:
@@ -123,6 +167,9 @@ class saiL3Test : public ::testing::Test
                             unsigned int attr_count, ...);
 
         /* Methods for NEXT-HOP-GROUP functionality SAI API testing. */
+        static sai_status_t sai_test_nh_group_create_no_nh_list (
+                                           sai_object_id_t *p_group_id,
+                                           sai_next_hop_group_type_t type);
         static sai_status_t sai_test_nh_group_create (
                                            sai_object_id_t *p_group_id,
                                            sai_object_id_t *p_nh_list,
@@ -131,6 +178,11 @@ class saiL3Test : public ::testing::Test
                                               sai_object_id_t group_id,
                                               unsigned int nh_count,
                                               sai_object_id_t *p_nh_list);
+        static sai_status_t sai_test_add_nh_to_group (
+                                              sai_object_id_t group_id,
+                                              unsigned int nh_count,
+                                              sai_object_id_t *p_nh_list,
+                                              sai_object_id_t *p_member_list);
         static sai_status_t sai_test_remove_nh_from_group (
                                               sai_object_id_t group_id,
                                               unsigned int nh_count,
@@ -170,9 +222,44 @@ class saiL3Test : public ::testing::Test
         }
 
         /* Methods for VLAN Create/Remove for the routing test cases */
-        static sai_status_t sai_test_vlan_create (unsigned int vlan_id);
-        static sai_status_t sai_test_vlan_remove (unsigned int vlan_id);
+        static sai_status_t sai_test_vlan_create (sai_object_id_t *vlan_obj_id,
+                unsigned int vlan_id);
+        static sai_status_t sai_test_vlan_remove (sai_object_id_t vlan_obj_id);
+        static sai_status_t sai_test_remove_port_from_vlan(
+                sai_vlan_api_t *sai_vlan_api_tbl,
+                sai_object_id_t vlan_obj_id, sai_object_id_t port_id);
+        static sai_status_t sai_test_add_port_to_vlan(
+                sai_vlan_api_t *sai_vlan_api_tbl,
+                sai_object_id_t vlan_obj_id, sai_object_id_t port_id);
+        static void sai_l3_default_vlan_obj_id_set(sai_object_id_t vlan_obj_id);
 
+        static sai_status_t sai_test_next_hop_group_map_add (
+                                                     sai_object_id_t grp_id,
+                                                     sai_object_id_t nh_id,
+                                                     sai_object_id_t member_id);
+
+        static sai_status_t sai_test_next_hop_group_map_del (
+                                                     sai_object_id_t grp_id,
+                                                     sai_object_id_t nh_id,
+                                                     sai_object_id_t member_id);
+        static sai_status_t sai_test_get_next_hop_group_info (
+                                             sai_object_id_t member_id,
+                                             sai_object_id_t *out_grp_id,
+                                             sai_object_id_t *out_nh_id);
+        static sai_status_t sai_test_get_next_hop_member_id (
+                                             sai_object_id_t grp_id,
+                                             sai_object_id_t nh_id,
+                                             sai_object_id_t *out_member_id);
+        static sai_status_t sai_test_get_nh_count (sai_object_id_t grp_id,
+                                                   uint32_t *out_nh_count);
+        static sai_status_t sai_test_get_nh_list (sai_object_id_t grp_id,
+                                                  uint32_t *in_out_nh_count,
+                                                  sai_object_id_t *out_nh_list);
+        static void sai_test_print_next_hop_info_map (bool            print_all_groups,
+                                                      sai_object_id_t grp_id);
+
+        static sai_next_hop_group_api_t   *p_sai_nh_grp_api_tbl;
+        static sai_object_id_t switch_id;
         static const unsigned int default_rif_attr_count      = 3;
         static const unsigned int default_nh_attr_count       = 3;
         static const unsigned int default_neighbor_attr_count = 1;
@@ -196,6 +283,8 @@ class saiL3Test : public ::testing::Test
             return p_sai_switch_api_tbl;
         }
 
+        static sai_object_id_t sai_l3_default_vlan_obj_id_get (void);
+
         static const char        *router_mac;
 
         static const unsigned int SAI_TEST_MAX_PORTS      = 256;
@@ -210,11 +299,12 @@ class saiL3Test : public ::testing::Test
         static sai_router_interface_api_t *p_sai_rif_api_tbl;
         static sai_neighbor_api_t         *p_sai_nbr_api_tbl;
         static sai_next_hop_api_t         *p_sai_nh_api_tbl;
-        static sai_next_hop_group_api_t   *p_sai_nh_grp_api_tbl;
         static sai_route_api_t            *p_sai_route_api_tbl;
         static sai_fdb_api_t              *p_sai_fdb_api_table;
         static unsigned int                port_count;
         static sai_object_id_t             port_list[SAI_TEST_MAX_PORTS];
+        static sai_l3_test_nh_grp_info_2_member_t _nh_grp_info_2_member;
+        static sai_l3_test_member_2_nh_grp_info_t _nh_member_2_grp_info;
 };
 
 #endif /* __SAI_L3_UNIT_TEST_H__ */

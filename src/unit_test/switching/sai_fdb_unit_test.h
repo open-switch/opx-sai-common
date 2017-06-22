@@ -38,12 +38,11 @@ extern "C" {
 
 #define SAI_MAX_PORTS  256
 #define SAI_MAX_FDB_ATTRIBUTES 3
+static sai_object_id_t switch_id = 0;
 
 extern uint32_t port_count;
 extern sai_object_id_t port_list[];;
 
-void sai_fdb_port_evt_callback (uint32_t count,
-                                          sai_port_event_notification_t *data);
 
 static inline void sai_set_test_fdb_entry(sai_fdb_entry_t* fdb_entry)
 {
@@ -68,46 +67,28 @@ class fdbInit : public ::testing::Test
 {
     public:
         void sai_fdb_entry_create(sai_fdb_entry_type_t type, sai_object_id_t port_id,
-                                    sai_packet_action_t action);
+                sai_packet_action_t action);
         void sai_fdb_create_registered_entry (sai_fdb_entry_t entry,
-                                                sai_fdb_entry_type_t type,
-                                                sai_object_id_t port_id,
-                                                sai_packet_action_t action);
+                sai_fdb_entry_type_t type,
+                sai_object_id_t port_id,
+                sai_packet_action_t action);
+        static sai_status_t sai_get_fdb_port_list_get(sai_switch_api_t *p_sai_switch_api_tbl);
     protected:
         static void SetUpTestCase()
         {
             sai_switch_api_t *p_sai_switch_api_tbl = NULL;
-            sai_switch_notification_t notification;
-            memset (&notification, 0, sizeof(sai_switch_notification_t));
 
             /*
              * Query and populate the SAI Switch API Table.
              */
             EXPECT_EQ (SAI_STATUS_SUCCESS, sai_api_query
-                       (SAI_API_SWITCH, (static_cast<void**>
-                                         (static_cast<void*>(&p_sai_switch_api_tbl)))));
+                    (SAI_API_SWITCH, (static_cast<void**>
+                                      (static_cast<void*>(&p_sai_switch_api_tbl)))));
 
             ASSERT_TRUE (p_sai_switch_api_tbl != NULL);
 
-            /*
-             * Switch Initialization.
-             * Fill in notification callback routines with stubs.
-             */
-            notification.on_switch_state_change = sai_switch_operstate_callback;
-            notification.on_fdb_event = sai_fdb_evt_callback;
-            notification.on_port_state_change = sai_port_state_evt_callback;
-            notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-            notification.on_port_event = sai_fdb_port_evt_callback;
-            notification.on_packet_event = sai_packet_event_callback;
-
-            ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
-
-            EXPECT_EQ (SAI_STATUS_SUCCESS,
-                       (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                                 &notification)));
-
             ASSERT_EQ(NULL,sai_api_query(SAI_API_FDB,
-                                         (static_cast<void**>(static_cast<void*>(&sai_fdb_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_fdb_api_table)))));
 
             ASSERT_TRUE(sai_fdb_api_table != NULL);
 
@@ -119,7 +100,40 @@ class fdbInit : public ::testing::Test
             EXPECT_TRUE(sai_fdb_api_table->flush_fdb_entries != NULL);
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_LAG,
-                                         (static_cast<void**>(static_cast<void*>(&sai_lag_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_lag_api_table)))));
+
+
+            sai_attribute_t sai_attr_set[7];
+            uint32_t attr_count = 7;
+
+            memset(sai_attr_set,0, sizeof(sai_attr_set));
+
+            sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+            sai_attr_set[0].value.booldata = 1;
+
+            sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+            sai_attr_set[1].value.u32 = 0;
+
+            sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+            sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+            sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+            sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+            sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+            sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+            sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+            sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+            sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+            sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+            ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
+
+            EXPECT_EQ (SAI_STATUS_SUCCESS,
+                    (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                          sai_attr_set)));
 
             ASSERT_TRUE(sai_lag_api_table != NULL);
 
@@ -128,7 +142,7 @@ class fdbInit : public ::testing::Test
             EXPECT_TRUE(sai_lag_api_table->set_lag_attribute != NULL);
             EXPECT_TRUE(sai_lag_api_table->get_lag_attribute != NULL);
 
-
+            EXPECT_EQ (SAI_STATUS_SUCCESS,sai_get_fdb_port_list_get(p_sai_switch_api_tbl));
             port_id_1 = port_list[0];
             port_id_2 = port_list[port_count-1];
             port_id_3 = port_list[1];

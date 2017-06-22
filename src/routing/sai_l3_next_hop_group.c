@@ -33,9 +33,46 @@
 #include "sai_l3_mem.h"
 #include "sai_common_infra.h"
 #include "sai_l3_api_utils.h"
+#include "sai_l3_next_hop_group_utl.h"
 #include <string.h>
 #include <inttypes.h>
 #include <stdlib.h>
+
+static dn_sai_id_gen_info_t next_hop_grp_member_gen_info;
+
+bool sai_fib_is_next_hop_grp_member_id_in_use(uint64_t obj_id)
+{
+    sai_object_id_t next_hop_grp_member_id =
+        sai_uoid_create(SAI_OBJECT_TYPE_NEXT_HOP_GROUP_MEMBER,obj_id);
+    sai_object_id_t nh_grp_id = SAI_NULL_OBJECT_ID;
+    sai_object_id_t nh_id = SAI_NULL_OBJECT_ID;
+
+    if(sai_next_hop_map_get_ids_from_member_id(next_hop_grp_member_id,
+                &nh_grp_id,&nh_id) == SAI_STATUS_SUCCESS) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static sai_object_id_t sai_fib_generate_next_hop_grp_member_id(void)
+{
+    if(SAI_STATUS_SUCCESS ==
+            dn_sai_get_next_free_id(&next_hop_grp_member_gen_info)) {
+        return (sai_uoid_create(SAI_OBJECT_TYPE_NEXT_HOP_GROUP_MEMBER,
+                    next_hop_grp_member_gen_info.cur_id));
+    }
+    return SAI_NULL_OBJECT_ID;
+}
+
+inline void sai_fib_next_hop_grp_member_gen_info_init(void)
+{
+    next_hop_grp_member_gen_info.cur_id = 0;
+    next_hop_grp_member_gen_info.is_wrappped = false;
+    next_hop_grp_member_gen_info.mask = SAI_UOID_NPU_OBJ_ID_MASK;
+    next_hop_grp_member_gen_info.is_id_in_use =
+        sai_fib_is_next_hop_grp_member_id_in_use;
+}
 
 static inline void sai_fib_nh_group_log_error (sai_fib_nh_group_t *p_group,
                                                char *p_error_str)
@@ -373,6 +410,9 @@ static void sai_fib_nh_group_remove_from_lists (
         /* Remove the next hop node in group's nh list */
         sai_fib_nh_group_find_and_remove_nh_node (p_group_node,
                                                   ap_next_hop [nh_index]);
+
+        sai_fib_decr_nh_group_ref_count (p_group_node);
+        sai_fib_decr_nh_ref_count (ap_next_hop [nh_index]);
     }
 }
 
@@ -415,6 +455,8 @@ static sai_status_t sai_fib_nh_group_add_in_lists (
 
         /* Increment the nh list count */
         p_group_node->nh_count++;
+        sai_fib_incr_nh_group_ref_count (p_group_node);
+        sai_fib_incr_nh_ref_count (ap_next_hop [nh_index]);
     }
 
     if (nh_index && (nh_index != next_hop_count)) {
@@ -510,63 +552,6 @@ static sai_status_t sai_fib_next_hop_fill_from_nh_id_list (
  * This is a helper routine for parsing attribute list input. Caller must
  * recalculate the error code with the attribute's index in the list.
  */
-static sai_status_t sai_fib_next_hop_group_next_hop_list_set (
-                                          sai_fib_nh_group_t *p_nh_group,
-                                          const sai_attribute_value_t *p_value,
-                                          bool is_create_req,
-                                          sai_fib_nh_t *ap_next_hop [])
-{
-    sai_status_t         status = SAI_STATUS_FAILURE;
-    sai_object_list_t   *p_list;
-
-    STD_ASSERT (p_value != NULL);
-    STD_ASSERT (p_nh_group != NULL);
-
-    if (!is_create_req) {
-
-        SAI_NH_GROUP_LOG_ERR ("Next Hop list create-only attr is set.");
-
-        return SAI_STATUS_INVALID_ATTRIBUTE_0;
-    }
-
-    p_list = (sai_object_list_t *) &p_value->objlist;
-
-    /* Validate the next hop count with max ecmp-paths attr */
-    if (!sai_fib_is_nh_group_size_valid (p_nh_group, p_list->count)) {
-
-        return SAI_STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    status = sai_fib_next_hop_fill_from_nh_id_list (p_nh_group,
-                                                    p_list->count, p_list->list,
-                                                    ap_next_hop, false);
-
-    if (status != SAI_STATUS_SUCCESS) {
-
-        SAI_NH_GROUP_LOG_ERR ("SAI Next Hop Group failure in parsing NH Id list.");
-
-        return status;
-    }
-
-    status = sai_fib_nh_group_add_in_lists (p_nh_group, p_list->count,
-                                            ap_next_hop);
-
-    if (status != SAI_STATUS_SUCCESS) {
-
-        SAI_NH_GROUP_LOG_ERR ("Failure to add Next Hop Group node in lists.");
-
-    } else {
-
-        SAI_NH_GROUP_LOG_TRACE ("SAI Next Hop Group node added in lists.");
-    }
-
-    return status;
-}
-
-/*
- * This is a helper routine for parsing attribute list input. Caller must
- * recalculate the error code with the attribute's index in the list.
- */
 static sai_status_t sai_fib_next_hop_group_type_set (
                                           sai_fib_nh_group_t *p_nh_group,
                                           const sai_attribute_value_t *p_value,
@@ -613,7 +598,6 @@ static sai_status_t sai_fib_next_hop_group_info_fill (
     const sai_attribute_t *p_attr = NULL;
 
     STD_ASSERT (p_nh_group != NULL);
-    STD_ASSERT (ap_next_hop != NULL);
     STD_ASSERT (attr_list != NULL);
 
     if ((!attr_count)) {
@@ -638,11 +622,10 @@ static sai_status_t sai_fib_next_hop_group_info_fill (
                 attr_flag |= SAI_FIB_NH_GROUP_TYPE_ATTR_FLAG;
                 break;
 
-            case SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST:
-                status = sai_fib_next_hop_group_next_hop_list_set (p_nh_group,
-                                     &p_attr->value, is_create, ap_next_hop);
+            case SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST:
+                SAI_NH_GROUP_LOG_ERR ("Next Hop Member List read-only attr is set.");
 
-                attr_flag |= SAI_FIB_NH_GROUP_NH_LIST_ATTR_FLAG;
+                status = SAI_STATUS_INVALID_ATTRIBUTE_0;
                 break;
 
             case SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_COUNT:
@@ -666,8 +649,7 @@ static sai_status_t sai_fib_next_hop_group_info_fill (
         }
     }
 
-    if ((is_create) && ((!sai_fib_is_group_type_attr_set (attr_flag)) ||
-        (!sai_fib_is_group_nh_list_attr_set (attr_flag)))) {
+    if ((is_create) && (!sai_fib_is_group_type_attr_set (attr_flag))) {
 
         /* Mandatory for create */
         SAI_NH_GROUP_LOG_ERR ("Mandatory Next Hop Group %s attribute missing.",
@@ -679,6 +661,96 @@ static sai_status_t sai_fib_next_hop_group_info_fill (
 
     sai_fib_nh_group_log_trace (p_nh_group, "SAI Next Hop Group fill "
                                 "attributes success.");
+
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t sai_fib_next_hop_group_member_get_info (
+                                    uint_t                 attr_count,
+                                    const sai_attribute_t *attr_list,
+                                    sai_object_id_t       *p_out_nh_grp_id,
+                                    uint_t                *p_in_out_nh_id_count,
+                                    sai_object_id_t       *pa_out_nh_id)
+{
+    sai_status_t           status = SAI_STATUS_FAILURE;
+    uint_t                 attr_index;
+    const sai_attribute_t *p_attr = NULL;
+    bool                   nh_grp_id_present = false;
+    bool                   nh_id_present = false;
+    uint_t                 index = 0;
+
+    STD_ASSERT (attr_list != NULL);
+
+    if ((!attr_count)) {
+
+        SAI_NH_GROUP_LOG_ERR ("SAI NH Group Member get info from attr list. "
+                              "Invalid input. attr_count: %d.", attr_count);
+
+        return SAI_STATUS_INVALID_PARAMETER;
+    }
+
+    for (attr_index = 0; attr_index < attr_count; attr_index++)
+    {
+        p_attr = &attr_list [attr_index];
+        status = SAI_STATUS_SUCCESS;
+
+        switch (p_attr->id) {
+
+            case SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_GROUP_ID:
+                if ((nh_grp_id_present) &&
+                    (*p_out_nh_grp_id != p_attr->value.oid)) {
+                    status = SAI_STATUS_INVALID_PARAMETER;
+                    break;
+                }
+
+                nh_grp_id_present = true;
+                *p_out_nh_grp_id = p_attr->value.oid;
+                break;
+
+            case SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_ID:
+                if (index >= *p_in_out_nh_id_count) {
+                    status = SAI_STATUS_BUFFER_OVERFLOW;
+                    break;
+                }
+
+                nh_id_present = true;
+                pa_out_nh_id [index] = p_attr->value.oid;
+                index++;
+                break;
+
+            case SAI_NEXT_HOP_GROUP_MEMBER_ATTR_WEIGHT:
+                status = SAI_STATUS_NOT_SUPPORTED;
+                break;
+
+            default:
+                SAI_NH_GROUP_LOG_ERR ("Invalid atttribute id: %d.", p_attr->id);
+                status = SAI_STATUS_UNKNOWN_ATTRIBUTE_0;
+                break;
+        }
+
+        if (status != SAI_STATUS_SUCCESS) {
+
+            SAI_NH_GROUP_LOG_ERR ("Failure in Next Hop Group Member attr list. "
+                                  "Index: %d, Attribute Id: %d, Error: %d.",
+                                  attr_index, p_attr->id, status);
+
+            return (sai_fib_attr_status_code_get (status, attr_index));
+        }
+    }
+
+    if ((!nh_grp_id_present) || (!nh_id_present)){
+        SAI_NH_GROUP_LOG_ERR ("Mandatory Next Hop Group Member attribute "
+                              "missing. NH Grp Id %spresent, NH Id %spresent",
+                              (nh_grp_id_present) ? "" : "NOT ",
+                              (nh_id_present) ? "" : "NOT ");
+
+        return SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING;
+    }
+
+    *p_in_out_nh_id_count = index;
+
+    SAI_NH_GROUP_LOG_TRACE ("SAI Next Hop Group Member get "
+                            "attributes success.");
 
     return SAI_STATUS_SUCCESS;
 }
@@ -737,12 +809,12 @@ static inline void sai_fib_nh_list_free (sai_fib_nh_t **p_nh_list)
 
 static sai_status_t sai_fib_next_hop_group_create (
                                   sai_object_id_t *p_next_hop_group_id,
+                                  sai_object_id_t switch_id,
                                   uint32_t attr_count,
                                   const sai_attribute_t *attr_list)
 {
     sai_status_t         status = SAI_STATUS_FAILURE;
     sai_fib_nh_group_t  *p_nh_group_node = NULL;
-    sai_fib_nh_t        **ap_next_hop_node = NULL;
     t_std_error          rc;
     sai_npu_object_id_t  nh_group_hw_id;
 
@@ -760,16 +832,6 @@ static sai_status_t sai_fib_next_hop_group_create (
         return SAI_STATUS_NO_MEMORY;
     }
 
-    ap_next_hop_node = sai_fib_nh_list_alloc (sai_fib_max_ecmp_paths_get());
-    if (ap_next_hop_node == NULL) {
-
-        SAI_NH_GROUP_LOG_ERR ("Failed to allocate memory for Next Hop node list");
-
-        sai_fib_nh_group_node_free (p_nh_group_node);
-
-        return SAI_STATUS_NO_MEMORY;
-    }
-
     std_dll_init (&p_nh_group_node->nh_list);
 
     std_dll_init (&p_nh_group_node->dep_encap_nh_list);
@@ -779,7 +841,7 @@ static sai_status_t sai_fib_next_hop_group_create (
     do {
         /* Fill group attributes from the input list */
         status = sai_fib_next_hop_group_info_fill (p_nh_group_node, attr_count,
-                                            attr_list, true, ap_next_hop_node);
+                                            attr_list, true, NULL);
 
         if (status != SAI_STATUS_SUCCESS) {
 
@@ -790,8 +852,7 @@ static sai_status_t sai_fib_next_hop_group_create (
 
         /* Create the Next Hop Group in NPU */
         status = sai_nh_group_npu_api_get()->nh_group_create (p_nh_group_node,
-                                        p_nh_group_node->nh_count,
-                                        ap_next_hop_node, &nh_group_hw_id);
+                                        &nh_group_hw_id);
 
         if (status != SAI_STATUS_SUCCESS) {
 
@@ -837,8 +898,6 @@ static sai_status_t sai_fib_next_hop_group_create (
     }
 
     sai_fib_unlock ();
-
-    sai_fib_nh_list_free (ap_next_hop_node);
 
     return status;
 }
@@ -956,8 +1015,6 @@ static sai_status_t sai_fib_next_hop_add_to_group (
         return SAI_STATUS_NO_MEMORY;
     }
 
-    sai_fib_lock ();
-
     do {
         /* Get the next hop group node */
         p_nh_group_node = sai_fib_next_hop_group_get (nh_group_id);
@@ -1028,8 +1085,6 @@ static sai_status_t sai_fib_next_hop_add_to_group (
                                nh_group_id);
     }
 
-    sai_fib_unlock ();
-
     sai_fib_nh_list_free (ap_next_hop_node);
 
     return status;
@@ -1061,8 +1116,6 @@ static sai_status_t sai_fib_next_hop_remove_from_group (
 
         return SAI_STATUS_NO_MEMORY;
     }
-
-    sai_fib_lock ();
 
     do {
         /* Get the next hop group node */
@@ -1118,8 +1171,6 @@ static sai_status_t sai_fib_next_hop_remove_from_group (
                                "0x%"PRIx64".", nh_group_id);
     }
 
-    sai_fib_unlock ();
-
     sai_fib_nh_list_free (ap_next_hop_node);
 
     return status;
@@ -1132,13 +1183,39 @@ static sai_status_t sai_fib_next_hop_group_attribute_set (
     return SAI_STATUS_NOT_IMPLEMENTED;
 }
 
+static sai_status_t sai_next_hop_get_member_list (sai_object_list_t *p_obj_list,
+                                                  sai_object_id_t    nh_grp_id)
+{
+    sai_status_t rc;
+    uint32_t     nh_count = 0;
+
+    rc = sai_next_hop_map_get_count (nh_grp_id, &nh_count);
+
+    if (rc != SAI_STATUS_SUCCESS) {
+        return rc;
+    }
+
+    if (p_obj_list->count < nh_count) {
+        p_obj_list->count = nh_count;
+        return SAI_STATUS_BUFFER_OVERFLOW;
+    }
+
+    rc = sai_next_hop_map_get_member_list (nh_grp_id,
+                                           &nh_count, p_obj_list->list);
+
+    p_obj_list->count = nh_count;
+    return rc;
+}
+
 static sai_status_t sai_fib_next_hop_group_attribute_get (
-                                           sai_object_id_t nh_group_id,
-                                           uint32_t attr_count,
-                                           sai_attribute_t *p_attr_list)
+                                                 sai_object_id_t  nh_group_id,
+                                                 uint32_t         attr_count,
+                                                 sai_attribute_t *p_attr_list)
 {
     sai_status_t        status = SAI_STATUS_FAILURE;
     sai_fib_nh_group_t  *p_nh_group_node = NULL;
+    sai_attribute_t *p_attr;
+    uint_t           attr_index;
 
     SAI_NH_GROUP_LOG_TRACE ("SAI Next Hop Group Get Attribute, "
                             "nh_group_id: 0x%"PRIx64".", nh_group_id);
@@ -1163,37 +1240,50 @@ static sai_status_t sai_fib_next_hop_group_attribute_get (
     sai_fib_lock ();
 
     do {
-        /* Get the next hop group node */
         p_nh_group_node = sai_fib_next_hop_group_get (nh_group_id);
 
         if ((!p_nh_group_node)) {
-
             SAI_NH_GROUP_LOG_ERR ("Next Hop Group Id not found: 0x%"PRIx64".",
                                   nh_group_id);
 
             status = SAI_STATUS_INVALID_OBJECT_ID;
-
             break;
         }
 
-        /* Get the next hop group attributes from NPU */
-        status = sai_nh_group_npu_api_get()->nh_group_attr_get (p_nh_group_node,
-                                                       attr_count, p_attr_list);
+        for (attr_index = 0; attr_index < attr_count; attr_index++) {
+            p_attr = &p_attr_list [attr_index];
+            status = SAI_STATUS_SUCCESS;
 
-        if (status != SAI_STATUS_SUCCESS) {
+            switch (p_attr->id) {
+                case SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_COUNT:
+                    p_attr->value.s32 = p_nh_group_node->nh_count;
+                    break;
 
-            sai_fib_nh_group_log_error (p_nh_group_node, "Failed to get "
-                                        "Next Hop Group attribute from NPU.");
-            break;
+                case SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST:
+                    status = sai_next_hop_get_member_list (&p_attr->value.objlist,
+                                                           nh_group_id);
+                    break;
+
+                case SAI_NEXT_HOP_GROUP_ATTR_TYPE:
+                    p_attr->value.s32 = p_nh_group_node->type;
+                    break;
+
+                default:
+                    status = SAI_STATUS_UNKNOWN_ATTRIBUTE_0;
+                    break;
+            }
+
+            if (status != SAI_STATUS_SUCCESS) {
+                status = sai_fib_attr_status_code_get (status, attr_index);
+                break;
+            }
         }
     } while (0);
 
     if (status == SAI_STATUS_SUCCESS) {
-
         SAI_NH_GROUP_LOG_TRACE ("SAI Next Hop Group Get Attribute success.");
-
-    } else {
-
+    }
+    else {
         SAI_NH_GROUP_LOG_ERR ("SAI Next Hop Group Get Attribute failed.");
     }
 
@@ -1202,13 +1292,233 @@ static sai_status_t sai_fib_next_hop_group_attribute_get (
     return status;
 }
 
+static sai_status_t sai_fib_next_hop_group_member_create (
+        sai_object_id_t       *out_member_id,
+        sai_object_id_t switch_id,
+        uint32_t               attr_count,
+        const sai_attribute_t *attr_list)
+{
+    sai_status_t        rc = SAI_STATUS_SUCCESS;
+    sai_object_id_t     nh_grp_id = 0;
+    sai_object_id_t     nh_id = 0;
+    uint_t              nh_id_count = 1;
+
+    sai_fib_lock ();
+
+    do
+    {
+        rc = sai_fib_next_hop_group_member_get_info (attr_count, attr_list,
+                                                     &nh_grp_id, &nh_id_count,
+                                                     &nh_id);
+
+        if (rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
+
+        rc = sai_fib_next_hop_add_to_group (nh_grp_id, nh_id_count, &nh_id);
+
+        if (rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
+
+        *out_member_id = sai_fib_generate_next_hop_grp_member_id();
+        if(SAI_NULL_OBJECT_ID == *out_member_id) {
+            rc = SAI_STATUS_FAILURE;
+            break;
+        }
+
+        rc = sai_next_hop_map_insert (nh_grp_id, nh_id, *out_member_id);
+    } while (0);
+
+    sai_fib_unlock ();
+    return rc;
+}
+
+static sai_status_t sai_fib_next_hop_group_member_remove (sai_object_id_t member_id)
+{
+    sai_status_t    rc = SAI_STATUS_SUCCESS;
+    sai_object_id_t nh_grp_id;
+    sai_object_id_t nh_id;
+
+    sai_fib_lock ();
+
+    do {
+        if (!sai_is_obj_id_next_hop_group_member (member_id)) {
+            SAI_NH_GROUP_LOG_ERR ("0x%"PRIx64" is not a valid Next Hop "
+                                  "Group Member obj id.", member_id);
+
+            rc = SAI_STATUS_INVALID_OBJECT_TYPE;
+            break;
+        }
+
+        rc = sai_next_hop_map_get_ids_from_member_id (member_id,
+                                                      &nh_grp_id, &nh_id);
+
+        if (rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
+
+        rc = sai_fib_next_hop_remove_from_group (nh_grp_id, 1, &nh_id);
+
+        if (rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
+
+        sai_next_hop_map_remove (nh_grp_id, nh_id, member_id);
+    } while (0);
+
+    sai_fib_unlock ();
+
+    return rc;
+}
+
+static sai_status_t sai_fib_next_hop_group_member_attribute_set (
+                                              sai_object_id_t        member_id,
+                                              const sai_attribute_t *p_attr)
+{
+    sai_status_t status = SAI_STATUS_SUCCESS;
+
+    STD_ASSERT (p_attr != NULL);
+
+    sai_fib_lock ();
+
+    do {
+        status = SAI_STATUS_UNKNOWN_ATTRIBUTE_0;
+
+        switch (p_attr->id) {
+
+            case SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_GROUP_ID:
+            case SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_ID:
+                status = SAI_STATUS_INVALID_PARAMETER;
+                break;
+
+            case SAI_NEXT_HOP_GROUP_MEMBER_ATTR_WEIGHT:
+                status = SAI_STATUS_NOT_SUPPORTED;
+                break;
+
+            default:
+                SAI_NH_GROUP_LOG_ERR ("Invalid atttribute id: %d.",
+                                      p_attr->id);
+                break;
+        }
+
+        if (status != SAI_STATUS_SUCCESS) {
+
+            SAI_NH_GROUP_LOG_ERR ("Failure in NH Group Member attr list. "
+                                  "Attribute Id: %d, Error: %d.",
+                                  p_attr->id, status);
+        }
+    } while (0);
+
+    SAI_NH_GROUP_LOG_TRACE("SAI Next Hop Group Member set attributes success.");
+
+    sai_fib_unlock ();
+    return status;
+}
+
+static sai_status_t sai_fib_next_hop_group_member_attribute_get (
+                                                   sai_object_id_t  member_id,
+                                                   uint32_t         attr_count,
+                                                   sai_attribute_t *p_attr_list)
+{
+    sai_status_t     status = SAI_STATUS_SUCCESS;
+    sai_object_id_t  nh_grp_id;
+    sai_object_id_t  nh_id;
+    sai_attribute_t *p_attr;
+    uint_t           attr_index;
+
+    SAI_NH_GROUP_LOG_TRACE ("SAI NH Group Member Get Attribute");
+
+    if ((!attr_count)) {
+
+        SAI_NH_GROUP_LOG_ERR("SAI NH Group Member Get attribute. Invalid input."
+                             " attr_count: %d.", attr_count);
+
+        return SAI_STATUS_INVALID_PARAMETER;
+    }
+
+    STD_ASSERT (p_attr_list != NULL);
+
+    sai_fib_lock ();
+
+    do {
+        status = sai_next_hop_map_get_ids_from_member_id (member_id,
+                                                          &nh_grp_id, &nh_id);
+
+        if (status != SAI_STATUS_SUCCESS) {
+            break;
+        }
+
+        for (attr_index = 0; attr_index < attr_count; attr_count++) {
+            p_attr = &p_attr_list [attr_index];
+
+            switch (p_attr->id) {
+                case SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_GROUP_ID:
+                    p_attr->value.oid = nh_grp_id;
+                    break;
+
+                case SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_ID:
+                    p_attr->value.oid = nh_id;
+                    break;
+
+                case SAI_NEXT_HOP_GROUP_MEMBER_ATTR_WEIGHT:
+                    status = SAI_STATUS_NOT_SUPPORTED;
+                    break;
+
+                default:
+                    break;
+            }
+
+            if (status != SAI_STATUS_SUCCESS) {
+                break;
+            }
+        }
+    } while (0);
+
+    if (status == SAI_STATUS_SUCCESS) {
+        SAI_NH_GROUP_LOG_TRACE ("SAI NH Group Member Get Attribute success.");
+
+    } else {
+        SAI_NH_GROUP_LOG_ERR ("SAI NH Group Member Get Attribute failed.");
+    }
+
+    sai_fib_unlock ();
+
+    return status;
+}
+
+static sai_status_t sai_fib_next_hop_group_member_create_bulk (
+                                          sai_object_id_t      switch_id,
+                                          uint32_t             object_count,
+                                          uint32_t            *attr_count,
+                                          sai_attribute_t    **attrs,
+                                          sai_bulk_op_type_t   type,
+                                          sai_object_id_t     *object_id,
+                                          sai_status_t        *object_statuses)
+{
+    return SAI_STATUS_NOT_IMPLEMENTED;
+}
+
+static sai_status_t sai_fib_next_hop_group_member_remove_bulk (
+                                          uint32_t             object_count,
+                                          sai_object_id_t     *object_id,
+                                          sai_bulk_op_type_t   type,
+                                          sai_status_t        *object_statuses)
+{
+    return SAI_STATUS_NOT_IMPLEMENTED;
+}
+
 static sai_next_hop_group_api_t sai_next_hop_group_method_table = {
     sai_fib_next_hop_group_create,
     sai_fib_next_hop_group_remove,
     sai_fib_next_hop_group_attribute_set,
     sai_fib_next_hop_group_attribute_get,
-    sai_fib_next_hop_add_to_group,
-    sai_fib_next_hop_remove_from_group,
+    sai_fib_next_hop_group_member_create,
+    sai_fib_next_hop_group_member_remove,
+    sai_fib_next_hop_group_member_attribute_set,
+    sai_fib_next_hop_group_member_attribute_get,
+    sai_fib_next_hop_group_member_create_bulk,
+    sai_fib_next_hop_group_member_remove_bulk,
 };
 
 sai_next_hop_group_api_t *sai_nexthop_group_api_query (void)

@@ -44,6 +44,150 @@
 #include "sai_switch_init_config.h"
 #include "sai_qos_api_utils.h"
 #include "sai_hash_api_utils.h"
+#include "sai_vlan_api.h"
+#include "sai_vlan_common.h"
+
+static const dn_sai_attribute_entry_t dn_sai_switch_attr[] = {
+    {SAI_SWITCH_ATTR_PORT_NUMBER, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_PORT_LIST, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_PORT_MAX_MTU, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_CPU_PORT, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_MAX_VIRTUAL_ROUTERS, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_FDB_TABLE_SIZE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_L3_NEIGHBOR_TABLE_SIZE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_L3_ROUTE_TABLE_SIZE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_LAG_MEMBERS, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_NUMBER_OF_LAGS, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ECMP_MEMBERS, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_NUMBER_OF_ECMP_GROUPS, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_NUMBER_OF_UNICAST_QUEUES, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_NUMBER_OF_MULTICAST_QUEUES, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_NUMBER_OF_QUEUES, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_NUMBER_OF_CPU_QUEUES, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ON_LINK_ROUTE_SUPPORTED, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_OPER_STATUS, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_MAX_TEMP, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ACL_TABLE_MINIMUM_PRIORITY, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ACL_TABLE_MAXIMUM_PRIORITY, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ACL_ENTRY_MINIMUM_PRIORITY, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ACL_ENTRY_MAXIMUM_PRIORITY, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_FDB_DST_USER_META_DATA_RANGE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ROUTE_DST_USER_META_DATA_RANGE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_NEIGHBOR_DST_USER_META_DATA_RANGE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_PORT_USER_META_DATA_RANGE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_VLAN_USER_META_DATA_RANGE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ACL_USER_META_DATA_RANGE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ACL_USER_TRAP_ID_RANGE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_DEFAULT_STP_INST_ID, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_DEFAULT_VIRTUAL_ROUTER_ID, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_MAX_NUMBER_OF_TRAFFIC_CLASSES, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_MAX_NUMBER_OF_SCHEDULER_GROUP_HIERARCHY_LEVELS, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_MAX_NUMBER_OF_SCHEDULER_GROUPS_PER_HIERARCHY_LEVEL, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_MAX_NUMBER_OF_CHILDS_PER_SCHEDULER_GROUP, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_TOTAL_BUFFER_SIZE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_INGRESS_BUFFER_POOL_NUM, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_EGRESS_BUFFER_POOL_NUM, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_DEFAULT_TRAP_GROUP, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ECMP_HASH, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_LAG_HASH, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_RESTART_WARM, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_RESTART_TYPE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_MIN_PLANNED_RESTART_INTERVAL, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_NV_STORAGE_SIZE, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_MAX_ACL_ACTION_COUNT, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ACL_CAPABILITY, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_SWITCHING_MODE, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_BCAST_CPU_FLOOD_ENABLE, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_MCAST_CPU_FLOOD_ENABLE, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_SRC_MAC_ADDRESS, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_MAX_LEARNED_ADDRESSES, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_FDB_AGING_TIME, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_ECMP_DEFAULT_HASH_ALGORITHM, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_ECMP_DEFAULT_HASH_SEED, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_ECMP_DEFAULT_SYMMETRIC_HASH, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_ECMP_HASH_IPV4, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ECMP_HASH_IPV4_IN_IPV4, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_ECMP_HASH_IPV6, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_LAG_DEFAULT_HASH_ALGORITHM, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_LAG_DEFAULT_HASH_SEED, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_LAG_DEFAULT_SYMMETRIC_HASH, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_LAG_HASH_IPV4, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_LAG_HASH_IPV4_IN_IPV4, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_LAG_HASH_IPV6, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_COUNTER_REFRESH_INTERVAL, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_DEFAULT_TC, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_DOT1P_TO_TC_MAP, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_DOT1P_TO_COLOR_MAP, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_DSCP_TO_TC_MAP, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_DSCP_TO_COLOR_MAP, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_TC_TO_QUEUE_MAP, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_TC_AND_COLOR_TO_DOT1P_MAP, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_QOS_TC_AND_COLOR_TO_DSCP_MAP, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_SWITCH_SHELL_ENABLE, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_SWITCH_PROFILE_ID, false, true, false, true, true, true },
+    {SAI_SWITCH_ATTR_SWITCH_HARDWARE_INFO, false, true, false, true, true, true },
+    {SAI_SWITCH_ATTR_FIRMWARE_PATH_NAME, false, true, false, true, true, true },
+    {SAI_SWITCH_ATTR_INIT_SWITCH, true, true, false, true, true, true },
+    {SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_FAST_API_ENABLE, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_INGRESS_ACL, false, true, true, true, true, true },
+    {SAI_SWITCH_ATTR_EGRESS_ACL, false, true, true, true, true, true },
+};
+
+/**
+ * Function returning the attribute array for Switch object and
+ * count of the total number of attributes.
+ */
+static inline void dn_sai_switch_attr_table_get (const dn_sai_attribute_entry_t **p_attr_table,
+                                                           uint_t *p_attr_count)
+{
+    *p_attr_table = &dn_sai_switch_attr [0];
+
+    *p_attr_count = (sizeof(dn_sai_switch_attr)) /
+                     (sizeof(dn_sai_switch_attr[0]));
+}
+
+
+static sai_status_t dn_sai_switch_attr_list_validate (sai_object_type_t obj_type,
+                                            uint32_t attr_count,
+                                            const sai_attribute_t *attr_list,
+                                            dn_sai_operations_t op_type)
+{
+    const dn_sai_attribute_entry_t  *p_attr_table = NULL;
+    uint_t                           max_attr_count = 0;
+    sai_status_t                     status = SAI_STATUS_FAILURE;
+
+    dn_sai_switch_attr_table_get (&p_attr_table, &max_attr_count);
+
+    if ((p_attr_table == NULL) || (max_attr_count == 0)) {
+        /* Not expected */
+        SAI_SWITCH_LOG_ERR ("Unable to find attribute id table.");
+
+        return status;
+    }
+
+    status = sai_attribute_validate (attr_count, attr_list, p_attr_table,
+                                     op_type, max_attr_count);
+
+    if (status != SAI_STATUS_SUCCESS) {
+
+        SAI_SWITCH_LOG_ERR ("Attr list validation failed. op-type: %d, Error: %d.",
+                         op_type, status);
+    } else {
+
+        SAI_SWITCH_LOG_TRACE ("Attr list validation passed. op-type: %d, Error: %d.",
+                           op_type, status);
+    }
+
+    return status;
+}
 
 static sai_status_t sai_switch_mac_address_set(const sai_mac_t *mac)
 {
@@ -132,7 +276,7 @@ static inline sai_status_t sai_switch_get_lag_attribute (sai_attribute_t *attr)
             break;
 
         default:
-            SAI_SWITCH_LOG_ERR ("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE ("Invalid Attribute Id %d in list", attr->id);
             break;
     }
     return ret_val;
@@ -150,7 +294,7 @@ static sai_status_t sai_switch_ecmp_max_paths_attr_set (uint32_t max_paths)
 
     } else {
 
-        SAI_SWITCH_LOG_ERR ("Failed to set ECMP max paths attribute.");
+        SAI_SWITCH_LOG_TRACE ("Failed to set ECMP max paths attribute.");
     }
 
     return status;
@@ -182,7 +326,7 @@ static inline sai_status_t sai_switch_get_ecmp_attribute (sai_attribute_t *attr)
             break;
 
         default:
-            SAI_SWITCH_LOG_ERR ("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE ("Invalid Attribute Id %d in list", attr->id);
             break;
     }
     return ret_val;
@@ -236,7 +380,7 @@ static sai_status_t sai_switch_get_gen_attribute(sai_attribute_t *attr)
             ret_val = sai_switch_common_counter_refresh_interval_get(&attr->value);
             break;
         default:
-            SAI_SWITCH_LOG_ERR("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE("Invalid Attribute Id %d in list", attr->id);
             return SAI_STATUS_INVALID_ATTRIBUTE_0;
     }
 
@@ -265,20 +409,24 @@ static sai_status_t sai_switch_get_l2_attribute(sai_attribute_t *attr)
         case SAI_SWITCH_ATTR_FDB_AGING_TIME:
             ret_val = sai_l2_fdb_get_aging_time(&(attr->value.u32));
             break;
-        case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION:
             ret_val = sai_l2_fdb_ucast_miss_action_get(attr);
             break;
-        case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION:
             ret_val = sai_l2_fdb_bcast_miss_action_get(attr);
             break;
-        case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION:
             ret_val = sai_l2_fdb_mcast_miss_action_get(attr);
             break;
         case SAI_SWITCH_ATTR_DEFAULT_STP_INST_ID:
             ret_val = sai_l2_stp_default_instance_id_get(attr);
             break;
+        case SAI_SWITCH_ATTR_DEFAULT_VLAN_ID:
+            attr->value.oid = sai_vlan_id_to_vlan_obj_id(SAI_INIT_DEFAULT_VLAN);
+            ret_val = SAI_STATUS_SUCCESS;
+            break;
         default:
-            SAI_SWITCH_LOG_ERR("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE ("Invalid Attribute Id %d in list", attr->id);
             ret_val = SAI_STATUS_INVALID_ATTRIBUTE_0;
     }
     return ret_val;
@@ -310,17 +458,17 @@ static void sai_switch_info_update_l2_attribute (const sai_attribute_t *attr)
             sai_switch_info_ptr->fdb_aging_time = (uint32_t) attr->value.u32;
             break;
 
-        case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION:
             sai_switch_info_ptr->fdbUcastMissPktAction =
                 (int32_t) attr->value.s32;
             break;
 
-        case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION:
             sai_switch_info_ptr->fdbBcastMissPktAction =
                 (int32_t) attr->value.s32;
             break;
 
-        case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION:
             sai_switch_info_ptr->fdbMcastMissPktAction =
                 (int32_t) attr->value.s32;
             break;
@@ -345,7 +493,7 @@ static sai_status_t sai_switch_cache_lag_hash_info (const sai_attribute_t *attr)
             break;
 
         default:
-            SAI_SWITCH_LOG_ERR ("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE ("Invalid Attribute Id %d in list", attr->id);
             return SAI_STATUS_UNKNOWN_ATTRIBUTE_0;
     }
 
@@ -370,7 +518,7 @@ static sai_status_t sai_switch_cache_ecmp_hash_info (const sai_attribute_t *attr
             break;
 
         default:
-            SAI_SWITCH_LOG_ERR ("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE ("Invalid Attribute Id %d in list", attr->id);
             return SAI_STATUS_UNKNOWN_ATTRIBUTE_0;
     }
 
@@ -401,7 +549,7 @@ static sai_status_t sai_switch_set_lag_attribute (const sai_attribute_t *attr)
             break;
 
         default:
-            SAI_SWITCH_LOG_ERR ("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE ("Invalid Attribute Id %d in list", attr->id);
             break;
     }
 
@@ -436,7 +584,7 @@ static sai_status_t sai_switch_set_ecmp_attribute (const sai_attribute_t *attr)
             break;
 
         default:
-            SAI_SWITCH_LOG_ERR ("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE ("Invalid Attribute Id %d in list", attr->id);
             break;
     }
 
@@ -461,15 +609,11 @@ static sai_status_t sai_switch_set_gen_attribute(const sai_attribute_t *attr)
         case SAI_SWITCH_ATTR_SRC_MAC_ADDRESS:
             ret_val = sai_switch_mac_address_set(&attr->value.mac);
             break;
-        case SAI_SWITCH_ATTR_PORT_BREAKOUT:
-            ret_val = sai_port_breakout_set((sai_port_breakout_t *)
-                                            &attr->value.portbreakout);
-            break;
         case SAI_SWITCH_ATTR_COUNTER_REFRESH_INTERVAL:
             ret_val = sai_switch_common_counter_refresh_interval_set(&attr->value);
             break;
         default:
-            SAI_SWITCH_LOG_ERR("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE("Invalid Attribute Id %d in list", attr->id);
             return SAI_STATUS_INVALID_ATTRIBUTE_0;
     }
     return ret_val;
@@ -496,17 +640,17 @@ static sai_status_t sai_switch_set_l2_attribute(const sai_attribute_t *attr)
         case SAI_SWITCH_ATTR_FDB_AGING_TIME:
             ret_val = sai_l2_fdb_set_aging_time(attr->value.u32);
             break;
-        case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION:
             ret_val = sai_l2_fdb_ucast_miss_action_set(attr);
             break;
-        case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION:
             ret_val = sai_l2_fdb_bcast_miss_action_set(attr);
             break;
-        case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION:
             ret_val = sai_l2_fdb_mcast_miss_action_set(attr);
             break;
         default:
-            SAI_SWITCH_LOG_ERR("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE("Invalid Attribute Id %d in list", attr->id);
             ret_val = SAI_STATUS_INVALID_ATTRIBUTE_0;
     }
 
@@ -529,7 +673,7 @@ static sai_status_t sai_switch_get_hostif_attribute(sai_attribute_t *attr)
             ret_val = sai_hostif_get_default_trap_group(attr);
             break;
         default:
-            SAI_SWITCH_LOG_ERR("Invalid hostif switch attribute %d", attr->id);
+            SAI_SWITCH_LOG_TRACE("Invalid hostif switch attribute %d", attr->id);
             ret_val = SAI_STATUS_INVALID_ATTRIBUTE_0;
     }
 
@@ -589,7 +733,7 @@ static sai_status_t sai_switch_get_qos_attribute(sai_attribute_t *attr)
             break;
 
         default:
-            SAI_SWITCH_LOG_ERR("Invalid qos switch attribute %d", attr->id);
+            SAI_SWITCH_LOG_TRACE("Invalid qos switch attribute %d", attr->id);
             ret_val = SAI_STATUS_INVALID_ATTRIBUTE_0;
             break;
     }
@@ -668,7 +812,6 @@ static sai_status_t sai_switch_modules_initialize(void)
         SAI_SWITCH_LOG_CRIT("SAI Qos init failed with error %d",ret_val);
         return ret_val;
     }
-
     if ((ret_val = sai_samplepacket_init()) != SAI_STATUS_SUCCESS) {
         SAI_SWITCH_LOG_CRIT("SAI SamplePacket init failed with error %d",
                             ret_val);
@@ -690,6 +833,7 @@ static sai_status_t sai_switch_modules_initialize(void)
         return ret_val;
     }
     sai_port_init_event_notification();
+    sai_ports_linkscan_enable();
 
     return ret_val;
 }
@@ -722,10 +866,10 @@ static sai_status_t sai_switch_attribute_config(sai_switch_profile_id_t profile_
                 sai_switch_fdb_table_size_set(value);
                 SAI_SWITCH_LOG_TRACE("FDB table size is %d", value);
             } else if (strncmp(key, SAI_KEY_L3_ROUTE_TABLE_SIZE, key_len) == 0) {
-                sai_switch_l3_table_size_set(value);
+                sai_switch_l3_route_table_size_set(value);
                 SAI_SWITCH_LOG_TRACE("L3 table size is %d", value);
             } else if (strncmp(key, SAI_KEY_L3_NEIGHBOR_TABLE_SIZE, key_len) == 0) {
-                sai_switch_neighbor_table_size_set(value);
+                sai_switch_l3_host_table_size_set(value);
                 SAI_SWITCH_LOG_TRACE("Neighbor table size is %d", value);
             } else if (strncmp(key, SAI_KEY_NUM_LAG_MEMBERS, key_len) == 0) {
                 sai_switch_num_lag_members_set(value);
@@ -775,72 +919,159 @@ static const char *sai_switch_init_config_file_get(sai_switch_profile_id_t profi
     return service_method_table->profile_get_value(profile_id, SAI_KEY_INIT_CONFIG_FILE);
 }
 
-sai_status_t sai_switch_initialize(sai_switch_profile_id_t profile_id,
-                                   char* switch_hardware_id,
-                                   char* microcode_module_name,
-                                   sai_switch_notification_t* switch_notifications)
+static sai_status_t sai_switch_profile_id_initialize(uint32_t profile_id,
+                                                  sai_switch_info_t *sai_switch_info)
 {
-    sai_switch_id_t switch_id = 0;
-    sai_status_t ret_val = SAI_STATUS_UNINITIALIZED;
-    sai_switch_info_t *sai_switch_info = NULL;
-    const char *sai_init_config_file = NULL;
+    sai_switch_info->profile_id = profile_id;
+    return SAI_STATUS_SUCCESS;
+}
 
-    STD_ASSERT(switch_notifications != NULL);
-    SAI_SWITCH_LOG_TRACE("SDK Init: Profileid %d hwid %s microcode %s",
-                         profile_id,switch_hardware_id,microcode_module_name);
+static sai_status_t  sai_switch_api_initialize(bool value)
+{
+    sai_status_t ret_val = SAI_STATUS_SUCCESS;
 
+    if(value != true){
+        SAI_SWITCH_LOG_ERR("Switch api init with not supported value");
+        return SAI_STATUS_NOT_SUPPORTED;
+    }
     ret_val = sai_npu_api_initialize (SAI_DEFAULT_NPU_LIB_NAME);
-    if(ret_val != SAI_STATUS_SUCCESS) {
-        SAI_SWITCH_LOG_CRIT("SAI NPU API method table query failed");
+    if (ret_val != SAI_STATUS_SUCCESS) {
+        SAI_SWITCH_LOG_ERR("Switch init api failed");
         return ret_val;
     }
 
-    sai_switch_populate_event_callbacks(switch_notifications);
+    return SAI_STATUS_SUCCESS;
+}
 
-    if(switch_notifications->on_switch_state_change != NULL)
+static sai_status_t sai_switch_hardware_info_init(sai_s8_list_t switch_hardware_info,
+                                                sai_switch_info_t * sai_switch_info)
+{
+    sai_switch_info->switch_hardware_info = switch_hardware_info;
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t sai_switch_firmware_path_init(sai_s8_list_t switch_firmware_info,
+                                                sai_switch_info_t * sai_switch_info)
+{
+    sai_switch_info->microcode_module_name = switch_firmware_info;
+    return SAI_STATUS_SUCCESS;
+}
+
+static sai_status_t sai_switch_create_attr(sai_switch_attr_t switch_attr,
+                                              const sai_attribute_value_t *value,
+                                              sai_switch_info_t *sai_switch_info)
+{
+    sai_status_t ret_val = SAI_STATUS_SUCCESS;
+
+    SAI_PORT_LOG_TRACE("Attribute %d Create for switch",switch_attr);
+
+    STD_ASSERT(value != NULL);
+
+
+    switch(switch_attr)
     {
-        /* Switch state notification registration */
-        sai_switch_state_register_callback(switch_notifications->on_switch_state_change);
+        case SAI_SWITCH_ATTR_INIT_SWITCH:
+            if(!sai_switch_info->switch_init_flag){
+                ret_val = sai_switch_api_initialize (value->booldata);
+                sai_switch_info->switch_init_flag = value->booldata;
+                //TODO need to get the switch ID from the create_OID
+                sai_switch_info->switch_object_id = SAI_DEFAULT_SWITCH_ID;
+            }
+            break;
+
+        case SAI_SWITCH_ATTR_SWITCH_PROFILE_ID:
+            ret_val = sai_switch_profile_id_initialize(value->u32,sai_switch_info);
+            break;
+
+        case SAI_SWITCH_ATTR_SWITCH_HARDWARE_INFO:
+            ret_val = sai_switch_hardware_info_init(value->s8list,sai_switch_info);
+            break;
+
+        case SAI_SWITCH_ATTR_FIRMWARE_PATH_NAME:
+            ret_val = sai_switch_firmware_path_init(value->s8list,sai_switch_info);
+            break;
+
+        default:
+            SAI_SWITCH_LOG_TRACE("default switch create attribute Id %d",switch_attr);
+            return SAI_STATUS_SUCCESS;
     }
 
-    if(switch_notifications->on_port_event != NULL)
-    {
-        /* Port ADD/DELETE event registration */
-        sai_port_event_register_callback(switch_notifications->on_port_event);
+    if(ret_val != SAI_STATUS_SUCCESS) {
+        SAI_SWITCH_LOG_CRIT("SAI switch Initialization failed with err %d", ret_val);
+    }
+
+    return ret_val;
+}
+
+sai_status_t sai_create_switch(sai_object_id_t* switch_id,
+                               uint32_t attr_count,
+                               const sai_attribute_t *attr_list)
+{
+
+    uint32_t             attr_idx;
+    sai_switch_info_t *sai_switch_info = NULL;
+    const char *sai_init_config_file = NULL;
+    sai_status_t ret_val = SAI_STATUS_UNINITIALIZED;
+
+    if(!attr_count) {
+        SAI_SWITCH_LOG_ERR("Attr get: number of attributes is zero");
+        return SAI_STATUS_INVALID_PARAMETER;
+    }
+    STD_ASSERT(!(attr_list ==NULL));
+
+    sai_switch_info = sai_switch_info_get();
+    if(sai_switch_info == NULL) {
+        sai_switch_info = sai_switch_info_alloc();
+    }
+    STD_ASSERT(sai_switch_info != NULL);
+
+    SAI_SWITCH_LOG_TRACE("Attribute get for %d attributes of switch",attr_count);
+
+    ret_val = dn_sai_switch_attr_list_validate (SAI_OBJECT_TYPE_SWITCH,
+            attr_count, attr_list,
+            SAI_OP_CREATE);
+    if (ret_val != SAI_STATUS_SUCCESS) {
+
+        SAI_SWITCH_LOG_ERR ("Switch creation attr list validation failed.");
+
+        return ret_val;
+    }
+
+    for(attr_idx = 0; attr_idx < attr_count; attr_idx++) {
+        ret_val = sai_switch_create_attr(attr_list[attr_idx].id,
+                &(attr_list[attr_idx].value), sai_switch_info);
+
+        if(ret_val != SAI_STATUS_SUCCESS) {
+            sai_switch_oper_status_set(SAI_SWITCH_OPER_STATUS_FAILED);
+            SAI_SWITCH_LOG_ERR("Create switch  attr index %d "
+                    "failed with err %d", attr_idx, ret_val);
+            return sai_get_indexed_ret_val(ret_val, attr_idx);
+        }
     }
 
     do {
-
-        sai_switch_info = sai_switch_info_alloc();
-        STD_ASSERT(sai_switch_info != NULL);
-
-        /* TODO: switch identifier should be derived from switch_hardware_id
-         * string; format of the switch_hardware_id is not yet finalized
-         */
-        switch_id = SAI_DEFAULT_SWTICH_ID;
-
-        sai_init_config_file = sai_switch_init_config_file_get(profile_id);
+        sai_init_config_file = sai_switch_init_config_file_get(sai_switch_info->profile_id);
         if (sai_init_config_file == NULL) {
             SAI_SWITCH_LOG_TRACE("Using default switch init config file %s", SAI_INIT_CONFIG_FILE);
-            ret_val = sai_switch_init_config(switch_id, SAI_INIT_CONFIG_FILE);
+            ret_val = sai_switch_init_config(sai_switch_info, SAI_INIT_CONFIG_FILE);
         } else {
             SAI_SWITCH_LOG_TRACE("Using switch init config file %s", sai_init_config_file);
-            ret_val = sai_switch_init_config(switch_id, sai_init_config_file);
+            ret_val = sai_switch_init_config(sai_switch_info, sai_init_config_file);
         }
         if(ret_val != SAI_STATUS_SUCCESS) {
-            SAI_SWITCH_LOG_ERR("Switch init config info initialize failed with err %d",ret_val);
+            SAI_SWITCH_LOG_TRACE("Switch init config info initialize failed with err %d",ret_val);
             break;
         }
 
-        ret_val = sai_switch_attribute_config(profile_id);
+        ret_val = sai_switch_attribute_config(sai_switch_info->profile_id);
         if (ret_val == SAI_STATUS_NOT_SUPPORTED) {
             SAI_SWITCH_LOG_TRACE("Switch init attributes configuration unsupported");
         }
 
         sai_log_init ();
 
-        if((ret_val = sai_switch_npu_api_get()->switch_init(switch_id))
-            != SAI_STATUS_SUCCESS) {
+        if((ret_val = sai_switch_npu_api_get()->switch_init(sai_switch_info))
+                != SAI_STATUS_SUCCESS) {
             SAI_SWITCH_LOG_ERR("SAI Switch initialize failed with err %d",ret_val);
             SAI_SWITCH_LOG_CRIT("SAI Switch initialize failed with err %d",ret_val);
             break;
@@ -851,24 +1082,23 @@ sai_status_t sai_switch_initialize(sai_switch_profile_id_t profile_id,
             break;
         }
 
-        if(switch_notifications->on_port_state_change != NULL)
-        {
-            sai_port_state_register_callback
-                (switch_notifications->on_port_state_change);
+        for(attr_idx = 0; attr_idx < attr_count; attr_idx++) {
+            if(attr_list[attr_idx].id == SAI_SWITCH_ATTR_INIT_SWITCH ||
+               attr_list[attr_idx].id == SAI_SWITCH_ATTR_SWITCH_PROFILE_ID ||
+            attr_list[attr_idx].id == SAI_SWITCH_ATTR_FIRMWARE_PATH_NAME ||
+            attr_list[attr_idx].id == SAI_SWITCH_ATTR_SWITCH_HARDWARE_INFO){
+                continue;
+            }
+
+            ret_val = sai_switch_set_attribute(sai_switch_info->switch_object_id,&attr_list[attr_idx]);
+            if(ret_val != SAI_STATUS_SUCCESS) {
+                SAI_SWITCH_LOG_ERR("default Create switch  attr index %d "
+                        "failed with err %d", attr_idx, ret_val);
+                break;
+            }
         }
 
-        if(switch_notifications->on_packet_event != NULL)
-        {
-            sai_hostif_rx_register_callback
-                (switch_notifications->on_packet_event);
-        }
 
-        if(switch_notifications->on_fdb_event != NULL)
-        {
-            ret_val = sai_l2_fdb_register_callback
-                (switch_notifications->on_fdb_event);
-            break;
-        }
     } while(0);
 
     if(ret_val != SAI_STATUS_SUCCESS) {
@@ -879,15 +1109,18 @@ sai_status_t sai_switch_initialize(sai_switch_profile_id_t profile_id,
 
     sai_switch_oper_status_set(SAI_SWITCH_OPER_STATUS_UP);
 
+    *switch_id = sai_switch_info->switch_object_id;
+
     return ret_val;
 }
 
-void sai_switch_shutdown(bool warm_restart_hint)
-
+sai_status_t sai_remove_switch(sai_object_id_t switch_id)
 {
     /*TODO: To be filled in later.
     */
     sai_npu_api_uninitialize();
+
+    return SAI_STATUS_SUCCESS;
 }
 
 static void sai_switch_default_tc_update(uint_t default_tc)
@@ -897,20 +1130,22 @@ static void sai_switch_default_tc_update(uint_t default_tc)
     sai_switch_info_ptr->default_tc = default_tc;
 }
 
-sai_status_t sai_switch_set_attribute(const sai_attribute_t *attr)
+sai_status_t sai_switch_set_attribute(sai_object_id_t switch_id,const sai_attribute_t *attr)
 {
     sai_status_t sai_rc = SAI_STATUS_FAILURE;
 
     STD_ASSERT(attr != NULL);
     SAI_SWITCH_LOG_TRACE("Attribute set for %d value %ld",
                          attr->id, attr->value);
-    /* TODO: actual APIS for each attribute to be filled later
+
+    /* TODO: use function  dn_sai_switch_attr_list_validate to validate the
+             attributes
+       TODO: actual APIS for each attribute to be filled later
     */
     switch(attr->id)
     {
         case SAI_SWITCH_ATTR_SWITCHING_MODE:
         case SAI_SWITCH_ATTR_SRC_MAC_ADDRESS:
-        case SAI_SWITCH_ATTR_PORT_BREAKOUT:
         case SAI_SWITCH_ATTR_COUNTER_REFRESH_INTERVAL:
             sai_rc = sai_switch_set_gen_attribute(attr);
             break;
@@ -919,9 +1154,9 @@ sai_status_t sai_switch_set_attribute(const sai_attribute_t *attr)
         case SAI_SWITCH_ATTR_MCAST_CPU_FLOOD_ENABLE:
         case SAI_SWITCH_ATTR_MAX_LEARNED_ADDRESSES:
         case SAI_SWITCH_ATTR_FDB_AGING_TIME:
-        case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_ACTION:
-        case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_ACTION:
-        case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_ACTION:
+        case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION:
+        case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION:
+        case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION:
             sai_rc = sai_switch_set_l2_attribute(attr);
             break;
 
@@ -940,13 +1175,18 @@ sai_status_t sai_switch_set_attribute(const sai_attribute_t *attr)
 
         case SAI_SWITCH_ATTR_DEFAULT_STP_INST_ID:
             /* Default STP Instance Id is a READ-ONLY attribute */
+            SAI_SWITCH_LOG_TRACE("Setting a READ-ONLY attribute %d", attr->id);
+            return SAI_STATUS_INVALID_ATTRIBUTE_0;
+
+        case SAI_SWITCH_ATTR_DEFAULT_VLAN_ID:
+            /* Default VLAN Id is a READ-ONLY attribute */
             SAI_SWITCH_LOG_ERR("Setting a READ-ONLY attribute %d", attr->id);
             return SAI_STATUS_INVALID_ATTRIBUTE_0;
 
         case SAI_SWITCH_ATTR_DEFAULT_TRAP_GROUP:
             /* Default HostIf Trap Group is a READ-ONLY attribute */
-            SAI_SWITCH_LOG_ERR("Setting a Host Interface READ-ONLY "
-                               "attribute %d", attr->id);
+            SAI_SWITCH_LOG_TRACE("Setting a Host Interface READ-ONLY "
+                                 "attribute %d", attr->id);
             return SAI_STATUS_INVALID_ATTRIBUTE_0;
 
         case SAI_SWITCH_ATTR_QOS_DEFAULT_TC:
@@ -957,11 +1197,11 @@ sai_status_t sai_switch_set_attribute(const sai_attribute_t *attr)
             break;
 
         case SAI_SWITCH_ATTR_ECMP_HASH:
-            SAI_SWITCH_LOG_ERR ("Default ECMP Hash attribute is READ-ONLY");
+            SAI_SWITCH_LOG_TRACE ("Default ECMP Hash attribute is READ-ONLY");
             return SAI_STATUS_INVALID_ATTRIBUTE_0;
 
         case SAI_SWITCH_ATTR_LAG_HASH:
-            SAI_SWITCH_LOG_ERR ("Default LAG Hash attribute is READ-ONLY");
+            SAI_SWITCH_LOG_TRACE ("Default LAG Hash attribute is READ-ONLY");
             return SAI_STATUS_INVALID_ATTRIBUTE_0;
 
         case SAI_SWITCH_ATTR_ECMP_HASH_IPV4:
@@ -973,25 +1213,53 @@ sai_status_t sai_switch_set_attribute(const sai_attribute_t *attr)
             sai_rc = dn_sai_switch_hash_attr_set (attr->id, attr->value.oid);
             break;
 
-        /** @TODO Deprecated. To be cleaned up */
-        case SAI_SWITCH_ATTR_LAG_HASH_ALGO:
-        case SAI_SWITCH_ATTR_LAG_HASH_SEED:
-        case SAI_SWITCH_ATTR_LAG_HASH_FIELDS:
-        case SAI_SWITCH_ATTR_ECMP_HASH_ALGO:
-        case SAI_SWITCH_ATTR_ECMP_HASH_SEED:
-        case SAI_SWITCH_ATTR_ECMP_HASH_FIELDS:
+            /** @TODO Deprecated. To be cleaned up */
+        case SAI_SWITCH_ATTR_LAG_DEFAULT_SYMMETRIC_HASH:
+        case SAI_SWITCH_ATTR_ECMP_DEFAULT_SYMMETRIC_HASH:
+            sai_rc = SAI_STATUS_SUCCESS;
+            break;
+        case SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY:
+            sai_switch_state_register_callback(attr->value.ptr);
             sai_rc = SAI_STATUS_SUCCESS;
             break;
 
+        case SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY:
+            sai_rc = sai_l2_fdb_register_callback(attr->value.ptr);
+            break;
+
+        case SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY:
+            sai_port_state_register_callback(attr->value.ptr);
+            sai_rc = SAI_STATUS_SUCCESS;
+            break;
+
+        case SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY:
+            sai_hostif_rx_register_callback(attr->value.ptr);
+            sai_rc = SAI_STATUS_SUCCESS;
+            break;
+
+        case SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY:
+            sai_rc = SAI_STATUS_SUCCESS;
+            break;
+
+        case SAI_SWITCH_ATTR_INGRESS_ACL:
+        case SAI_SWITCH_ATTR_EGRESS_ACL:
+            sai_rc = SAI_STATUS_SUCCESS;
+            break;
+
+        case SAI_SWITCH_ATTR_SWITCH_SHELL_ENABLE:
+            sai_rc = sai_shell_set(attr->value.booldata);
+            break;
+
         default:
-            SAI_SWITCH_LOG_ERR("Invalid Attribute Id %d in list", attr->id);
+            SAI_SWITCH_LOG_TRACE("Invalid Attribute Id %d in list", attr->id);
             return SAI_STATUS_INVALID_ATTRIBUTE_0;
     }
     return sai_rc;
 }
 
 
-sai_status_t sai_switch_get_attribute(sai_uint32_t attr_count,
+sai_status_t sai_switch_get_attribute(sai_object_id_t switch_id,
+                                      sai_uint32_t attr_count,
                                       sai_attribute_t *attr_list)
 {
     unsigned int attr_id_loop = 0;
@@ -1003,7 +1271,7 @@ sai_status_t sai_switch_get_attribute(sai_uint32_t attr_count,
     STD_ASSERT(attr_list != NULL);
     if(attr_count == 0)
     {
-        SAI_SWITCH_LOG_ERR("Attribute count is 0");
+        SAI_SWITCH_LOG_TRACE("Attribute count is 0");
         return SAI_STATUS_INVALID_PARAMETER;
     }
 
@@ -1041,10 +1309,11 @@ sai_status_t sai_switch_get_attribute(sai_uint32_t attr_count,
             case SAI_SWITCH_ATTR_MAX_LEARNED_ADDRESSES:
             case SAI_SWITCH_ATTR_FDB_TABLE_SIZE:
             case SAI_SWITCH_ATTR_FDB_AGING_TIME:
-            case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_ACTION:
-            case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_ACTION:
-            case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_ACTION:
+            case SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION:
+            case SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION:
+            case SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION:
             case SAI_SWITCH_ATTR_DEFAULT_STP_INST_ID:
+            case SAI_SWITCH_ATTR_DEFAULT_VLAN_ID:
                 sai_rc = sai_switch_get_l2_attribute(p_attr);
                 break;
 
@@ -1104,17 +1373,13 @@ sai_status_t sai_switch_get_attribute(sai_uint32_t attr_count,
                 break;
 
             /** @TODO Deprecated. To be cleaned up */
-            case SAI_SWITCH_ATTR_LAG_HASH_ALGO:
-            case SAI_SWITCH_ATTR_LAG_HASH_SEED:
-            case SAI_SWITCH_ATTR_LAG_HASH_FIELDS:
-            case SAI_SWITCH_ATTR_ECMP_HASH_ALGO:
-            case SAI_SWITCH_ATTR_ECMP_HASH_SEED:
-            case SAI_SWITCH_ATTR_ECMP_HASH_FIELDS:
+            case SAI_SWITCH_ATTR_LAG_DEFAULT_SYMMETRIC_HASH:
+            case SAI_SWITCH_ATTR_ECMP_DEFAULT_SYMMETRIC_HASH:
                 sai_rc = SAI_STATUS_SUCCESS;
                 break;
 
             default:
-                SAI_SWITCH_LOG_ERR("Invalid Attribute Id %d in list",p_attr->id);
+                SAI_SWITCH_LOG_TRACE("Invalid Attribute Id %d in list",p_attr->id);
                 return sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTRIBUTE_0,
                                                attr_id_loop);
         }
@@ -1126,29 +1391,10 @@ sai_status_t sai_switch_get_attribute(sai_uint32_t attr_count,
     return sai_rc;
 }
 
-/* SAI connect and disconnect currently not supported */
-sai_status_t sai_connect_switch(sai_switch_profile_id_t profile_id,
-                                char* switch_hardware_id,
-                                sai_switch_notification_t* switch_notifications)
-{
-    STD_ASSERT(switch_notifications != NULL);
-    SAI_SWITCH_LOG_TRACE("SDK Connect: Profileid %d Hwid %s",
-                         profile_id,switch_hardware_id);
-
-    return SAI_STATUS_SUCCESS;
-}
-
-void sai_disconnect_switch(void)
-{
-    SAI_SWITCH_LOG_INFO("SDK Disconnect");
-}
-
 static sai_switch_api_t sai_switch_method_table =
 {
-    sai_switch_initialize,
-    sai_switch_shutdown,
-    sai_connect_switch,
-    sai_disconnect_switch,
+    sai_create_switch,
+    sai_remove_switch,
     sai_switch_set_attribute,
     sai_switch_get_attribute,
 };

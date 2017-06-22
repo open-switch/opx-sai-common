@@ -41,6 +41,7 @@ class saiACLTest : public ::testing::Test
 {
     public:
         static void SetUpTestCase();
+        static sai_object_id_t sai_acl_get_global_switch_id(void);
 
         /* Get SAI port id for acl test cases */
         static sai_object_id_t sai_acl_port_id_get (uint32_t port_index);
@@ -143,19 +144,18 @@ class saiACLTest : public ::testing::Test
                             sai_attribute_t *fdb_get_attr);
 
         /* SAI API - VLAN functionality testing. */
+        static sai_status_t sai_test_acl_rule_vlan_port_add(
+                sai_object_id_t *vlan_member_id, sai_object_id_t vlan_obj_id,
+                sai_object_id_t port_id, sai_vlan_tagging_mode_t tagging_mode);
+        static sai_status_t sai_test_acl_rule_vlan_port_remove(
+                sai_object_id_t vlan_member_id);
         static sai_status_t sai_test_acl_rule_vlan_set(
-                            sai_vlan_id_t vlan_id,
-                            sai_attribute_t *p_attr_list,
-                            bool isCreate);
+                sai_object_id_t *vlan_obj_id, sai_vlan_id_t vlan_id,
+                sai_attribute_t *p_attr_list, bool isCreate);
         static sai_status_t sai_test_acl_rule_vlan_remove(
-                            sai_vlan_id_t vlan_id);
+                sai_object_id_t vlan_obj_id);
         static sai_status_t sai_test_acl_rule_vlan_get(
-                            sai_vlan_id_t vlan_id,
-                            sai_attribute_t *p_attr_list);
-        static sai_status_t sai_test_acl_rule_vlan_port_set(
-                            sai_vlan_id_t vlan_id,
-                            sai_vlan_port_t *vlan_port_info,
-                            bool add);
+                sai_object_id_t vlan_obj_id, sai_attribute_t *p_attr_list);
 
         /* SAI API - Port functionality testing. */
         static sai_status_t sai_test_acl_rule_port_set(
@@ -171,7 +171,8 @@ class saiACLTest : public ::testing::Test
         static const unsigned int SAI_ACL_TABLE_MAX_SIZE            = 4096;
         static const unsigned int SAI_ACL_TEST_TABLE_SIZE           = 10;
         static const unsigned int SAI_ACL_TEST_MAX_UDF_BYTES        = 32;
-    private:
+
+    protected:
         static sai_switch_api_t             *p_sai_switch_api_tbl;
         static sai_acl_api_t                *p_sai_acl_api_tbl;
         static sai_lag_api_t                *p_sai_lag_api_tbl;

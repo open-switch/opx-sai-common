@@ -37,37 +37,9 @@ extern "C" {
 
 #define SAI_MAX_PORTS  256
 
+static sai_object_id_t switch_id =0;
 static unsigned int port_count = 0;
 static sai_object_id_t port_list[SAI_MAX_PORTS] = {0};
-
-static inline void sai_port_evt_callback (uint32_t count,
-                                          sai_port_event_notification_t *data)
-{
-    uint32_t port_idx = 0;
-    sai_object_id_t port_id = 0;
-    sai_port_event_t port_event;
-
-    for(port_idx = 0; port_idx < count; port_idx++) {
-        port_id = data[port_idx].port_id;
-        port_event = data[port_idx].port_event;
-
-        if(port_event == SAI_PORT_EVENT_ADD) {
-            if(port_count < SAI_MAX_PORTS) {
-                port_list[port_count] = port_id;
-                port_count++;
-            }
-
-            printf("PORT ADD EVENT FOR port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else if(port_event == SAI_PORT_EVENT_DELETE) {
-
-            printf("PORT DELETE EVENT for  port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else {
-            printf("Invalid PORT EVENT for port 0x%"PRIx64" \r\n", port_id);
-        }
-    }
-}
 
 static inline void sai_packet_event_callback (const void *buffer,
                                               sai_size_t buffer_size,
@@ -80,12 +52,13 @@ static inline void sai_packet_event_callback (const void *buffer,
     for (index = 0; index < attr_count; index++) {
         printf("Attribute id=%u\n",attr_list[index].id);
         if (SAI_HOSTIF_PACKET_ATTR_INGRESS_PORT == attr_list[index].id) {
-            printf("Ingress Port object 0x%"PRIx64".\n",attr_list[index].value.oid);
-        } else if (SAI_HOSTIF_PACKET_ATTR_USER_TRAP_ID == attr_list[index].id) {
-            printf("Trap id = %u\n", attr_list[index].value.s32);
+            printf("Ingress Port object 0x%" PRIx64 ".\n",attr_list[index].value.oid);
+        } else if (SAI_HOSTIF_PACKET_ATTR_HOSTIF_TRAP_ID == attr_list[index].id) {
+            printf("Trap id = 0x%" PRIx64 "\n", attr_list[index].value.oid);
         }
     }
 }
+
 /*
  * Stubs for Callback functions to be passed from adaptor host/application
  * upon switch initialization API call.
@@ -123,38 +96,48 @@ class hostIntfInit : public ::testing::Test
     protected:
         static void SetUpTestCase()
         {
-            sai_switch_notification_t notification;
+            sai_attribute_t sai_attr_set[7];
+            uint32_t attr_count = 7;
 
-            memset(&notification, 0, sizeof(sai_switch_notification_t));
+            memset(sai_attr_set,0, sizeof(sai_attr_set));
+
             /*
              * Query and populate the SAI Switch API Table.
              */
             EXPECT_EQ (SAI_STATUS_SUCCESS, sai_api_query
-                       (SAI_API_SWITCH, (static_cast<void**>
-                                         (static_cast<void*>(&p_sai_switch_api_tbl)))));
+                    (SAI_API_SWITCH, (static_cast<void**>
+                                      (static_cast<void*>(&p_sai_switch_api_tbl)))));
 
             ASSERT_TRUE (p_sai_switch_api_tbl != NULL);
 
-            /*
-             * Switch Initialization.
-             * Fill in notification callback routines with stubs.
-             */
-            notification.on_switch_state_change = sai_switch_operstate_callback;
-            notification.on_fdb_event = sai_fdb_evt_callback;
-            notification.on_port_state_change = sai_port_state_evt_callback;
-            notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-            notification.on_port_event = sai_port_evt_callback;
-            notification.on_packet_event = sai_packet_event_callback;
+            sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+            sai_attr_set[0].value.booldata = 1;
 
+            sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+            sai_attr_set[1].value.u32 = 0;
 
-            ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
+            sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+            sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+            sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+            sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+            sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+            sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+            sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+            sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+            sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+            sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+            ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
             EXPECT_EQ (SAI_STATUS_SUCCESS,
-                       (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                                 &notification)));
-
+                    (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                          sai_attr_set)));
             ASSERT_EQ(NULL,sai_api_query(SAI_API_HOST_INTERFACE,
-                                         (static_cast<void**>(static_cast<void*>(&sai_hostif_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_hostif_api_table)))));
 
             ASSERT_TRUE(sai_hostif_api_table != NULL);
 
@@ -172,6 +155,18 @@ class hostIntfInit : public ::testing::Test
             EXPECT_TRUE(sai_hostif_api_table->get_user_defined_trap_attribute !=NULL);
             EXPECT_TRUE(sai_hostif_api_table->recv_packet !=NULL);
             EXPECT_TRUE(sai_hostif_api_table->send_packet !=NULL);
+            sai_attribute_t sai_port_attr;
+            sai_status_t ret = SAI_STATUS_SUCCESS;
+
+                memset (&sai_port_attr, 0, sizeof (sai_port_attr));
+
+            sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+            sai_port_attr.value.objlist.count = SAI_MAX_PORTS;
+            sai_port_attr.value.objlist.list  = port_list;
+
+            ret = p_sai_switch_api_tbl->get_switch_attribute(0,1,&sai_port_attr);
+            port_count = sai_port_attr.value.objlist.count;
+            EXPECT_EQ (SAI_STATUS_SUCCESS,ret);
         }
         static sai_switch_api_t *p_sai_switch_api_tbl;
         static sai_hostif_api_t *sai_hostif_api_table;
@@ -203,8 +198,8 @@ sai_status_t hostIntfInit :: sai_test_create_trapgroup(sai_object_id_t *group,
     attr_list[attr_count].value.u32 = cpu_queue;
     attr_count++;
 
-    rc = sai_hostif_api_table->create_hostif_trap_group(group, attr_count,
-                                                        attr_list);
+    rc = sai_hostif_api_table->create_hostif_trap_group(group, switch_id,
+                                                        attr_count, attr_list);
     return rc;
 }
 
@@ -217,7 +212,7 @@ TEST_F(hostIntfInit, default_trap_group_operations)
     memset(&attr, 0, sizeof(sai_attribute_t));
 
     attr.id = SAI_SWITCH_ATTR_DEFAULT_TRAP_GROUP;
-    rc = p_sai_switch_api_tbl->get_switch_attribute(1, &attr);
+    rc = p_sai_switch_api_tbl->get_switch_attribute(switch_id,1, &attr);
     ASSERT_EQ (rc, SAI_STATUS_SUCCESS);
     /*Default trap group object should not be NULL*/
     ASSERT_NE (attr.value.oid, SAI_NULL_OBJECT_ID);
@@ -226,7 +221,7 @@ TEST_F(hostIntfInit, default_trap_group_operations)
     /*Default trap group object is read only and cannot be set*/
     /*Trying a negative test case*/
     attr.id = SAI_SWITCH_ATTR_DEFAULT_TRAP_GROUP;
-    rc = p_sai_switch_api_tbl->set_switch_attribute(&attr);
+    rc = p_sai_switch_api_tbl->set_switch_attribute(switch_id,&attr);
     ASSERT_NE (rc, SAI_STATUS_SUCCESS);
 
     /* Default trap group points to CPU queue 0 and the key for trap group is
@@ -432,7 +427,8 @@ TEST_F(hostIntfInit, set_dhcp_trap)
     portlist.list[0] = port_list[port_count - 2];
     portlist.list[1] = port_list[port_count - 1];
 
-    attr.id = SAI_HOSTIF_TRAP_ATTR_PORT_LIST;
+    /* TODO -  Until SAI implementaion changes, exclude list will work as enbale list */
+    attr.id = SAI_HOSTIF_TRAP_ATTR_EXCLUDE_PORT_LIST;
     attr.value.objlist = portlist;
     rc = sai_hostif_api_table->set_trap_attribute(SAI_HOSTIF_TRAP_TYPE_DHCP, &attr);
     free(portlist.list );
@@ -446,7 +442,7 @@ TEST_F(hostIntfInit, set_dhcp_trap)
 
     attr_list[0].id = SAI_HOSTIF_TRAP_ATTR_TRAP_GROUP;
     attr_list[1].id = SAI_HOSTIF_TRAP_ATTR_TRAP_PRIORITY;
-    attr_list[2].id = SAI_HOSTIF_TRAP_ATTR_PORT_LIST;
+    attr_list[2].id = SAI_HOSTIF_TRAP_ATTR_EXCLUDE_PORT_LIST;
     attr_list[2].value.objlist.count = 2;
     attr_list[2].value.objlist.list = (sai_object_id_t *)
                                 calloc(attr_list[2].value.objlist.count,
@@ -538,7 +534,7 @@ TEST_F(hostIntfInit, send_pkt_pipeline_bypass)
     sai_attr[0].id = SAI_HOSTIF_PACKET_ATTR_EGRESS_PORT_OR_LAG;
     sai_attr[0].value.oid = port_list[port_count - 1];
 
-    sai_attr[1].id = SAI_HOSTIF_PACKET_ATTR_TX_TYPE;
+    sai_attr[1].id = SAI_HOSTIF_PACKET_ATTR_HOSTIF_TX_TYPE;
     sai_attr[1].value.s32 = SAI_HOSTIF_TX_TYPE_PIPELINE_BYPASS;
 
     rc = sai_hostif_api_table->send_packet(SAI_NULL_OBJECT_ID, buffer,
@@ -559,7 +555,7 @@ TEST_F(hostIntfInit, send_pkt_pipeline_lookup)
      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00,
      0x00, 0x02, 0x00, 0x00, 0x00, 0x00};
 
-    sai_attr.id = SAI_HOSTIF_PACKET_ATTR_TX_TYPE;
+    sai_attr.id = SAI_HOSTIF_PACKET_ATTR_HOSTIF_TX_TYPE;
     sai_attr.value.s32 = SAI_HOSTIF_TX_TYPE_PIPELINE_LOOKUP;
 
     rc = sai_hostif_api_table->send_packet(SAI_NULL_OBJECT_ID, buffer,

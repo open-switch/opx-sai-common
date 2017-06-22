@@ -102,7 +102,7 @@ static void sai_fib_route_nh_ref_count_incr (sai_fib_route_t *p_route_node)
         p_nh_node = p_route_node->nh_info.nh_node;
 
         if (p_nh_node) {
-            p_nh_node->ref_count++;
+            sai_fib_incr_nh_ref_count (p_nh_node);
 
             SAI_ROUTE_LOG_TRACE ("After incrementing, ref count: %d.",
                                  p_nh_node->ref_count);
@@ -111,7 +111,7 @@ static void sai_fib_route_nh_ref_count_incr (sai_fib_route_t *p_route_node)
         p_grp_node = p_route_node->nh_info.group_node;
 
         if (p_grp_node) {
-            p_grp_node->ref_count++;
+            sai_fib_incr_nh_group_ref_count (p_grp_node);
 
             SAI_ROUTE_LOG_TRACE ("After incrementing, ref count: %d.",
                                  p_grp_node->ref_count);
@@ -135,7 +135,7 @@ static void sai_fib_route_nh_ref_count_decr (sai_fib_route_t *p_route_node)
         p_nh_node = p_route_node->nh_info.nh_node;
 
         if (p_nh_node) {
-            p_nh_node->ref_count--;
+            sai_fib_decr_nh_ref_count (p_nh_node);
 
             SAI_ROUTE_LOG_TRACE ("After decrementing, ref count: %d.",
                                  p_nh_node->ref_count);
@@ -144,7 +144,7 @@ static void sai_fib_route_nh_ref_count_decr (sai_fib_route_t *p_route_node)
         p_grp_node = p_route_node->nh_info.group_node;
 
         if (p_grp_node) {
-            p_grp_node->ref_count--;
+            sai_fib_decr_nh_group_ref_count (p_grp_node);
 
             SAI_ROUTE_LOG_TRACE ("After decrementing, ref count: %d.",
                                  p_grp_node->ref_count);

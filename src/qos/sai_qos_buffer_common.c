@@ -158,7 +158,7 @@ sai_status_t sai_qos_update_buffer_pool_node(dn_sai_qos_buffer_pool_t  *p_buf_po
                 p_buf_pool_node->size = attr_list[attr_idx].value.u32;
                 break;
 
-            case SAI_BUFFER_POOL_ATTR_TH_MODE:
+            case SAI_BUFFER_POOL_ATTR_THRESHOLD_MODE:
                 p_buf_pool_node->threshold_mode = attr_list[attr_idx].value.s32;
                 break;
 
@@ -191,7 +191,7 @@ sai_status_t sai_qos_read_buffer_pool_node (dn_sai_qos_buffer_pool_t  *p_buf_poo
                 attr_list[attr_idx].value.u32 = p_buf_pool_node->size;
                 break;
 
-            case SAI_BUFFER_POOL_ATTR_TH_MODE:
+            case SAI_BUFFER_POOL_ATTR_THRESHOLD_MODE:
                 attr_list[attr_idx].value.s32 = p_buf_pool_node->threshold_mode;
                 break;
 
@@ -269,7 +269,7 @@ sai_status_t sai_qos_update_buffer_profile_node(dn_sai_qos_buffer_profile_t  *p_
                 p_buf_profile_node->size = attr_list[attr_idx].value.u32;
                 break;
 
-            case SAI_BUFFER_PROFILE_ATTR_TH_MODE:
+            case SAI_BUFFER_PROFILE_ATTR_THRESHOLD_MODE:
                 p_buf_profile_node->profile_th_enable = true;
                 p_buf_profile_node->threshold_mode =  attr_list[attr_idx].value.s32;
                 break;
@@ -317,7 +317,7 @@ sai_status_t sai_qos_read_buffer_profile_node(dn_sai_qos_buffer_profile_t  *p_bu
                 attr_list[attr_idx].value.u32 = p_buf_profile_node->size;
                 break;
 
-            case SAI_BUFFER_PROFILE_ATTR_TH_MODE:
+            case SAI_BUFFER_PROFILE_ATTR_THRESHOLD_MODE:
                 if (p_buf_profile_node->profile_th_enable == true) {
                     attr_list[attr_idx].value.s32 = p_buf_profile_node->threshold_mode;
                 } else {
@@ -465,7 +465,7 @@ bool sai_qos_is_buffer_pool_available (sai_object_id_t pool_id, uint_t size)
     if(p_pool_node == NULL) {
         return false;
     }
-    if(p_pool_node->shared_size > size){
+    if(p_pool_node->shared_size >= size){
         return true;
     }
     return false;
@@ -619,7 +619,7 @@ sai_status_t sai_qos_buffer_profile_is_mandatory_th_attr_present(uint32_t attr_c
             is_dynamic = true;
         }
 
-        if (attr_list[attr_idx].id == SAI_BUFFER_PROFILE_ATTR_TH_MODE) {
+        if (attr_list[attr_idx].id == SAI_BUFFER_PROFILE_ATTR_THRESHOLD_MODE) {
             profile_th_setting = true;
             buffer_profile_th_mode = attr_list[attr_idx].value.s32;
         }

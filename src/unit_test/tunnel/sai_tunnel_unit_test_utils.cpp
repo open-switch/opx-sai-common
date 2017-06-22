@@ -38,9 +38,11 @@ extern "C" {
 #include <arpa/inet.h>
 }
 
+
 /* Definition for the data members */
 sai_switch_api_t* saiTunnelTest::p_sai_switch_api_tbl = NULL;
 sai_tunnel_api_t* saiTunnelTest::p_sai_tunnel_api_tbl = NULL;
+sai_object_id_t saiTunnelTest::test_vlan_obj_id = SAI_NULL_OBJECT_ID;
 sai_object_id_t saiTunnelTest::dflt_vr_id = SAI_NULL_OBJECT_ID;
 sai_object_id_t saiTunnelTest::dflt_overlay_vr_id = SAI_NULL_OBJECT_ID;
 sai_object_id_t saiTunnelTest::dflt_port_rif_id = SAI_NULL_OBJECT_ID;
@@ -53,6 +55,7 @@ const char *  saiTunnelTest::nh_ip_str_1 = "50.1.1.1";
 const char *  saiTunnelTest::nh_ip_str_2 = "60.1.1.1";
 unsigned int saiTunnelTest::port_count = 0;
 sai_object_id_t saiTunnelTest::port_list[SAI_TEST_MAX_PORTS] = {0};
+static sai_object_id_t switch_id = 0;
 
 #define TUNNEL_PRINT(msg, ...) \
     printf(msg"\n", ##__VA_ARGS__)
@@ -70,13 +73,6 @@ sai_object_id_t saiTunnelTest::port_list[SAI_TEST_MAX_PORTS] = {0};
 static inline void sai_port_state_evt_callback (
                                      uint32_t count,
                                      sai_port_oper_status_notification_t *data)
-{
-    UNREFERENCED_PARAMETER(count);
-    UNREFERENCED_PARAMETER(data);
-}
-
-static inline void sai_port_evt_callback (uint32_t count,
-                                          sai_port_event_notification_t *data)
 {
     UNREFERENCED_PARAMETER(count);
     UNREFERENCED_PARAMETER(data);
@@ -113,11 +109,9 @@ static inline void sai_switch_shutdown_callback (void)
 /* SAI switch initialization */
 void saiTunnelTest::SetUpTestCase (void)
 {
-    sai_switch_notification_t notification;
     sai_status_t              status;
     sai_attribute_t attr;
 
-    memset (&notification, 0, sizeof(sai_switch_notification_t));
 
     /*
      * Query and populate the SAI Switch API Table.
@@ -130,26 +124,64 @@ void saiTunnelTest::SetUpTestCase (void)
 
     /*
      * Switch Initialization.
-     * Fill in notification callback routines with stubs.
      */
-    notification.on_switch_state_change = sai_switch_operstate_callback;
-    notification.on_fdb_event = sai_fdb_evt_callback;
-    notification.on_port_state_change = sai_port_state_evt_callback;
-    notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-    notification.on_port_event = sai_port_evt_callback;
-    notification.on_packet_event = sai_packet_event_callback;
 
-    ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
+    sai_attribute_t sai_attr_set[7];
+    uint32_t attr_count = 7;
+
+    memset(sai_attr_set,0, sizeof(sai_attr_set));
+
+    sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+    sai_attr_set[0].value.booldata = 1;
+
+    sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+    sai_attr_set[1].value.u32 = 0;
+
+    sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+    sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+    sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+    sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+    sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+    sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+    sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+    sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+    sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+    sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+    ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-               (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                         &notification)));
-
+               (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                         sai_attr_set)));
     /* Query the Tunnel API method tables */
     sai_test_tunnel_api_table_get ();
 
     /* Query the L3 API method table */
     saiL3Test::SetUpL3ApiQuery ();
+
+    /* Set up the default VLAN OBJ ID for L3 API */
+    {
+        sai_attribute_t attr;
+        sai_switch_api_t* lp_sai_switch_api_tbl = NULL;
+
+        EXPECT_EQ (SAI_STATUS_SUCCESS, sai_api_query
+                (SAI_API_SWITCH, (static_cast<void**>
+                                  (static_cast<void*>(&lp_sai_switch_api_tbl)))));
+
+        ASSERT_TRUE (lp_sai_switch_api_tbl != NULL);
+        memset (&attr, 0, sizeof (attr));
+
+        attr.id = SAI_SWITCH_ATTR_DEFAULT_VLAN_ID;
+        ASSERT_EQ (SAI_STATUS_SUCCESS,
+                lp_sai_switch_api_tbl->get_switch_attribute (switch_id, 1, &attr));
+
+        printf ("Default VLAN obj ID is %lu.\r\n", attr.value.oid);
+        saiL3Test ::sai_l3_default_vlan_obj_id_set(attr.value.oid);
+    }
 
     /* Get the switch port count and port list */
     memset (&attr, 0, sizeof (attr));
@@ -158,7 +190,7 @@ void saiTunnelTest::SetUpTestCase (void)
     attr.value.objlist.count = SAI_TEST_MAX_PORTS;
     attr.value.objlist.list  = port_list;
 
-    status = p_sai_switch_api_tbl->get_switch_attribute (1, &attr);
+    status = p_sai_switch_api_tbl->get_switch_attribute (switch_id,1, &attr);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
     port_count = attr.value.objlist.count;
@@ -216,7 +248,7 @@ void saiTunnelTest::sai_test_tunnel_underlay_router_setup (void)
     test_port_id_2 = sai_test_tunnel_port_id_get (test_port_index_2);
 
     /* Create Vlan */
-    status = saiL3Test::sai_test_vlan_create (test_vlan);
+    status = saiL3Test::sai_test_vlan_create (&test_vlan_obj_id, test_vlan);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -310,7 +342,7 @@ void saiTunnelTest::sai_test_tunnel_underlay_router_setup (void)
                                                   saiL3Test::default_nh_group_attr_count,
                                                   SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                                   SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                                   ecmp_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
@@ -358,6 +390,11 @@ void saiTunnelTest::sai_test_tunnel_underlay_router_tear_down (void)
 
     /* Remove VRF */
     status = saiL3Test::sai_test_vrf_remove (dflt_vr_id);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, status);
+
+    /* Remove Vlan */
+    status = saiL3Test::sai_test_vlan_remove (test_vlan_obj_id);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 }
@@ -424,7 +461,7 @@ void saiTunnelTest::sai_test_tunnel_attr_value_fill (unsigned int attr_count,
             case SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE:
             case SAI_TUNNEL_ATTR_OVERLAY_INTERFACE:
                 p_attr->value.oid = va_arg ((*p_varg_list), unsigned long);
-                TUNNEL_PRINT ("Attr Index: %d, Set RIF Id value: 0x%"PRIx64".",
+                TUNNEL_PRINT ("Attr Index: %d, Set RIF Id value: 0x%" PRIx64 ".",
                               index, p_attr->value.oid);
                 break;
 
@@ -479,14 +516,14 @@ sai_status_t saiTunnelTest::sai_test_tunnel_create (
 
     va_end (ap);
 
-    status = p_sai_tunnel_api_tbl->create_tunnel (tunnel_id, attr_count,
+    status = p_sai_tunnel_api_tbl->create_tunnel (tunnel_id, switch_id, attr_count,
                                                   attr_list);
 
     if (status != SAI_STATUS_SUCCESS) {
         TUNNEL_PRINT ("SAI Tunnel Creation API failed with error: %d.", status);
     } else {
         TUNNEL_PRINT ("SAI Tunnel Creation API success, Tunnel object Id: "
-                      "0x%"PRIx64".", *tunnel_id);
+                      "0x%" PRIx64 ".", *tunnel_id);
     }
 
     return status;
@@ -496,7 +533,7 @@ sai_status_t saiTunnelTest::sai_test_tunnel_remove (sai_object_id_t tunnel_id)
 {
     sai_status_t       status;
 
-    TUNNEL_PRINT ("Testing Tunnel object Id: 0x%"PRIx64" remove.", tunnel_id);
+    TUNNEL_PRINT ("Testing Tunnel object Id: 0x%" PRIx64 " remove.", tunnel_id);
 
     status = p_sai_tunnel_api_tbl->remove_tunnel (tunnel_id);
 
@@ -549,7 +586,7 @@ void saiTunnelTest::sai_test_tunnel_term_attr_value_fill (unsigned int attr_coun
             case SAI_TUNNEL_TERM_TABLE_ENTRY_ATTR_ACTION_TUNNEL_ID:
             case SAI_TUNNEL_TERM_TABLE_ENTRY_ATTR_VR_ID:
                 p_attr->value.oid = va_arg ((*p_varg_list), unsigned long);
-                TUNNEL_PRINT ("Attr Index: %d, Set OId value: 0x%"PRIx64".",
+                TUNNEL_PRINT ("Attr Index: %d, Set OId value: 0x%" PRIx64 ".",
                               index, p_attr->value.oid);
                 break;
 
@@ -595,14 +632,14 @@ sai_status_t saiTunnelTest::sai_test_tunnel_term_entry_create (
     va_end (ap);
 
     status = p_sai_tunnel_api_tbl->create_tunnel_term_table_entry (
-                             tunnel_term_id, attr_count, attr_list);
+                             tunnel_term_id, switch_id, attr_count, attr_list);
 
     if (status != SAI_STATUS_SUCCESS) {
         TUNNEL_PRINT ("SAI Tunnel Termination table entry Creation API failed "
                       "with error: %d.", status);
     } else {
         TUNNEL_PRINT ("SAI Tunnel Termination table entry Creation API success"
-                      ", Tunnel object Id: 0x%"PRIx64".", *tunnel_term_id);
+                      ", Tunnel object Id: 0x%" PRIx64 ".", *tunnel_term_id);
     }
 
     return status;
@@ -614,7 +651,7 @@ sai_status_t saiTunnelTest::sai_test_tunnel_term_entry_remove (
     sai_status_t       status;
 
     TUNNEL_PRINT ("Testing Tunnel Termination table entry object Id: "
-                  "0x%"PRIx64" remove.", tunnel_term_id);
+                  "0x%" PRIx64 " remove.", tunnel_term_id);
 
     status = p_sai_tunnel_api_tbl->remove_tunnel_term_table_entry (tunnel_term_id);
 

@@ -55,12 +55,12 @@ rbtree_handle sai_mirror_sessions_db_get (void)
     return mirror_sessions_tree;
 }
 
-static inline bool sai_mirror_is_span_type_valid (sai_mirror_type_t span_type)
+static inline bool sai_mirror_is_span_type_valid (sai_mirror_session_type_t span_type)
 {
     switch (span_type) {
-        case SAI_MIRROR_TYPE_LOCAL:
-        case SAI_MIRROR_TYPE_REMOTE:
-        case SAI_MIRROR_TYPE_ENHANCED_REMOTE:
+        case SAI_MIRROR_SESSION_TYPE_LOCAL:
+        case SAI_MIRROR_SESSION_TYPE_REMOTE:
+        case SAI_MIRROR_SESSION_TYPE_ENHANCED_REMOTE:
             return true;
         default:
             return false;
@@ -90,7 +90,7 @@ static inline uint32_t sai_mirror_erspan_bitmap (void)
             sai_attribute_bit_set(SAI_MIRROR_SESSION_ATTR_VLAN_TPID) |
             sai_attribute_bit_set(SAI_MIRROR_SESSION_ATTR_VLAN_ID) |
             sai_attribute_bit_set(SAI_MIRROR_SESSION_ATTR_VLAN_PRI) |
-            sai_attribute_bit_set(SAI_MIRROR_SESSION_ATTR_ENCAP_TYPE) |
+            sai_attribute_bit_set(SAI_MIRROR_SESSION_ATTR_ERSPAN_ENCAPSULATION_TYPE) |
             sai_attribute_bit_set(SAI_MIRROR_SESSION_ATTR_IPHDR_VERSION) |
             sai_attribute_bit_set(SAI_MIRROR_SESSION_ATTR_TOS) |
             sai_attribute_bit_set(SAI_MIRROR_SESSION_ATTR_SRC_IP_ADDRESS) |
@@ -101,19 +101,19 @@ static inline uint32_t sai_mirror_erspan_bitmap (void)
 }
 
 static inline bool sai_mirror_is_mandat_attribute_missing (uint32_t req_attributes,
-                                                           sai_mirror_type_t span_type)
+                                                           sai_mirror_session_type_t span_type)
 {
     bool result = false;
     switch (span_type) {
-        case SAI_MIRROR_TYPE_LOCAL:
+        case SAI_MIRROR_SESSION_TYPE_LOCAL:
             /* Pick the mandatory attributes from the given list and check whether they are set */
             result = ((req_attributes & (sai_mirror_span_bitmap())) ^ (sai_mirror_span_bitmap()));
             break;
-        case SAI_MIRROR_TYPE_REMOTE:
+        case SAI_MIRROR_SESSION_TYPE_REMOTE:
             /* Pick the mandatory attributes from the given list and check whether they are set */
             result = ((req_attributes & (sai_mirror_rspan_bitmap())) ^ (sai_mirror_rspan_bitmap()));
             break;
-        case SAI_MIRROR_TYPE_ENHANCED_REMOTE:
+        case SAI_MIRROR_SESSION_TYPE_ENHANCED_REMOTE:
             /* Pick the mandatory attributes from the given list and check whether they are set */
             result = ((req_attributes & (sai_mirror_erspan_bitmap())) ^ (sai_mirror_erspan_bitmap()));
             break;
@@ -132,7 +132,7 @@ static sai_status_t sai_mirror_fill_erspan_attribute_params (
     sai_status_t error = SAI_STATUS_SUCCESS;
 
     switch (attr_list->id) {
-        case SAI_MIRROR_SESSION_ATTR_ENCAP_TYPE:
+        case SAI_MIRROR_SESSION_ATTR_ERSPAN_ENCAPSULATION_TYPE:
             p_session_info->session_params.encap_type = attr_list->value.s32;
             break;
 
@@ -245,7 +245,7 @@ static sai_status_t sai_mirror_fill_attribute_params (
             p_session_info->session_params.vlan_priority = attr_list->value.u8;
             break;
 
-        case SAI_MIRROR_SESSION_ATTR_ENCAP_TYPE:
+        case SAI_MIRROR_SESSION_ATTR_ERSPAN_ENCAPSULATION_TYPE:
         case SAI_MIRROR_SESSION_ATTR_IPHDR_VERSION:
         case SAI_MIRROR_SESSION_ATTR_TOS:
         case SAI_MIRROR_SESSION_ATTR_TTL:
@@ -289,6 +289,7 @@ static sai_status_t sai_mirror_fill_attribute_params (
 }
 
 sai_status_t sai_mirror_session_create (sai_object_id_t *session_id,
+                                        _In_ sai_object_id_t switch_id,
                                         uint32_t attr_count,
                                         const sai_attribute_t *attr_list)
 {

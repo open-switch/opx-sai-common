@@ -28,13 +28,13 @@
 
 extern "C" {
 #include "sai.h"
+#include "saiacl.h"
 #include "saistatus.h"
 #include "saitypes.h"
 #include "saiswitch.h"
 #include "saimirror.h"
 #include "sai_mirror_api.h"
 }
-
 #define SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB 2
 #define SAI_REMOTE_SPAN_NO_OF_MANDAT_ATTRIB 5
 #define SAI_ER_SPAN_NO_OF_MANDAT_ATTRIB 13
@@ -49,7 +49,7 @@ TEST_F(mirrorTest, span_set) {
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = sai_monitor_port;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_mirror_session_create (&session_id, SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB, attr);
 
@@ -63,7 +63,7 @@ TEST_F(mirrorTest, span_set) {
 
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_TYPE_LOCAL);
+    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_SESSION_TYPE_LOCAL);
     EXPECT_EQ (attr[1].value.oid, sai_monitor_port);
 
     memset (attr, 0, sizeof(attr));
@@ -80,7 +80,7 @@ TEST_F(mirrorTest, span_set) {
 
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_TYPE_LOCAL);
+    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_SESSION_TYPE_LOCAL);
     EXPECT_EQ (attr[1].value.oid, sai_second_monitor_port);
 
     obj_list.count = 1;
@@ -131,12 +131,12 @@ TEST_F(mirrorTest, span_lag_set) {
     lag_attr.value.objlist = lag_port_list;
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-                  p_sai_lag_api_table->create_lag(&lag_id, 1, &lag_attr));
+                  p_sai_lag_api_table->create_lag(&lag_id, switch_id, 1, &lag_attr));
 
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = lag_id;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_mirror_session_create (&session_id, SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB, attr);
 
@@ -183,7 +183,7 @@ TEST_F(mirrorTest, span_multiple_port_set) {
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = sai_monitor_port;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_mirror_session_create (&session_id, SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB, attr);
 
@@ -197,7 +197,7 @@ TEST_F(mirrorTest, span_multiple_port_set) {
 
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_TYPE_LOCAL);
+    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_SESSION_TYPE_LOCAL);
     EXPECT_EQ (attr[1].value.oid, sai_monitor_port);
 
     obj_list.count = 1;
@@ -321,7 +321,7 @@ TEST_F(mirrorTest, multiple_span_set) {
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = sai_monitor_port;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_mirror_session_create (&span_session_id,
                                              SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB, attr);
@@ -335,11 +335,11 @@ TEST_F(mirrorTest, multiple_span_set) {
                                    SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB ,attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_TYPE_LOCAL);
+    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_SESSION_TYPE_LOCAL);
     EXPECT_EQ (attr[1].value.oid, sai_monitor_port);
 
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[0].value.s32 = SAI_MIRROR_TYPE_REMOTE;
+    attr[0].value.s32 = SAI_MIRROR_SESSION_TYPE_REMOTE;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[1].value.oid = sai_second_monitor_port;
     attr[2].id = SAI_MIRROR_SESSION_ATTR_VLAN_TPID;
@@ -364,7 +364,7 @@ TEST_F(mirrorTest, multiple_span_set) {
     sai_rc = p_sai_mirror_api_tbl->get_mirror_session_attribute (rspan_session_id, 5,attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_TYPE_REMOTE);
+    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_SESSION_TYPE_REMOTE);
     EXPECT_EQ (attr[1].value.oid, sai_second_monitor_port);
     EXPECT_EQ (attr[2].value.u16, 33024);
     EXPECT_EQ (attr[3].value.u16, 2);
@@ -410,7 +410,7 @@ TEST_F(mirrorTest, invalid_attrib_value) {
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = sai_invalid_port;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_mirror_session_create (&session_id, SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB, attr);
 
@@ -429,7 +429,7 @@ TEST_F(mirrorTest, rspan_attrib_set) {
     memset (&get_attr, 0, sizeof(get_attr));
 
     attr[0].id = SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[0].value.u8 = SAI_MIRROR_TYPE_REMOTE;
+    attr[0].value.u8 = SAI_MIRROR_SESSION_TYPE_REMOTE;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[1].value.oid = sai_monitor_port;
     attr[2].id = SAI_MIRROR_SESSION_ATTR_VLAN_TPID;
@@ -597,7 +597,7 @@ TEST_F(mirrorTest, erspan_set) {
     attr[2].value.u16 = SAI_MIRROR_VLAN_2;
     attr[3].id = SAI_MIRROR_SESSION_ATTR_VLAN_PRI;
     attr[3].value.u8 = 2;
-    attr[4].id = SAI_MIRROR_SESSION_ATTR_ENCAP_TYPE;
+    attr[4].id = SAI_MIRROR_SESSION_ATTR_ERSPAN_ENCAPSULATION_TYPE;
     attr[4].value.s32 = SAI_ERSPAN_ENCAPSULATION_TYPE_MIRROR_L3_GRE_TUNNEL;
     attr[5].id = SAI_MIRROR_SESSION_ATTR_IPHDR_VERSION;
     attr[5].value.u8 = 4;
@@ -626,7 +626,7 @@ TEST_F(mirrorTest, erspan_set) {
     attr[11].id = SAI_MIRROR_SESSION_ATTR_GRE_PROTOCOL_TYPE;
     attr[11].value.u16 = 35006;
     attr[12].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[12].value.s32 = SAI_MIRROR_TYPE_ENHANCED_REMOTE;
+    attr[12].value.s32 = SAI_MIRROR_SESSION_TYPE_ENHANCED_REMOTE;
 
     sai_rc = sai_test_mirror_session_create (&session_id, SAI_ER_SPAN_NO_OF_MANDAT_ATTRIB, attr);
 
@@ -637,7 +637,7 @@ TEST_F(mirrorTest, erspan_set) {
     attr[1].id = SAI_MIRROR_SESSION_ATTR_VLAN_TPID;
     attr[2].id = SAI_MIRROR_SESSION_ATTR_VLAN_ID;
     attr[3].id = SAI_MIRROR_SESSION_ATTR_VLAN_PRI;
-    attr[4].id = SAI_MIRROR_SESSION_ATTR_ENCAP_TYPE;
+    attr[4].id = SAI_MIRROR_SESSION_ATTR_ERSPAN_ENCAPSULATION_TYPE;
     attr[5].id = SAI_MIRROR_SESSION_ATTR_IPHDR_VERSION;
     attr[6].id = SAI_MIRROR_SESSION_ATTR_TOS;
     attr[7].id = SAI_MIRROR_SESSION_ATTR_SRC_IP_ADDRESS;
@@ -653,7 +653,7 @@ TEST_F(mirrorTest, erspan_set) {
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
     EXPECT_EQ (attr[0].value.oid, sai_monitor_port);
-    EXPECT_EQ (attr[12].value.s32, SAI_MIRROR_TYPE_ENHANCED_REMOTE);
+    EXPECT_EQ (attr[12].value.s32, SAI_MIRROR_SESSION_TYPE_ENHANCED_REMOTE);
     EXPECT_EQ (attr[1].value.u16, 33024);
     EXPECT_EQ (attr[2].value.u16, 2);
     EXPECT_EQ (attr[3].value.u8, 2);
@@ -763,7 +763,7 @@ TEST_F(mirrorTest, erspan_invalid_attrib) {
     attr[3].value.u16 = SAI_MIRROR_VLAN_2;
     attr[4].id = SAI_MIRROR_SESSION_ATTR_VLAN_PRI;
     attr[4].value.u8 = 2;
-    attr[5].id = SAI_MIRROR_SESSION_ATTR_ENCAP_TYPE;
+    attr[5].id = SAI_MIRROR_SESSION_ATTR_ERSPAN_ENCAPSULATION_TYPE;
     attr[5].value.s32 = SAI_ERSPAN_ENCAPSULATION_TYPE_MIRROR_L3_GRE_TUNNEL;
     attr[6].id = SAI_MIRROR_SESSION_ATTR_IPHDR_VERSION;
     attr[6].value.u8 = 4;
@@ -792,7 +792,7 @@ TEST_F(mirrorTest, erspan_invalid_attrib) {
     attr[12].value.mac[4] = 68;
     attr[12].value.mac[5] = 68;
     attr[13].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[13].value.s32 = SAI_MIRROR_TYPE_ENHANCED_REMOTE;
+    attr[13].value.s32 = SAI_MIRROR_SESSION_TYPE_ENHANCED_REMOTE;
 
     sai_rc = sai_test_mirror_session_create (&session_id, 14, attr);
 
@@ -805,7 +805,7 @@ TEST_F(mirrorTest, erspan_mandat_miss) {
     sai_attribute_t attr[15] = {0};
 
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[0].value.s32 = SAI_MIRROR_TYPE_ENHANCED_REMOTE;
+    attr[0].value.s32 = SAI_MIRROR_SESSION_TYPE_ENHANCED_REMOTE;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[1].value.oid = sai_monitor_port;
     attr[2].id = SAI_MIRROR_SESSION_ATTR_VLAN_TPID;
@@ -814,7 +814,7 @@ TEST_F(mirrorTest, erspan_mandat_miss) {
     attr[3].value.u16 = 2;
     attr[4].id = SAI_MIRROR_SESSION_ATTR_VLAN_PRI;
     attr[4].value.u8 = 2;
-    attr[5].id = SAI_MIRROR_SESSION_ATTR_ENCAP_TYPE;
+    attr[5].id = SAI_MIRROR_SESSION_ATTR_ERSPAN_ENCAPSULATION_TYPE;
     attr[5].value.s32 = SAI_ERSPAN_ENCAPSULATION_TYPE_MIRROR_L3_GRE_TUNNEL;
     attr[6].id = SAI_MIRROR_SESSION_ATTR_IPHDR_VERSION;
     attr[6].value.u8 = 4;
@@ -860,7 +860,7 @@ TEST_F(mirrorTest, erspan_attrib_set) {
     memset (&get_attr, 0, sizeof(get_attr));
 
     attr[0].id = SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[0].value.u8 = SAI_MIRROR_TYPE_ENHANCED_REMOTE;
+    attr[0].value.u8 = SAI_MIRROR_SESSION_TYPE_ENHANCED_REMOTE;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[1].value.oid = sai_monitor_port;
     attr[2].id = SAI_MIRROR_SESSION_ATTR_VLAN_TPID;
@@ -869,7 +869,7 @@ TEST_F(mirrorTest, erspan_attrib_set) {
     attr[3].value.u16 = 2;
     attr[4].id = SAI_MIRROR_SESSION_ATTR_VLAN_PRI;
     attr[4].value.u8 = 2;
-    attr[5].id = SAI_MIRROR_SESSION_ATTR_ENCAP_TYPE;
+    attr[5].id = SAI_MIRROR_SESSION_ATTR_ERSPAN_ENCAPSULATION_TYPE;
     attr[5].value.s32 = SAI_ERSPAN_ENCAPSULATION_TYPE_MIRROR_L3_GRE_TUNNEL;
     attr[6].id = SAI_MIRROR_SESSION_ATTR_IPHDR_VERSION;
     attr[6].value.u8 = 4;
@@ -927,7 +927,7 @@ TEST_F(mirrorTest, erspan_attrib_set) {
     EXPECT_EQ (obj_list.list[0], session_id);
 
     set_attr.id = SAI_MIRROR_SESSION_ATTR_TYPE;
-    set_attr.value.u8 = SAI_MIRROR_TYPE_ENHANCED_REMOTE;
+    set_attr.value.u8 = SAI_MIRROR_SESSION_TYPE_ENHANCED_REMOTE;
     sai_rc = p_sai_mirror_api_tbl->set_mirror_session_attribute (session_id, &set_attr);
 
     EXPECT_EQ (SAI_STATUS_INVALID_ATTRIBUTE_0, sai_rc);
@@ -980,7 +980,7 @@ TEST_F(mirrorTest, erspan_attrib_set) {
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
     EXPECT_EQ (get_attr.value.u8, 4);
 
-    set_attr.id = SAI_MIRROR_SESSION_ATTR_ENCAP_TYPE;
+    set_attr.id = SAI_MIRROR_SESSION_ATTR_ERSPAN_ENCAPSULATION_TYPE;
     set_attr.value.u16 = 2;
     sai_rc = p_sai_mirror_api_tbl->set_mirror_session_attribute (session_id, &set_attr);
 
@@ -1133,27 +1133,27 @@ TEST_F(mirrorTest, flow_based) {
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = sai_monitor_port;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_mirror_session_create (&session_id, SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB, attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    attr[0].id = SAI_ACL_TABLE_ATTR_STAGE;
+    attr[0].id = SAI_ACL_TABLE_ATTR_ACL_STAGE;
     attr[0].value.s32= 0;
     attr[1].id =  SAI_ACL_TABLE_ATTR_PRIORITY;
     attr[1].value.u32 = 1;
     attr[2].id = SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC;
     attr[3].id = SAI_ACL_TABLE_ATTR_FIELD_DST_MAC;
     attr[4].id = SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE;
-    attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE;
+    attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE;
     attr[6].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID;
     attr[7].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI;
     attr[8].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI;
     attr[9].id = SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL;
     attr[10].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORT;
     attr[11].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS;
-    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, 12, attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, switch_id, 12, attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     rule_attr[0].id = SAI_ACL_ENTRY_ATTR_TABLE_ID;
@@ -1173,7 +1173,7 @@ TEST_F(mirrorTest, flow_based) {
     rule_attr[4].value.aclaction.parameter.objlist.list = (sai_object_id_t *) calloc(
                                                             1, sizeof(sai_object_id_t));
     rule_attr[4].value.aclaction.parameter.objlist.list[0] = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->remove_acl_entry(acl_rule_id));
@@ -1184,39 +1184,6 @@ TEST_F(mirrorTest, flow_based) {
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     free (rule_attr[3].value.aclfield.data.objlist.list);
-}
-
-TEST_F(mirrorTest, breakout_set) {
-    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
-    sai_object_id_t  session_id = 0;
-    sai_attribute_t attr[SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB + 1] = {0};
-
-    attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
-    attr[0].value.oid = sai_monitor_port;
-    attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
-
-    sai_rc = sai_test_mirror_session_create (&session_id, SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB, attr);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    memset (attr, 0, sizeof(attr));
-    attr[0].id = SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
-    sai_rc = p_sai_mirror_api_tbl->get_mirror_session_attribute (session_id,
-            SAI_LOCAL_SPAN_NO_OF_MANDAT_ATTRIB ,attr);
-
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    EXPECT_EQ (attr[0].value.s32, SAI_MIRROR_TYPE_LOCAL);
-    EXPECT_EQ (attr[1].value.oid, sai_monitor_port);
-
-    sai_test_mirror_port_breakout(session_id);
-
-    sai_rc = sai_test_mirror_session_destroy (session_id);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
 }
 
 int main(int argc, char **argv) {

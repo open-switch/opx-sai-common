@@ -217,7 +217,7 @@ static sai_status_t sai_policer_attr_set(dn_sai_qos_policer_t *p_policer_node,
             }
             break;
 
-        case SAI_POLICER_ATTR_ENABLE_COUNTER_LIST:
+        case SAI_POLICER_ATTR_ENABLE_COUNTER_PACKET_ACTION_LIST:
             return SAI_STATUS_NOT_SUPPORTED;
             break;
 
@@ -289,7 +289,7 @@ static sai_status_t sai_policer_parse_update_attributes(
     }
 
     if(op_type == SAI_OP_CREATE){
-        if((p_policer_node->policer_mode == SAI_POLICER_MODE_Tr_TCM) &&
+        if((p_policer_node->policer_mode == SAI_POLICER_MODE_TR_TCM) &&
            ((sai_policer_trtcm_mandatory_attr() & attr_bits) ^ sai_policer_trtcm_mandatory_attr())){
             SAI_POLICER_LOG_ERR("Mandatory attribute missing");
             sai_rc = SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING;
@@ -345,6 +345,7 @@ static sai_status_t sai_policer_update_port_list(dn_sai_qos_policer_t *p_policer
 }
 
 static sai_status_t sai_qos_policer_create(sai_object_id_t *policer_id,
+                                    _In_ sai_object_id_t switch_id,
                                     uint32_t attr_count,
                                     const sai_attribute_t *attr_list)
 {
@@ -441,8 +442,8 @@ static sai_status_t sai_qos_policer_is_object_in_use(dn_sai_qos_policer_t *p_pol
             }
         }
     }
-    else if((policer_type == SAI_POLICER_MODE_Tr_TCM) ||
-            (policer_type == SAI_POLICER_MODE_Sr_TCM)){
+    else if((policer_type == SAI_POLICER_MODE_TR_TCM) ||
+            (policer_type == SAI_POLICER_MODE_SR_TCM)){
         if(sai_qos_first_acl_rule_node_from_policer_get(p_policer_node) != NULL){
             SAI_POLICER_LOG_WARN("policer node is in use");
             sai_rc = SAI_STATUS_OBJECT_IN_USE;
@@ -549,8 +550,8 @@ static sai_status_t sai_qos_policer_attribute_set(sai_object_id_t policer_id,
         SAI_POLICER_LOG_TRACE("NPU attribute set success for id %d"
                               "for policer 0x%"PRIx64"", p_attr->id, policer_id);
 
-        if((sai_get_type_from_npu_object(policer_id) == SAI_POLICER_MODE_Tr_TCM) ||
-           (sai_get_type_from_npu_object(policer_id) == SAI_POLICER_MODE_Sr_TCM)){
+        if((sai_get_type_from_npu_object(policer_id) == SAI_POLICER_MODE_TR_TCM) ||
+           (sai_get_type_from_npu_object(policer_id) == SAI_POLICER_MODE_SR_TCM)){
             if(sai_qos_policer_npu_api_get()->is_acl_reinstall_needed()){
                 SAI_POLICER_LOG_TRACE("Updating associated ACL for policer 0x%"PRIx64"",
                                       policer_id);
@@ -652,11 +653,18 @@ static sai_status_t sai_qos_policer_attribute_get(sai_object_id_t policer_id,
 }
 
 static sai_status_t sai_qos_policer_stats_get(
-sai_object_id_t policer_id, const sai_policer_stat_counter_t *counter_ids,
+sai_object_id_t policer_id, const sai_policer_stat_t *counter_ids,
 uint32_t number_of_counters, uint64_t* counters)
 {
     return SAI_STATUS_NOT_SUPPORTED;
 }
+
+static sai_status_t sai_qos_policer_stats_clear(
+sai_object_id_t policer_id, uint32_t number_of_counters, const sai_policer_stat_t *counter_ids)
+{
+    return SAI_STATUS_NOT_SUPPORTED;
+}
+
 
 static sai_status_t sai_policer_port_storm_control_node_update(dn_sai_qos_port_t *p_port_node,
                                                 dn_sai_qos_policer_t *p_policer_node,
@@ -696,6 +704,22 @@ static sai_status_t sai_policer_port_storm_control_node_update(dn_sai_qos_port_t
 }
 
 sai_status_t sai_port_attr_storm_control_policer_set(sai_object_id_t port_id,
+                                                    const sai_attribute_t *attr)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    sai_qos_lock();
+
+    sai_rc = sai_port_attr_storm_control_policer_set_internal (port_id, attr);
+
+    sai_qos_unlock();
+
+    return sai_rc;
+
+}
+
+sai_status_t sai_port_attr_storm_control_policer_set_internal
+                                                   (sai_object_id_t port_id,
                                                     const sai_attribute_t *attr)
 {
     STD_ASSERT(attr != NULL);
@@ -774,7 +798,7 @@ static sai_policer_api_t sai_qos_policer_method_table = {
     sai_qos_policer_attribute_set,
     sai_qos_policer_attribute_get,
     sai_qos_policer_stats_get,
-
+    sai_qos_policer_stats_clear
 };
 
 sai_policer_api_t *sai_policer_api_query (void)

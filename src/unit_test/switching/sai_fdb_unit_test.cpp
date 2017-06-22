@@ -38,33 +38,20 @@ extern "C" {
 uint32_t port_count = 0;
 sai_object_id_t port_list[SAI_MAX_PORTS] = {0};
 
-void sai_fdb_port_evt_callback (uint32_t count,
-                            sai_port_event_notification_t *data)
+sai_status_t fdbInit::sai_get_fdb_port_list_get(sai_switch_api_t *p_sai_switch_api_tbl)
 {
-    uint32_t port_idx = 0;
-    sai_object_id_t port_id = 0;
-    sai_port_event_t port_event;
+    sai_attribute_t sai_port_attr;
+    sai_status_t ret = SAI_STATUS_SUCCESS;
 
-    for(port_idx = 0; port_idx < count; port_idx++) {
-        port_id = data[port_idx].port_id;
-        port_event = data[port_idx].port_event;
+    memset (&sai_port_attr, 0, sizeof (sai_port_attr));
 
-        if(port_event == SAI_PORT_EVENT_ADD) {
-            if(port_count < SAI_MAX_PORTS) {
-                port_list[port_count] = port_id;
-                port_count++;
-            }
+    sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+    sai_port_attr.value.objlist.count = SAI_MAX_PORTS;
+    sai_port_attr.value.objlist.list  = port_list;
 
-            printf("PORT ADD EVENT FOR port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else if(port_event == SAI_PORT_EVENT_DELETE) {
-
-            printf("PORT DELETE EVENT for  port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else {
-            printf("Invalid PORT EVENT for port 0x%"PRIx64" \r\n", port_id);
-        }
-    }
+    ret = p_sai_switch_api_tbl->get_switch_attribute(switch_id,1,&sai_port_attr);
+    port_count = sai_port_attr.value.objlist.count;
+    return ret;
 }
 
 
@@ -213,7 +200,7 @@ TEST_F(fdbInit, flush_all_fdb_entries_by_port)
     flush_attr[1].value.s32 = SAI_FDB_FLUSH_ENTRY_TYPE_DYNAMIC;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_fdb_api_table->flush_fdb_entries(2,
+              sai_fdb_api_table->flush_fdb_entries(switch_id, 2,
                                  (const sai_attribute_t*)flush_attr));
 
     get_attr_list[0].id = SAI_FDB_ENTRY_ATTR_TYPE;
@@ -239,7 +226,7 @@ TEST_F(fdbInit, flush_all_fdb_entries_by_lag)
     sai_attribute_t lag_attr[2];
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->create_lag (&lag_id, 0, NULL));
+              sai_lag_api_table->create_lag (&lag_id, switch_id, 0, NULL));
 
     memset(lag_attr, 0, sizeof(lag_attr));
 
@@ -250,13 +237,13 @@ TEST_F(fdbInit, flush_all_fdb_entries_by_lag)
 
 
     ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_api_table->create_lag_member (&lag_member_id_1,
+               sai_lag_api_table->create_lag_member (&lag_member_id_1, switch_id,
                                                      2, lag_attr));
 
     lag_attr[1].id = SAI_LAG_MEMBER_ATTR_PORT_ID;
     lag_attr[1].value.oid = port_id_4;
     ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_api_table->create_lag_member (&lag_member_id_2,
+               sai_lag_api_table->create_lag_member (&lag_member_id_2, switch_id,
                                                      2, lag_attr));
 
     sai_fdb_entry_create(SAI_FDB_ENTRY_TYPE_DYNAMIC, lag_id, SAI_PACKET_ACTION_FORWARD);
@@ -273,7 +260,7 @@ TEST_F(fdbInit, flush_all_fdb_entries_by_lag)
     flush_attr[1].value.s32 = SAI_FDB_FLUSH_ENTRY_TYPE_DYNAMIC;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_fdb_api_table->flush_fdb_entries(2,
+              sai_fdb_api_table->flush_fdb_entries(switch_id, 2,
                                  (const sai_attribute_t*)flush_attr));
 
     get_attr_list[0].id = SAI_FDB_ENTRY_ATTR_TYPE;
@@ -311,7 +298,7 @@ TEST_F(fdbInit, flush_all_fdb_entries_by_vlan)
 
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_fdb_api_table->flush_fdb_entries(2,
+              sai_fdb_api_table->flush_fdb_entries(switch_id, 2,
                                  (const sai_attribute_t*)flush_attr));
     get_attr_list[0].id = SAI_FDB_ENTRY_ATTR_TYPE;
     get_attr_list[1].id = SAI_FDB_ENTRY_ATTR_PORT_ID;
@@ -346,7 +333,7 @@ TEST_F(fdbInit, flush_all_fdb_entries_by_port_vlan)
 
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_fdb_api_table->flush_fdb_entries(3,
+              sai_fdb_api_table->flush_fdb_entries(switch_id, 3,
                                  (const sai_attribute_t*)flush_attr));
 
     get_attr_list[0].id = SAI_FDB_ENTRY_ATTR_TYPE;
@@ -371,7 +358,7 @@ TEST_F(fdbInit, flush_all_fdb_entries_by_lag_vlan)
     sai_attribute_t lag_attr[2];
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->create_lag (&lag_id, 0, NULL));
+              sai_lag_api_table->create_lag (&lag_id, switch_id, 0, NULL));
 
     memset(lag_attr, 0, sizeof(lag_attr));
 
@@ -382,13 +369,13 @@ TEST_F(fdbInit, flush_all_fdb_entries_by_lag_vlan)
 
 
     ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_api_table->create_lag_member (&lag_member_id_1,
+               sai_lag_api_table->create_lag_member (&lag_member_id_1, switch_id,
                                                      2, lag_attr));
 
     lag_attr[1].id = SAI_LAG_MEMBER_ATTR_PORT_ID;
     lag_attr[1].value.oid = port_id_4;
     ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_api_table->create_lag_member (&lag_member_id_2,
+               sai_lag_api_table->create_lag_member (&lag_member_id_2, switch_id,
                                                      2, lag_attr));
 
     sai_fdb_entry_create(SAI_FDB_ENTRY_TYPE_DYNAMIC, lag_id, SAI_PACKET_ACTION_FORWARD);
@@ -409,7 +396,7 @@ TEST_F(fdbInit, flush_all_fdb_entries_by_lag_vlan)
 
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_fdb_api_table->flush_fdb_entries(3,
+              sai_fdb_api_table->flush_fdb_entries(switch_id, 3,
                                  (const sai_attribute_t*)flush_attr));
 
     get_attr_list[0].id = SAI_FDB_ENTRY_ATTR_TYPE;
@@ -439,7 +426,7 @@ TEST_F(fdbInit, flush_all_fdb_entries)
     sai_attribute_t lag_attr[2];
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->create_lag (&lag_id, 0, NULL));
+              sai_lag_api_table->create_lag (&lag_id, switch_id, 0, NULL));
 
     memset(lag_attr, 0, sizeof(lag_attr));
 
@@ -450,13 +437,13 @@ TEST_F(fdbInit, flush_all_fdb_entries)
 
 
     ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_api_table->create_lag_member (&lag_member_id_1,
+               sai_lag_api_table->create_lag_member (&lag_member_id_1, switch_id,
                                                      2, lag_attr));
 
     lag_attr[1].id = SAI_LAG_MEMBER_ATTR_PORT_ID;
     lag_attr[1].value.oid = port_id_4;
     ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_api_table->create_lag_member (&lag_member_id_2,
+               sai_lag_api_table->create_lag_member (&lag_member_id_2, switch_id,
                                                      2, lag_attr));
 
     sai_fdb_entry_create(SAI_FDB_ENTRY_TYPE_DYNAMIC, lag_id, SAI_PACKET_ACTION_FORWARD);
@@ -472,7 +459,7 @@ TEST_F(fdbInit, flush_all_fdb_entries)
 
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_fdb_api_table->flush_fdb_entries(1,
+              sai_fdb_api_table->flush_fdb_entries(switch_id, 1,
                                  (const sai_attribute_t*)flush_attr));
 
     get_attr_list[0].id = SAI_FDB_ENTRY_ATTR_TYPE;
@@ -511,7 +498,7 @@ TEST_F(fdbInit, flush_supported_types)
     flush_attr[0].id = SAI_FDB_FLUSH_ATTR_ENTRY_TYPE;
     flush_attr[0].value.s32 = SAI_FDB_FLUSH_ENTRY_TYPE_DYNAMIC;
 
-    ret = sai_fdb_api_table->flush_fdb_entries(1,
+    ret = sai_fdb_api_table->flush_fdb_entries(switch_id, 1,
                                  (const sai_attribute_t*)flush_attr);
 
     if (ret == SAI_STATUS_SUCCESS) {
@@ -540,7 +527,7 @@ TEST_F(fdbInit, flush_supported_types)
     sai_fdb_entry_create(SAI_FDB_ENTRY_TYPE_STATIC, port_id_1, SAI_PACKET_ACTION_FORWARD);
     flush_attr[0].value.s32 = SAI_FDB_FLUSH_ENTRY_TYPE_STATIC;
 
-    ret = sai_fdb_api_table->flush_fdb_entries(1,
+    ret = sai_fdb_api_table->flush_fdb_entries(switch_id, 1,
                                  (const sai_attribute_t*)flush_attr);
 
     if (ret == SAI_STATUS_SUCCESS) {
@@ -568,7 +555,7 @@ TEST_F(fdbInit, flush_supported_types)
 
     sai_fdb_entry_create(SAI_FDB_ENTRY_TYPE_STATIC, port_id_1, SAI_PACKET_ACTION_FORWARD);
 
-    ret = sai_fdb_api_table->flush_fdb_entries(0, NULL);
+    ret = sai_fdb_api_table->flush_fdb_entries(switch_id, 0, NULL);
 
     if (ret == SAI_STATUS_SUCCESS) {
         printf("Flush by all types is supported\r\n");
@@ -607,7 +594,7 @@ TEST_F(fdbInit, set_fdb_entry)
     sai_attribute_t lag_attr[2];
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->create_lag (&lag_id, 0, NULL));
+              sai_lag_api_table->create_lag (&lag_id, switch_id, 0, NULL));
 
     memset(lag_attr, 0, sizeof(lag_attr));
 
@@ -618,13 +605,13 @@ TEST_F(fdbInit, set_fdb_entry)
 
 
     ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_api_table->create_lag_member (&lag_member_id_1,
+               sai_lag_api_table->create_lag_member (&lag_member_id_1, switch_id,
                                                      2, lag_attr));
 
     lag_attr[1].id = SAI_LAG_MEMBER_ATTR_PORT_ID;
     lag_attr[1].value.oid = port_id_4;
     ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_api_table->create_lag_member (&lag_member_id_2,
+               sai_lag_api_table->create_lag_member (&lag_member_id_2, switch_id,
                                                      2, lag_attr));
 
 

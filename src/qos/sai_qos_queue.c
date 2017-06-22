@@ -27,6 +27,7 @@
 #include "sai_qos_mem.h"
 #include "sai_switch_utils.h"
 #include "sai_common_infra.h"
+#include "sai_qos_buffer_util.h"
 
 #include "saistatus.h"
 
@@ -36,39 +37,21 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-static void sai_qos_queue_node_init (dn_sai_qos_queue_t *p_queue_node,
-                                     sai_object_id_t port_id,
-                                     sai_queue_type_t queue_type)
+#define SAI_QOS_QUEUE_DFLT_ATTR_COUNT 5
+
+static void sai_qos_queue_node_init (dn_sai_qos_queue_t *p_queue_node)
 {
-    p_queue_node->port_id = port_id;
-    p_queue_node->queue_type = queue_type;
+    p_queue_node->port_id = SAI_NULL_OBJECT_ID;
+    p_queue_node->queue_type = SAI_QUEUE_TYPE_ALL;
+    p_queue_node->queue_index = 0xFF;
     p_queue_node->parent_sched_group_id = SAI_NULL_OBJECT_ID;
     p_queue_node->child_offset = SAI_QOS_CHILD_INDEX_INVALID;
+    p_queue_node->wred_id = SAI_NULL_OBJECT_ID;
+    p_queue_node->scheduler_id = SAI_NULL_OBJECT_ID;
+    p_queue_node->buffer_profile_id = SAI_NULL_OBJECT_ID;
 
     return;
 }
-
-static bool sai_qos_queue_is_in_use (dn_sai_qos_queue_t *p_queue_node)
-{
-
-    STD_ASSERT (p_queue_node != NULL);
-
-    /* Verify WRED profile is assigned to queue */
-    if (p_queue_node->wred_id != SAI_NULL_OBJECT_ID)
-        return true;
-
-    /* Verify queue is child of any parent. */
-    if (p_queue_node->parent_sched_group_id != SAI_NULL_OBJECT_ID)
-        return true;
-
-    /* Verify Scheduler profile is assigned to queue. */
-    if ((p_queue_node->scheduler_id != SAI_NULL_OBJECT_ID) &&
-        (p_queue_node->scheduler_id != sai_qos_default_sched_id_get()))
-        return true;
-
-    return false;
-}
-
 
 sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node)
 {
@@ -77,17 +60,14 @@ sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node)
     sai_attribute_t set_attr;
     bool wred_removed = false;
     bool buffer_profile_removed = false;
-    bool scheduler_removed = false;
     sai_object_id_t buffer_profile_id = SAI_NULL_OBJECT_ID;
     sai_object_id_t wred_id = SAI_NULL_OBJECT_ID;
-    sai_object_id_t sched_id = SAI_NULL_OBJECT_ID;
 
 
     STD_ASSERT (p_queue_node != NULL);
 
     buffer_profile_id = p_queue_node->buffer_profile_id;
     wred_id = p_queue_node->wred_id;
-    sched_id = p_queue_node->scheduler_id;
 
     do {
         if(p_queue_node->buffer_profile_id != SAI_NULL_OBJECT_ID) {
@@ -119,7 +99,7 @@ sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node)
         if((p_queue_node->scheduler_id != SAI_NULL_OBJECT_ID) &&
            (p_queue_node->scheduler_id != sai_qos_default_sched_id_get())) {
             set_attr.id = SAI_QUEUE_ATTR_SCHEDULER_PROFILE_ID;
-            set_attr.value.oid = sai_qos_default_sched_id_get();
+            set_attr.value.oid = SAI_NULL_OBJECT_ID;
 
             sai_rc = sai_qos_queue_scheduler_set(p_queue_node, &set_attr);
 
@@ -128,8 +108,6 @@ sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node)
                         p_queue_node->key.queue_id);
                 break;
             }
-            p_queue_node->scheduler_id = sai_qos_default_sched_id_get();
-            scheduler_removed = true;
         }
     } while (0);
 
@@ -157,19 +135,6 @@ sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node)
                 p_queue_node->wred_id = wred_id;
             }
         }
-        if(scheduler_removed) {
-            set_attr.id = SAI_QUEUE_ATTR_SCHEDULER_PROFILE_ID;
-            set_attr.value.oid = sched_id;
-
-            rev_sai_rc = sai_qos_queue_scheduler_set(p_queue_node, &set_attr);
-
-            if(rev_sai_rc != SAI_STATUS_SUCCESS) {
-                SAI_QUEUE_LOG_ERR ("Unable to revert scheduler profile on queue 0x%"PRIx64" Error:%d",
-                                    p_queue_node->key.queue_id, rev_sai_rc);
-            } else {
-                p_queue_node->scheduler_id = sched_id;
-            }
-        }
     }
     return sai_rc;
 
@@ -177,12 +142,21 @@ sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node)
 
 static void sai_qos_queue_free_resources (dn_sai_qos_queue_t *p_queue_node,
                                           bool is_queue_set_in_npu,
-                                          bool is_queue_set_in_port_list)
+                                          bool is_queue_set_in_port_list,
+                                          bool is_queue_attach_to_parent)
 {
     if (p_queue_node == NULL) {
         return;
     }
 
+    if (is_queue_attach_to_parent)
+    {
+        sai_queue_npu_api_get()->queue_detach_from_parent(p_queue_node->key.queue_id);
+
+        sai_qos_sched_group_and_child_nodes_update
+                                (p_queue_node->parent_sched_group_id,
+                                 p_queue_node->key.queue_id, false);
+    }
     /* Remove Queue from NPU, if it was already applied  created. */
     if (is_queue_set_in_npu) {
         sai_queue_npu_api_get()->queue_remove (p_queue_node);
@@ -237,6 +211,62 @@ static void sai_qos_queue_node_remove_from_tree (dn_sai_qos_queue_t *p_queue_nod
     return;
 }
 
+static sai_status_t sai_qos_queue_modify_parent (
+                                        sai_object_id_t queue_id,
+                                        dn_sai_qos_queue_t *p_queue_node,
+                                        sai_object_id_t new_parent_id)
+{
+    sai_status_t                sai_rc = SAI_STATUS_SUCCESS;
+    sai_object_id_t             old_parent_id = SAI_NULL_OBJECT_ID;
+
+    old_parent_id = p_queue_node->parent_sched_group_id;
+
+    SAI_QUEUE_LOG_TRACE ("Queue modify parent. Port ID 0x%"PRIx64", "
+                         "queue id 0x%"PRIx64" parent sg 0x%"PRIx64"",
+                         p_queue_node->port_id,
+                         queue_id, new_parent_id);
+
+    if (new_parent_id != SAI_NULL_OBJECT_ID) {
+        sai_rc = sai_queue_npu_api_get()->queue_modify_parent
+                                                (queue_id, new_parent_id);
+
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_QUEUE_LOG_ERR ("Queue 0x%"PRIx64" modify parent from "
+                               "0x%"PRIx64" to 0x%"PRIx64" failed in NPU.", queue_id,
+                               old_parent_id, new_parent_id);
+            return sai_rc;
+        }
+    } else {
+        sai_rc = sai_queue_npu_api_get()->queue_remove (p_queue_node);
+
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_QUEUE_LOG_ERR ("Queue 0x%"PRIx64" remove failed in NPU.",
+                               queue_id);
+            return sai_rc;
+        }
+    }
+
+    /* Update parent HQos information */
+    sai_rc = sai_qos_sched_group_and_child_nodes_update (old_parent_id,
+                                                         queue_id, false);
+
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_QUEUE_LOG_ERR ("Failed to update the child and parent hierarchy "
+                               "information with old parent details.");
+        return sai_rc;
+    }
+
+    if (new_parent_id != SAI_NULL_OBJECT_ID) {
+        sai_rc = sai_qos_sched_group_and_child_nodes_update (new_parent_id,
+                                                             queue_id, true);
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_QUEUE_LOG_ERR ("Failed to update the child and parent hierarchy "
+                                   "information with new parent details.");
+        }
+    }
+    return sai_rc;
+}
+
 static void sai_qos_queue_attr_set (dn_sai_qos_queue_t *p_queue_node,
                                     uint_t attr_count,
                                     const sai_attribute_t *p_attr_list,
@@ -260,12 +290,20 @@ static void sai_qos_queue_attr_set (dn_sai_qos_queue_t *p_queue_node,
                 p_queue_node->queue_type = p_attr->value.s32;
                 break;
 
+            case SAI_QUEUE_ATTR_PORT:
+                p_queue_node->port_id = p_attr->value.oid;
+                break;
+
+            case SAI_QUEUE_ATTR_INDEX:
+                p_queue_node->queue_index = p_attr->value.u8;
+                break;
+
+            case SAI_QUEUE_ATTR_PARENT_SCHEDULER_NODE:
+                p_queue_node->parent_sched_group_id = p_attr->value.oid;
+                break;
+
             case SAI_QUEUE_ATTR_SCHEDULER_PROFILE_ID:
-                if (p_attr->value.oid == SAI_NULL_OBJECT_ID) {
-                    p_queue_node->scheduler_id = sai_qos_default_sched_id_get();
-                } else {
-                    p_queue_node->scheduler_id = p_attr->value.oid;
-                }
+                p_queue_node->scheduler_id = p_attr->value.oid;
                 break;
 
             case SAI_QUEUE_ATTR_WRED_PROFILE_ID:
@@ -290,7 +328,9 @@ static sai_status_t sai_qos_queue_attributes_validate (uint_t attr_count,
 {
     sai_status_t                    sai_rc = SAI_STATUS_SUCCESS;
     uint_t                          max_vendor_attr_count = 0;
-    const dn_sai_attribute_entry_t *p_vendor_attr = NULL;
+    const dn_sai_attribute_entry_t  *p_vendor_attr = NULL;
+    const sai_attribute_t           *p_attr = NULL;
+    uint_t                          list_index = 0;
 
     SAI_QUEUE_LOG_TRACE ("Parsing attributes for queue, attribute count %d "
                          "op_type %d.", attr_count, op_type);
@@ -310,10 +350,71 @@ static sai_status_t sai_qos_queue_attributes_validate (uint_t attr_count,
     if(sai_rc != SAI_STATUS_SUCCESS) {
         SAI_QUEUE_LOG_ERR ("Attribute validation failed for %d "
                            "operation", op_type);
+        return sai_rc;
+    }
+
+    if (op_type == SAI_OP_GET)
+        return sai_rc;
+
+    for (list_index = 0, p_attr = attr_list;
+         (list_index < attr_count) && (p_attr != NULL);
+         list_index++, p_attr++) {
+
+         switch (p_attr->id) {
+             case SAI_QUEUE_ATTR_PORT:
+                 if ((p_attr->value.oid == SAI_NULL_OBJECT_ID)
+                          || (sai_qos_port_node_get (p_attr->value.oid)
+                                               == NULL)) {
+                        return SAI_STATUS_INVALID_OBJECT_ID;
+
+                 }
+                 break;
+
+             case SAI_QUEUE_ATTR_PARENT_SCHEDULER_NODE:
+                 if ((p_attr->value.oid != SAI_NULL_OBJECT_ID)
+                            && (sai_qos_sched_group_node_get
+                                              (p_attr->value.oid) == NULL)) {
+                     return SAI_STATUS_INVALID_OBJECT_ID;
+
+                 }
+                 break;
+
+             case SAI_QUEUE_ATTR_SCHEDULER_PROFILE_ID:
+                 if ((p_attr->value.oid != SAI_NULL_OBJECT_ID)
+                           && (sai_qos_scheduler_node_get
+                                                (p_attr->value.oid) == NULL)) {
+                     return SAI_STATUS_INVALID_OBJECT_ID;
+
+                 }
+                 break;
+
+             case SAI_QUEUE_ATTR_WRED_PROFILE_ID:
+                 if ((p_attr->value.oid != SAI_NULL_OBJECT_ID)
+                           && (sai_qos_wred_node_get
+                                            (p_attr->value.oid) == NULL)) {
+                     return SAI_STATUS_INVALID_OBJECT_ID;
+
+                 }
+                 break;
+
+             case SAI_QUEUE_ATTR_BUFFER_PROFILE_ID:
+                 if ((p_attr->value.oid != SAI_NULL_OBJECT_ID)
+                           && (sai_qos_buffer_profile_node_get
+                                             (p_attr->value.oid) == NULL)) {
+
+                     return SAI_STATUS_INVALID_OBJECT_ID;
+
+                 }
+                 break;
+
+             default:
+                 break;
+         }
     }
 
     return sai_rc;
 }
+
 /* Attribute validation happen before this function */
 static bool sai_qos_queue_is_duplicate_set (dn_sai_qos_queue_t  *p_queue_node,
                                             const sai_attribute_t *p_attr)
@@ -326,6 +427,11 @@ static bool sai_qos_queue_is_duplicate_set (dn_sai_qos_queue_t  *p_queue_node,
 
     switch (p_attr->id)
     {
+        case SAI_QUEUE_ATTR_PARENT_SCHEDULER_NODE:
+            if (p_queue_node->parent_sched_group_id == p_attr->value.oid)
+                return true;
+            break;
+
         case SAI_QUEUE_ATTR_SCHEDULER_PROFILE_ID:
             if (p_queue_node->scheduler_id == p_attr->value.oid)
                 return true;
@@ -350,19 +456,28 @@ static bool sai_qos_queue_is_duplicate_set (dn_sai_qos_queue_t  *p_queue_node,
     return false;
 }
 
-static sai_status_t sai_qos_queue_create (sai_object_id_t port_id,
-                                          sai_queue_type_t queue_type)
+static sai_status_t sai_qos_queue_create_internal(sai_object_id_t *queue_id,
+                                         sai_object_id_t switch_id,
+                                         uint32_t attr_count,
+                                         const sai_attribute_t *attr_list)
 {
     sai_status_t         sai_rc = SAI_STATUS_SUCCESS;
-    dn_sai_qos_queue_t  *p_queue_node = NULL;
-    sai_object_id_t      queue_oid = SAI_NULL_OBJECT_ID;
+    dn_sai_qos_queue_t   *p_queue_node = NULL;
     bool                 is_queue_set_in_npu = false;
     bool                 is_queue_set_in_port_list = false;
+    sai_attribute_t      attr;
+    bool                 attach = false;
 
-    SAI_QUEUE_LOG_TRACE ("Queue Creation for port 0x%"PRIx64", queue_type %s.",
-                         port_id, sai_qos_queue_type_to_str (queue_type));
 
-    sai_qos_lock ();
+    sai_rc = sai_qos_queue_attributes_validate (attr_count, attr_list,
+                                                    SAI_OP_CREATE);
+
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_QUEUE_LOG_ERR ("Input parameters validation failed for "
+                           "Queue create");
+
+        return sai_rc;
+    }
 
     do {
         p_queue_node = sai_qos_queue_node_alloc ();
@@ -375,17 +490,19 @@ static sai_status_t sai_qos_queue_create (sai_object_id_t port_id,
             break;
         }
 
-        sai_qos_queue_node_init (p_queue_node, port_id, queue_type);
+        sai_qos_queue_node_init (p_queue_node);
+
+        sai_qos_queue_attr_set (p_queue_node, attr_count, attr_list, SAI_OP_CREATE);
 
         sai_rc = sai_queue_npu_api_get()->queue_create (p_queue_node,
-                                                        &queue_oid);
+                                                        queue_id);
 
         if (sai_rc != SAI_STATUS_SUCCESS) {
             SAI_QUEUE_LOG_ERR ("Queue creation failed in NPU.");
             break;
         }
 
-        p_queue_node->key.queue_id = queue_oid;
+        p_queue_node->key.queue_id = *queue_id;
 
         SAI_QUEUE_LOG_TRACE ("Queue Created in NPU.");
 
@@ -409,23 +526,95 @@ static sai_status_t sai_qos_queue_create (sai_object_id_t port_id,
             break;
         }
 
+        if (p_queue_node->parent_sched_group_id != SAI_NULL_OBJECT_ID) {
+            sai_rc = sai_queue_npu_api_get()->queue_attach_to_parent(*queue_id,
+                                                p_queue_node->parent_sched_group_id);
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_QUEUE_LOG_ERR ("Queue attach to parent SG 0x%"PRIx64" failed.",
+                               p_queue_node->parent_sched_group_id);
+                break;
+            }
+
+            sai_rc = sai_qos_sched_group_and_child_nodes_update
+                                              (p_queue_node->parent_sched_group_id,
+                                               *queue_id, true);
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_QUEUE_LOG_ERR ("Failed to update the child and parent hierarchy "
+                                   "information.");
+                (void) sai_queue_npu_api_get()->queue_detach_from_parent(*queue_id);
+                break;
+            }
+        }
+
+        attach = true;
+
+        attr.id = SAI_QUEUE_ATTR_SCHEDULER_PROFILE_ID;
+        attr.value.oid = p_queue_node->scheduler_id;
+
+        p_queue_node->scheduler_id = SAI_NULL_OBJECT_ID;
+        sai_rc = sai_qos_queue_scheduler_set(p_queue_node, &attr);
+
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_QUEUE_LOG_ERR("Scheduler set failed for qid0x%"PRIx64"",
+                                   *queue_id);
+            break;
+        }
+
+        if(p_queue_node->wred_id != SAI_NULL_OBJECT_ID) {
+            attr.id = SAI_QUEUE_ATTR_WRED_PROFILE_ID;
+            attr.value.oid = p_queue_node->wred_id;
+
+            sai_rc = sai_qos_wred_set_on_queue (*queue_id, &attr);
+
+            if(sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_QUEUE_LOG_ERR ("Failed to apply WRED profile 0x%"PRIx64""
+                                   "to queue:0x%"PRIx64"",  p_queue_node->wred_id,
+                                   *queue_id);
+                break;
+            }
+        }
+
+        if(p_queue_node->buffer_profile_id != SAI_NULL_OBJECT_ID) {
+            sai_rc = sai_qos_obj_update_buffer_profile(*queue_id, p_queue_node->buffer_profile_id);
+
+            if(sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_QUEUE_LOG_ERR ("Failed to apply buffer profile 0x%"PRIx64""
+                                   "to queue:0x%"PRIx64"", p_queue_node->buffer_profile_id,
+                                   *queue_id);
+                break;
+            }
+        }
+
     } while (0);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        SAI_QUEUE_LOG_INFO ("Queue Obj Id: 0x%"PRIx64" created.", queue_oid);
+        SAI_QUEUE_LOG_INFO ("Queue Obj Id: 0x%"PRIx64" created.", *queue_id);
     } else {
         SAI_QUEUE_LOG_ERR ("Failed to create Queue.");
 
-        sai_qos_queue_free_resources (p_queue_node, is_queue_set_in_npu,
-                                      is_queue_set_in_port_list);
-    }
+        sai_qos_queue_remove_configs (p_queue_node);
 
-    sai_qos_unlock ();
+        sai_qos_queue_free_resources (p_queue_node, is_queue_set_in_npu,
+                                      is_queue_set_in_port_list, attach);
+    }
 
     return sai_rc;
 }
 
-static sai_status_t sai_qos_queue_remove (sai_object_id_t queue_id)
+static sai_status_t sai_qos_queue_create (sai_object_id_t *queue_id,
+                                          sai_object_id_t switch_id,
+                                          uint32_t attr_count,
+                                          const sai_attribute_t *attr_list)
+{
+    sai_status_t         sai_rc = SAI_STATUS_SUCCESS;
+    sai_qos_lock ();
+    sai_rc =  sai_qos_queue_create_internal(queue_id, switch_id,
+                                          attr_count,attr_list);
+    sai_qos_unlock();
+    return sai_rc;
+}
+
+static sai_status_t sai_qos_queue_remove_internal (sai_object_id_t queue_id)
 {
     sai_status_t         sai_rc = SAI_STATUS_SUCCESS;
     dn_sai_qos_queue_t  *p_queue_node = NULL;
@@ -438,8 +627,6 @@ static sai_status_t sai_qos_queue_remove (sai_object_id_t queue_id)
 
         return SAI_STATUS_INVALID_OBJECT_TYPE;
     }
-
-    sai_qos_lock ();
 
     do {
         p_queue_node = sai_qos_queue_node_get (queue_id);
@@ -458,6 +645,10 @@ static sai_status_t sai_qos_queue_remove (sai_object_id_t queue_id)
                              p_queue_node->port_id,
                              sai_qos_queue_type_to_str(p_queue_node->queue_type));
 
+        /*TODO: Need to verify the presence of this queue in the TC to QUEUE mapping
+         *      for this current queue and throw in use error if it is present
+         */
+
         sai_rc = sai_qos_queue_remove_configs (p_queue_node);
 
         if (sai_rc != SAI_STATUS_SUCCESS) {
@@ -465,12 +656,20 @@ static sai_status_t sai_qos_queue_remove (sai_object_id_t queue_id)
             break;
         }
 
-        if ((sai_qos_queue_is_in_use (p_queue_node))) {
-            SAI_QUEUE_LOG_ERR ("Queue 0x%"PRIx64" can't be deleted, Queue is"
-                                " in use.", queue_id);
+        sai_rc = sai_queue_npu_api_get()->queue_detach_from_parent(queue_id);
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_QUEUE_LOG_ERR ("Queue 0x%"PRIx64" failed to detach from parent SG 0x%"PRIx64"",
+                               queue_id, p_queue_node->parent_sched_group_id);
+            break;
+        }
 
-            sai_rc = SAI_STATUS_OBJECT_IN_USE;
+        sai_rc = sai_qos_sched_group_and_child_nodes_update
+                                (p_queue_node->parent_sched_group_id,
+                                 queue_id, false);
 
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_QUEUE_LOG_ERR ("Queue 0x%"PRIx64" failed to remove from parent SG 0x%"PRIx64" child list",
+                               queue_id, p_queue_node->parent_sched_group_id);
             break;
         }
 
@@ -492,14 +691,21 @@ static sai_status_t sai_qos_queue_remove (sai_object_id_t queue_id)
 
     } while (0);
 
-    sai_qos_unlock ();
-
     if (sai_rc == SAI_STATUS_SUCCESS) {
         SAI_QUEUE_LOG_INFO ("Queue 0x%"PRIx64" removed.", queue_id);
     } else {
         SAI_QUEUE_LOG_ERR ("Failed to remove Queue 0x%"PRIx64".", queue_id);
     }
 
+    return sai_rc;
+}
+
+static sai_status_t sai_qos_queue_remove (sai_object_id_t queue_id)
+{
+    sai_status_t         sai_rc = SAI_STATUS_SUCCESS;
+    sai_qos_lock ();
+    sai_rc = sai_qos_queue_remove_internal (queue_id);
+    sai_qos_unlock();
     return sai_rc;
 }
 
@@ -554,8 +760,14 @@ static sai_status_t sai_qos_queue_attribute_set (sai_object_id_t queue_id,
 
         switch (p_attr->id)
         {
-            case SAI_QUEUE_ATTR_SCHEDULER_PROFILE_ID:
 
+            case SAI_QUEUE_ATTR_PARENT_SCHEDULER_NODE:
+                sai_rc = sai_qos_queue_modify_parent (queue_id,
+                                                      p_queue_node,
+                                                      p_attr->value.oid);
+                break;
+
+            case SAI_QUEUE_ATTR_SCHEDULER_PROFILE_ID:
                 sai_rc = sai_qos_queue_scheduler_set(p_queue_node, p_attr);
 
                 break;
@@ -648,11 +860,75 @@ static sai_status_t sai_qos_queue_attribute_get (sai_object_id_t queue_id,
     return sai_rc;
 }
 
+sai_status_t sai_qos_port_queue_create(sai_object_id_t port_id,
+                                       sai_queue_type_t queue_type,
+                                       uint8_t queue_index,
+                                       sai_object_id_t parent_sg_id,
+                                       sai_object_id_t *queue_id)
+{
+    sai_status_t     sai_rc = SAI_STATUS_SUCCESS;
+    uint_t           attr_count = 0;
+    sai_attribute_t  attr_list[SAI_QOS_QUEUE_DFLT_ATTR_COUNT] = {{0}};
+
+    STD_ASSERT(queue_id != NULL);
+
+    SAI_QUEUE_LOG_TRACE ("Queue Creation for port 0x%"PRIx64", queue_type %s."
+                         "queue index %u parent SG 0x%"PRIx64"",
+                         port_id, sai_qos_queue_type_to_str (queue_type),
+                         queue_index, parent_sg_id);
+
+    attr_count = 0;
+
+    attr_list[attr_count].id = SAI_QUEUE_ATTR_PORT;
+    attr_list[attr_count].value.oid = port_id;
+    attr_count ++;
+
+    attr_list[attr_count].id = SAI_QUEUE_ATTR_TYPE;
+    attr_list[attr_count].value.s32 = queue_type;
+    attr_count ++;
+
+    attr_list[attr_count].id = SAI_QUEUE_ATTR_INDEX;
+    attr_list[attr_count].value.u8 = queue_index;
+    attr_count ++;
+
+    attr_list[attr_count].id = SAI_QUEUE_ATTR_PARENT_SCHEDULER_NODE;
+    attr_list[attr_count].value.oid = parent_sg_id;
+    attr_count ++;
+
+    attr_list[attr_count].id = SAI_QUEUE_ATTR_SCHEDULER_PROFILE_ID;
+    attr_list[attr_count].value.oid = sai_qos_default_sched_id_get();
+    attr_count ++;
+
+    sai_rc = sai_qos_queue_create_internal(queue_id, SAI_DEFAULT_SWITCH_ID,
+                                  attr_count, &attr_list[0]);
+
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_QUEUE_LOG_ERR ("Failed to create queue for port 0x%"PRIx64""
+                           "queue_type %s and queue index %u.",
+                           port_id, sai_qos_queue_type_to_str (queue_type),
+                           queue_index);
+        return sai_rc;
+    }
+
+    SAI_QUEUE_LOG_TRACE ("Successfully created queue for port 0x%"PRIx64""
+                         "queue_type %s and queue index %u.",
+                         port_id, sai_qos_queue_type_to_str (queue_type),
+                         queue_index);
+
+    return SAI_STATUS_SUCCESS;
+}
+
+sai_status_t sai_qos_port_queue_remove(sai_object_id_t queue_id)
+{
+    return sai_qos_queue_remove_internal(queue_id);
+}
+
 sai_status_t sai_qos_port_queue_all_init (sai_object_id_t port_id)
 {
-    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
-    uint_t       queue = 0;
-    uint_t       max_queues = 0;
+    sai_status_t    sai_rc = SAI_STATUS_SUCCESS;
+    uint_t          queue = 0;
+    uint_t          max_queues = 0;
+    sai_object_id_t queue_id = SAI_NULL_OBJECT_ID;
 
     SAI_QUEUE_LOG_TRACE ("Port Queue All Init.");
 
@@ -662,7 +938,8 @@ sai_status_t sai_qos_port_queue_all_init (sai_object_id_t port_id)
 
         for (queue = 0; queue < max_queues; queue++) {
 
-            sai_rc = sai_qos_queue_create (port_id, SAI_QUEUE_TYPE_UNICAST);
+            sai_rc = sai_qos_port_queue_create (port_id, SAI_QUEUE_TYPE_UNICAST, queue,
+                                           SAI_NULL_OBJECT_ID, &queue_id);
 
             if (sai_rc != SAI_STATUS_SUCCESS) {
 
@@ -678,7 +955,8 @@ sai_status_t sai_qos_port_queue_all_init (sai_object_id_t port_id)
 
         for (queue = 0; queue < max_queues; queue++) {
 
-            sai_rc = sai_qos_queue_create (port_id, SAI_QUEUE_TYPE_MULTICAST);
+            sai_rc = sai_qos_port_queue_create (port_id, SAI_QUEUE_TYPE_MULTICAST, queue,
+                                           SAI_NULL_OBJECT_ID, &queue_id);
 
             if (sai_rc != SAI_STATUS_SUCCESS) {
 
@@ -694,7 +972,8 @@ sai_status_t sai_qos_port_queue_all_init (sai_object_id_t port_id)
 
         for (queue = 0; queue < max_queues; queue++) {
 
-            sai_rc = sai_qos_queue_create (port_id, SAI_QUEUE_TYPE_ALL);
+            sai_rc = sai_qos_port_queue_create (port_id, SAI_QUEUE_TYPE_ALL, queue,
+                                           SAI_NULL_OBJECT_ID, &queue_id);
 
             if (sai_rc != SAI_STATUS_SUCCESS) {
 
@@ -717,6 +996,7 @@ sai_status_t sai_qos_port_queue_all_deinit (sai_object_id_t port_id)
     dn_sai_qos_queue_t *p_queue_node = NULL;
     dn_sai_qos_queue_t *p_next_queue_node = NULL;
     dn_sai_qos_port_t  *p_qos_port_node = NULL;
+    sai_object_id_t    queue_id = SAI_NULL_OBJECT_ID;
 
     SAI_QUEUE_LOG_TRACE ("Port 0x%"PRIx64" Queue All De-Init.", port_id);
 
@@ -735,12 +1015,14 @@ sai_status_t sai_qos_port_queue_all_deinit (sai_object_id_t port_id)
 
         p_next_queue_node = sai_qos_port_get_next_queue (p_qos_port_node,
                                                          p_queue_node);
-        sai_rc = sai_qos_queue_remove (p_queue_node->key.queue_id);
+        queue_id = p_queue_node->key.queue_id;
+
+        sai_rc = sai_qos_queue_remove_internal (queue_id);
 
         if (sai_rc != SAI_STATUS_SUCCESS) {
             SAI_QUEUE_LOG_ERR ("Queue remove failed "
                                "for port 0x%"PRIx64", Queue 0x%"PRIx64".",
-                               port_id, p_queue_node->key.queue_id);
+                               port_id, queue_id);
             return sai_rc;
         }
     }
@@ -760,7 +1042,7 @@ sai_status_t sai_qos_first_free_queue_get (sai_object_id_t port_id,
 
     if (NULL == p_qos_port_node) {
 
-        SAI_SCHED_GRP_LOG_ERR ("Qos Port 0x%"PRIx64" does not exist in tree.",
+        SAI_QUEUE_LOG_ERR ("Qos Port 0x%"PRIx64" does not exist in tree.",
                                port_id);
 
         return SAI_STATUS_INVALID_OBJECT_ID;
@@ -787,7 +1069,7 @@ sai_status_t sai_qos_queue_id_list_get (sai_object_id_t port_id,
 {
     dn_sai_qos_port_t        *p_qos_port_node = NULL;
     dn_sai_qos_queue_t       *p_queue_node = NULL;
-    size_t                    queue_count = 0;
+    int                      queue_count = 0;
 
     if (0 == queue_id_list_count)
         return SAI_STATUS_SUCCESS;
@@ -931,8 +1213,8 @@ static sai_status_t sai_qos_queue_stats_clear (sai_object_id_t queue_id,
 }
 
 static sai_queue_api_t sai_qos_queue_method_table = {
-    NULL,
-    NULL,
+    sai_qos_queue_create,
+    sai_qos_queue_remove,
     sai_qos_queue_attribute_set,
     sai_qos_queue_attribute_get,
     sai_qos_queue_stats_get,

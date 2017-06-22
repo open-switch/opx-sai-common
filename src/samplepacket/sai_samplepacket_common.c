@@ -86,11 +86,6 @@ static sai_status_t sai_samplepacket_fill_attribute_params (
             break;
 
         case SAI_SAMPLEPACKET_ATTR_SAMPLE_RATE:
-            if (attr_list->value.u32 == 0) {
-                SAI_SAMPLEPACKET_LOG_ERR ("Sample rate cannot be zero");
-                rc = SAI_STATUS_CODE((abs)SAI_STATUS_INVALID_ATTR_VALUE_0 + attr_index);
-                break;
-            }
             p_session_info->sample_rate = attr_list->value.u32;
             break;
 
@@ -104,6 +99,7 @@ static sai_status_t sai_samplepacket_fill_attribute_params (
 }
 
 static sai_status_t sai_samplepacket_session_create (sai_object_id_t *session_id,
+                                              _In_ sai_object_id_t switch_id,
                                               uint32_t attr_count,
                                               const sai_attribute_t *attr_list)
 {

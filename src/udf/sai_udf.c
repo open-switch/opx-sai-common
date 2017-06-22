@@ -331,6 +331,7 @@ static void dn_sai_udf_node_init (dn_sai_udf_t *p_udf_obj)
 }
 
 static sai_status_t dn_sai_udf_create (sai_object_id_t *udf_id,
+                                       _In_ sai_object_id_t switch_id,
                                        uint32_t attr_count,
                                        const sai_attribute_t *attr_list)
 {
@@ -716,6 +717,7 @@ void dn_sai_udf_api_fill (sai_udf_api_t *p_udf_api_table)
 }
 
 static sai_status_t dn_sai_udf_match_create (sai_object_id_t *udf_match_id,
+                                             _In_ sai_object_id_t switch_id,
                                              uint32_t attr_count,
                                              const sai_attribute_t *attr_list)
 {

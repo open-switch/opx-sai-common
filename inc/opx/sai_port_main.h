@@ -33,16 +33,6 @@
 void sai_port_state_register_callback(sai_port_state_change_notification_fn port_state_notf_fn);
 
 /*
- * SAI port event callback registration API
- */
-void sai_port_event_register_callback(sai_port_event_notification_fn port_event_notf_fn);
-
-/*
- * Set port breakout mode
- */
-sai_status_t sai_port_breakout_set(const sai_port_breakout_t *portbreakout);
-
-/*
  * Get the list of valid Logical Port in the switch.
  */
 sai_status_t sai_port_list_get(sai_object_list_t *objlist);

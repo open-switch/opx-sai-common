@@ -34,8 +34,6 @@ void sai_hostif_dump_info()
     SAI_DEBUG("\r\nDumping global hostif information\r\n");
     SAI_DEBUG("Default trap group id = 0x%"PRIx64"",
                          hostif_info->default_trap_group_id);
-    SAI_DEBUG("Default trap channel = %d",
-                         hostif_info->default_trap_channel);
     SAI_DEBUG("Mandatory send pkt attribute count = %u",
                          hostif_info->mandatory_send_pkt_attr_count);
     SAI_DEBUG("Mandatory trap group attribute count =%u",

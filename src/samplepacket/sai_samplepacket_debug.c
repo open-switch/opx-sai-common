@@ -25,7 +25,7 @@
 #include "sai_samplepacket_api.h"
 #include "sai_samplepacket_util.h"
 #include "sai_debug_utils.h"
-
+#include "sai_oid_utils.h"
 #include "saisamplepacket.h"
 
 #include <stdlib.h>
@@ -64,22 +64,30 @@ void sai_samplepacket_dump_session_node (sai_object_id_t samplepacket_session_id
                 p_port_node->ref_count,
                 p_port_node->sample_mode);
     }
+    SAI_DEBUG ("\r\n");
 }
 
-void sai_samplepacket_dump (void)
+void sai_samplepacket_dump(sai_object_id_t session_id, bool all)
 {
     dn_sai_samplepacket_session_info_t *p_samplepacket_info = NULL;
-    dn_sai_samplepacket_session_info_t tmp_samplepacket_info;
-    SAI_DEBUG ("SamplePacket Tree\n");
-    for (p_samplepacket_info = std_rbtree_getfirst(sai_samplepacket_sessions_db_get());
-            p_samplepacket_info != NULL;
-            p_samplepacket_info = std_rbtree_getnext (sai_samplepacket_sessions_db_get(),
-                                  p_samplepacket_info))
-    {
-        memcpy (&tmp_samplepacket_info, p_samplepacket_info,
-                sizeof(dn_sai_samplepacket_session_info_t));
-        SAI_DEBUG ("Samplepacket session id 0x%"PRIx64"",
-                p_samplepacket_info->session_id);
-        sai_samplepacket_dump_session_node (p_samplepacket_info->session_id);
+    sai_object_id_t sai_session_id = SAI_NULL_OBJECT_ID;
+
+    if(all) {
+        for (p_samplepacket_info = std_rbtree_getfirst(sai_samplepacket_sessions_db_get());
+                p_samplepacket_info != NULL;
+                p_samplepacket_info = std_rbtree_getnext (sai_samplepacket_sessions_db_get(),
+                    p_samplepacket_info))
+        {
+            sai_samplepacket_dump_session_node (p_samplepacket_info->session_id);
+        }
+    } else {
+        if(sai_is_obj_id_samplepkt_session(session_id)) {
+            sai_session_id = session_id;
+        } else {
+            sai_session_id = sai_uoid_create(
+                    SAI_OBJECT_TYPE_SAMPLEPACKET,
+                    (sai_npu_object_id_t)session_id);
+        }
+        sai_samplepacket_dump_session_node(sai_session_id);
     }
 }

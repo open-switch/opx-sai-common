@@ -65,7 +65,6 @@ typedef struct _dn_sai_hostif_info_t {
     rbtree_handle             trap_group_tree;
     void                     *trap_group_bitmap;
     sai_object_id_t           default_trap_group_id;
-    sai_hostif_trap_channel_t default_trap_channel;
     uint_t                    mandatory_send_pkt_attr_count;
     uint_t                    mandatory_trap_group_attr_count;
     uint_t                    max_pkt_attrs;

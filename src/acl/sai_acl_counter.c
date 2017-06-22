@@ -136,6 +136,7 @@ static inline sai_status_t sai_acl_cntr_insert(
 }
 
 sai_status_t sai_create_acl_counter(sai_object_id_t *acl_counter_id,
+                                    sai_object_id_t switch_id,
                                     uint32_t attr_count,
                                     const sai_attribute_t *attr_list)
 {

@@ -92,13 +92,17 @@ dn_sai_qos_map_t *p_map_node, uint_t map_type)
 
     switch(map_type)
     {
-        case SAI_QOS_MAP_DOT1P_TO_TC_AND_COLOR:
-        case SAI_QOS_MAP_DSCP_TO_TC_AND_COLOR:
-        case SAI_QOS_MAP_TC_TO_QUEUE:
-        case SAI_QOS_MAP_TC_TO_PRIORITY_GROUP:
-        case SAI_QOS_MAP_PFC_PRIORITY_TO_QUEUE:
-        case SAI_QOS_MAP_TC_AND_COLOR_TO_DOT1P:
-        case SAI_QOS_MAP_TC_AND_COLOR_TO_DSCP:
+        case SAI_QOS_MAP_TYPE_DOT1P_TO_TC:
+        case SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR:
+        case SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR:
+        case SAI_QOS_MAP_TYPE_DSCP_TO_TC:
+        case SAI_QOS_MAP_TYPE_DSCP_TO_COLOR:
+        case SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR:
+        case SAI_QOS_MAP_TYPE_TC_TO_QUEUE:
+        case SAI_QOS_MAP_TYPE_TC_TO_PRIORITY_GROUP:
+        case SAI_QOS_MAP_TYPE_PFC_PRIORITY_TO_QUEUE:
+        case SAI_QOS_MAP_TYPE_TC_AND_COLOR_TO_DOT1P:
+        case SAI_QOS_MAP_TYPE_TC_AND_COLOR_TO_DSCP:
             p_map_node->map_type = map_type;
 
             SAI_MAPS_LOG_TRACE("Maptype updated in map node %d",
@@ -126,30 +130,85 @@ static sai_status_t sai_qos_map_update_ingress_maps(dn_sai_qos_port_t *p_qos_por
      * NPU removes all ingress maps on setting NULL_OBJECT. So reapplying the maps
      * other than the removed one.
      */
-    if(map_type == SAI_QOS_MAP_DOT1P_TO_TC_AND_COLOR){
-        if(p_qos_port_node->maps_id[SAI_QOS_MAP_DSCP_TO_TC_AND_COLOR] != SAI_NULL_OBJECT_ID){
-            map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_DSCP_TO_TC_AND_COLOR];
+    if((map_type == SAI_QOS_MAP_TYPE_DOT1P_TO_TC) ||
+       (map_type == SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR) ||
+       (map_type == SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR)){
+        if(p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DSCP_TO_TC] != SAI_NULL_OBJECT_ID){
+            map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DSCP_TO_TC];
 
             SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
                                map_type, map_id);
 
             sai_rc = sai_qos_map_npu_api_get()->port_map_set
                 (p_qos_port_node->port_id, map_id,
-                 SAI_QOS_MAP_DSCP_TO_TC_AND_COLOR, true);
+                 SAI_QOS_MAP_TYPE_DSCP_TO_TC, true);
+
+            return sai_rc;
+        }
+
+        if(p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DSCP_TO_COLOR] != SAI_NULL_OBJECT_ID){
+            map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DSCP_TO_COLOR];
+
+            SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
+                               map_type, map_id);
+
+            sai_rc = sai_qos_map_npu_api_get()->port_map_set
+                (p_qos_port_node->port_id, map_id,
+                 SAI_QOS_MAP_TYPE_DSCP_TO_COLOR, true);
+
+            return sai_rc;
+        }
+
+        if(p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR] != SAI_NULL_OBJECT_ID){
+            map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR];
+
+            SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
+                               map_type, map_id);
+
+            sai_rc = sai_qos_map_npu_api_get()->port_map_set
+                (p_qos_port_node->port_id, map_id,
+                 SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR, true);
 
             return sai_rc;
         }
     }
-    else if(map_type == SAI_QOS_MAP_DSCP_TO_TC_AND_COLOR){
-        if(p_qos_port_node->maps_id[SAI_QOS_MAP_DOT1P_TO_TC_AND_COLOR] != SAI_NULL_OBJECT_ID){
-            map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_DOT1P_TO_TC_AND_COLOR];
+    else if((map_type == SAI_QOS_MAP_TYPE_DSCP_TO_TC) ||
+            (map_type == SAI_QOS_MAP_TYPE_DSCP_TO_COLOR) ||
+            (map_type == SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR)){
+
+        if(p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_TC] != SAI_NULL_OBJECT_ID){
+            map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_TC];
 
             SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
                                    map_type, map_id);
 
             sai_rc = sai_qos_map_npu_api_get()->port_map_set
                 (p_qos_port_node->port_id, map_id,
-                 SAI_QOS_MAP_DOT1P_TO_TC_AND_COLOR, true);
+                 SAI_QOS_MAP_TYPE_DOT1P_TO_TC, true);
+            return sai_rc;
+        }
+
+        if(p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR] != SAI_NULL_OBJECT_ID){
+            map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR];
+
+            SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
+                                   map_type, map_id);
+
+            sai_rc = sai_qos_map_npu_api_get()->port_map_set
+                (p_qos_port_node->port_id, map_id,
+                 SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR, true);
+            return sai_rc;
+        }
+
+        if(p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR] != SAI_NULL_OBJECT_ID){
+            map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR];
+
+            SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
+                                   map_type, map_id);
+
+            sai_rc = sai_qos_map_npu_api_get()->port_map_set
+                (p_qos_port_node->port_id, map_id,
+                 SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR, true);
             return sai_rc;
         }
     }
@@ -179,7 +238,7 @@ static sai_status_t sai_qos_map_port_remove(dn_sai_qos_port_t *p_qos_port_node,
                                                      map_id, map_type, false);
 
     if(sai_rc != SAI_STATUS_SUCCESS){
-        SAI_MAPS_LOG_ERR("Npu set failed for mapid 0x%"PRIx64" on portid 0x%"PRIx64"",
+        SAI_MAPS_LOG_ERR("Npu set failed to remove for mapid 0x%"PRIx64" on portid 0x%"PRIx64"",
                          map_id, p_qos_port_node->port_id);
         return sai_rc;
     }
@@ -215,6 +274,16 @@ static sai_status_t sai_qos_map_port_add(dn_sai_qos_port_t *p_qos_port_node,
         return SAI_STATUS_INVALID_OBJECT_ID;
     }
 
+
+    sai_rc = sai_qos_map_npu_api_get()->port_map_set(p_qos_port_node->port_id,
+                                                     map_id, map_type, true);
+
+    if(sai_rc != SAI_STATUS_SUCCESS){
+        SAI_MAPS_LOG_ERR("Npu set failed to add for mapid 0x%"PRIx64" on portid 0x%"PRIx64"",
+                         map_id, p_qos_port_node->port_id);
+        return sai_rc;
+    }
+
     if(p_qos_port_node->maps_id[map_type] != SAI_NULL_OBJECT_ID)
     {
         p_map_node_old = sai_qos_map_node_get(p_qos_port_node->maps_id[map_type]);
@@ -229,15 +298,6 @@ static sai_status_t sai_qos_map_port_add(dn_sai_qos_port_t *p_qos_port_node,
         }
     }
 
-    sai_rc = sai_qos_map_npu_api_get()->port_map_set(p_qos_port_node->port_id,
-                                                     map_id, map_type, true);
-
-    if(sai_rc != SAI_STATUS_SUCCESS){
-        SAI_MAPS_LOG_ERR("Npu set failed for mapid 0x%"PRIx64" on portid 0x%"PRIx64"",
-                         map_id, p_qos_port_node->port_id);
-        return sai_rc;
-    }
-
     p_qos_port_node->maps_id[map_type] = map_id;
 
     std_dll_insertatback(&p_map_node->port_dll_head,
@@ -248,8 +308,22 @@ static sai_status_t sai_qos_map_port_add(dn_sai_qos_port_t *p_qos_port_node,
     return sai_rc;
 }
 
+sai_status_t sai_qos_map_on_port_set (sai_object_id_t port_id,
+                                      const sai_attribute_t *attr,
+                                      sai_qos_map_type_t map_type)
+{
+    sai_status_t  sai_rc = SAI_STATUS_SUCCESS;
 
-sai_status_t sai_qos_map_on_port_set
+    sai_qos_lock();
+
+    sai_rc = sai_qos_map_on_port_set_internal (port_id, attr,
+                                               map_type);
+    sai_qos_unlock();
+
+    return sai_rc;
+}
+
+sai_status_t sai_qos_map_on_port_set_internal
 (sai_object_id_t port_id, const sai_attribute_t *attr,
  sai_qos_map_type_t map_type)
 {
@@ -263,11 +337,11 @@ sai_status_t sai_qos_map_on_port_set
         return SAI_STATUS_INVALID_ATTRIBUTE_0;
     }
     map_id = attr->value.oid;
-    p_qos_port_node = sai_qos_port_node_get(port_id);
 
     SAI_MAPS_LOG_TRACE("Map id 0x%"PRIx64" set on port id 0x%"PRIx64"",
                        map_id, port_id);
 
+    p_qos_port_node = sai_qos_port_node_get(port_id);
     if(p_qos_port_node == NULL){
         SAI_MAPS_LOG_ERR ("Qos Port 0x%"PRIx64" does not exist in tree.",
                           port_id);
@@ -283,7 +357,7 @@ sai_status_t sai_qos_map_on_port_set
     else{
         if(p_qos_port_node->maps_id[map_type] == map_id){
             SAI_MAPS_LOG_TRACE("Map id already on the port");
-            return SAI_STATUS_ITEM_ALREADY_EXISTS;
+            return SAI_STATUS_SUCCESS;
         }
         else{
             SAI_MAPS_LOG_TRACE("Apply Map object on port");

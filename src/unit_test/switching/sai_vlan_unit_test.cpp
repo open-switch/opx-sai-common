@@ -31,41 +31,15 @@ extern "C" {
 #include "saitypes.h"
 #include "sai_switch_utils.h"
 #include "sai_l2_unit_test_defs.h"
+#include "sai_vlan_common.h"
+#include "sai_vlan_api.h"
 }
 
 #define SAI_MAX_PORTS  256
 
 static uint32_t port_count = 0;
 static sai_object_id_t port_list[SAI_MAX_PORTS] = {0};
-
-static inline void sai_port_evt_callback (uint32_t count,
-                                         sai_port_event_notification_t *data)
-{
-    uint32_t port_idx = 0;
-    sai_object_id_t port_id = 0;
-    sai_port_event_t port_event;
-
-    for(port_idx = 0; port_idx < count; port_idx++) {
-        port_id = data[port_idx].port_id;
-        port_event = data[port_idx].port_event;
-
-        if(port_event == SAI_PORT_EVENT_ADD) {
-            if(port_count < SAI_MAX_PORTS) {
-                port_list[port_count] = port_id;
-                port_count++;
-            }
-
-            printf("PORT ADD EVENT FOR port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else if(port_event == SAI_PORT_EVENT_DELETE) {
-
-            printf("PORT DELETE EVENT for  port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else {
-            printf("Invalid PORT EVENT for port 0x%"PRIx64" \r\n", port_id);
-        }
-    }
-}
+static sai_object_id_t switch_id = 0;
 
 /*
  * API query is done while running the first test case and
@@ -79,37 +53,50 @@ class vlanInit : public ::testing::Test
         static void SetUpTestCase()
         {
             sai_switch_api_t *p_sai_switch_api_tbl = NULL;
-            sai_switch_notification_t notification;
-            memset (&notification, 0, sizeof(sai_switch_notification_t));
 
             /*
              * Query and populate the SAI Switch API Table.
              */
             EXPECT_EQ (SAI_STATUS_SUCCESS, sai_api_query
-                       (SAI_API_SWITCH, (static_cast<void**>
-                                         (static_cast<void*>(&p_sai_switch_api_tbl)))));
+                    (SAI_API_SWITCH, (static_cast<void**>
+                                      (static_cast<void*>(&p_sai_switch_api_tbl)))));
 
             ASSERT_TRUE (p_sai_switch_api_tbl != NULL);
 
-            /*
-             * Switch Initialization.
-             * Fill in notification callback routines with stubs.
-             */
-            notification.on_switch_state_change = sai_switch_operstate_callback;
-            notification.on_fdb_event = sai_fdb_evt_callback;
-            notification.on_port_state_change = sai_port_state_evt_callback;
-            notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-            notification.on_packet_event = sai_packet_event_callback;
-            notification.on_port_event = sai_port_evt_callback;
+            sai_attribute_t sai_attr_set[7];
+            uint32_t attr_count = 7;
 
-            ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
+            memset(sai_attr_set,0, sizeof(sai_attr_set));
+
+            sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+            sai_attr_set[0].value.booldata = 1;
+
+            sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+            sai_attr_set[1].value.u32 = 0;
+
+            sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+            sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+            sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+            sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+            sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+            sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+            sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+            sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+            sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+            sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+            ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
             EXPECT_EQ (SAI_STATUS_SUCCESS,
-                       (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                                 &notification)));
+                    (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                          sai_attr_set)));
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_VLAN,
-                                         (static_cast<void**>(static_cast<void*>(&sai_vlan_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_vlan_api_table)))));
 
             ASSERT_TRUE(sai_vlan_api_table != NULL);
 
@@ -117,10 +104,22 @@ class vlanInit : public ::testing::Test
             EXPECT_TRUE(sai_vlan_api_table->remove_vlan != NULL);
             EXPECT_TRUE(sai_vlan_api_table->set_vlan_attribute != NULL);
             EXPECT_TRUE(sai_vlan_api_table->get_vlan_attribute != NULL);
-            EXPECT_TRUE(sai_vlan_api_table->add_ports_to_vlan != NULL);
-            EXPECT_TRUE(sai_vlan_api_table->remove_ports_from_vlan != NULL);
+            EXPECT_TRUE(sai_vlan_api_table->create_vlan_member != NULL);
+            EXPECT_TRUE(sai_vlan_api_table->remove_vlan_member != NULL);
             EXPECT_TRUE(sai_vlan_api_table->get_vlan_stats != NULL);
 
+            sai_attribute_t sai_port_attr;
+            sai_status_t ret = SAI_STATUS_SUCCESS;
+
+            memset (&sai_port_attr, 0, sizeof (sai_port_attr));
+
+            sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+            sai_port_attr.value.objlist.count = SAI_MAX_PORTS;
+            sai_port_attr.value.objlist.list  = port_list;
+
+            ret = p_sai_switch_api_tbl->get_switch_attribute(0,1,&sai_port_attr);
+            port_count = sai_port_attr.value.objlist.count;
+            EXPECT_EQ (SAI_STATUS_SUCCESS,ret);
             port_id_1 = port_list[0];
             port_id_2 = port_list[port_count-1];
             port_id_invalid = port_id_2 + 1;
@@ -142,24 +141,34 @@ sai_object_id_t vlanInit ::port_id_invalid = 0;
  */
 TEST_F(vlanInit, create_remove_vlan)
 {
+    sai_attribute_t attr;
+    sai_object_id_t vlan_obj_id = SAI_NULL_OBJECT_ID;
+    sai_object_id_t vlan_obj_id_fail = SAI_NULL_OBJECT_ID;
 
+    attr.id = SAI_VLAN_ATTR_VLAN_ID;
+    attr.value.u16 = SAI_GTEST_VLAN;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->create_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->create_vlan(&vlan_obj_id,0,1,&attr));
 
+    attr.id = SAI_VLAN_ATTR_VLAN_ID;
+    attr.value.u16 = SAI_GTEST_VLAN;
     ASSERT_EQ(SAI_STATUS_ITEM_ALREADY_EXISTS,
-              sai_vlan_api_table->create_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->create_vlan(&vlan_obj_id_fail,0,1,&attr));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->remove_vlan(vlan_obj_id));
 
     ASSERT_EQ(SAI_STATUS_ITEM_NOT_FOUND,
-              sai_vlan_api_table->remove_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->remove_vlan(vlan_obj_id));
 
+    vlan_obj_id = SAI_NULL_OBJECT_ID;
+    attr.id = SAI_VLAN_ATTR_VLAN_ID;
+    attr.value.u16 = SAI_GTEST_INVALID_VLAN_ID;
     ASSERT_EQ(SAI_STATUS_INVALID_VLAN_ID,
-              sai_vlan_api_table->create_vlan(SAI_GTEST_INVALID_VLAN_ID));
+              sai_vlan_api_table->create_vlan(&vlan_obj_id,0,1,&attr));
 
-    ASSERT_EQ(SAI_STATUS_INVALID_VLAN_ID,
-              sai_vlan_api_table->remove_vlan(SAI_GTEST_INVALID_VLAN_ID));
+    ASSERT_EQ(SAI_STATUS_INVALID_OBJECT_ID,
+              sai_vlan_api_table->remove_vlan(vlan_obj_id));
 }
 
 /*
@@ -167,156 +176,354 @@ TEST_F(vlanInit, create_remove_vlan)
  */
 TEST_F(vlanInit, vlan_port_test)
 {
-    sai_vlan_port_t vlan_port[2];
-    sai_vlan_port_t invalid_vlan_port[2];
+    sai_attribute_t attr[SAI_GTEST_VLAN_MEMBER_ATTR_COUNT];
+    sai_object_id_t vlan_obj_id = SAI_NULL_OBJECT_ID;
+    sai_object_id_t vlan_mem_obj_id1 = SAI_NULL_OBJECT_ID;
+    sai_object_id_t vlan_mem_obj_id2 = SAI_NULL_OBJECT_ID;
+    sai_object_id_t vlan_mem_obj_fail_id1 = SAI_NULL_OBJECT_ID;
+    sai_object_id_t vlan_mem_obj_fail_id2 = SAI_NULL_OBJECT_ID;
+    uint32_t attr_count = 0;
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_ATTR_VLAN_ID;
+    attr[attr_count].value.u16 = SAI_GTEST_VLAN;
+    attr_count++;
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+              sai_vlan_api_table->create_vlan(&vlan_obj_id,0,attr_count,attr));
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id_1;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_UNTAGGED;
+    attr_count++;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->create_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->create_vlan_member(&vlan_mem_obj_id1,
+                                                    0,
+                                                    attr_count,
+                                                    attr));
 
-    memset(vlan_port, 0, sizeof(vlan_port));
-
-    vlan_port[0].port_id = port_id_1;
-    vlan_port[0].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-    vlan_port[1].port_id = port_id_2;
-    vlan_port[1].tagging_mode = SAI_VLAN_TAGGING_MODE_TAGGED;
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id_2;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_TAGGED;
+    attr_count++;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->add_ports_to_vlan(SAI_GTEST_VLAN,
-                                                    2,
-                                                    (const sai_vlan_port_t*)
-                                                    vlan_port));
-    invalid_vlan_port[0].port_id = port_id_1;
-    invalid_vlan_port[0].tagging_mode = SAI_VLAN_TAGGING_MODE_TAGGED;
-    invalid_vlan_port[1].port_id = port_id_2;
-    invalid_vlan_port[1].tagging_mode = SAI_VLAN_TAGGING_MODE_TAGGED;
+              sai_vlan_api_table->create_vlan_member(&vlan_mem_obj_id2,
+                                                    0,
+                                                    attr_count,
+                                                    attr));
 
-    ASSERT_EQ(SAI_STATUS_INVALID_PORT_MEMBER,
-              sai_vlan_api_table->add_ports_to_vlan(SAI_GTEST_VLAN,
-                                                    2,
-                                                    (const sai_vlan_port_t*)
-                                                    invalid_vlan_port));
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr_count++;
 
-    ASSERT_EQ(SAI_STATUS_INVALID_PORT_MEMBER,
-              sai_vlan_api_table->remove_ports_from_vlan(SAI_GTEST_VLAN,
-                                                    2,
-                                                    (const sai_vlan_port_t*)
-                                                    invalid_vlan_port));
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+            sai_vlan_api_table->get_vlan_member_attribute(vlan_mem_obj_id1,
+                                                    attr_count,
+                                                    attr));
+    ASSERT_EQ(attr[attr_count].value.u32,SAI_VLAN_TAGGING_MODE_UNTAGGED);
 
-    invalid_vlan_port[0].port_id = port_id_invalid;
-    invalid_vlan_port[0].tagging_mode = SAI_VLAN_TAGGING_MODE_TAGGED;
-    invalid_vlan_port[1].port_id = port_id_2;
-    invalid_vlan_port[1].tagging_mode = SAI_VLAN_TAGGING_MODE_TAGGED;
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr_count++;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+            sai_vlan_api_table->get_vlan_member_attribute(vlan_mem_obj_id2,
+                                                    attr_count,
+                                                    attr));
+    ASSERT_EQ(attr[attr_count].value.u32,SAI_VLAN_TAGGING_MODE_TAGGED);
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_TAGGED;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+            sai_vlan_api_table->set_vlan_member_attribute(vlan_mem_obj_id1,
+                                                    &attr[attr_count]));
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_UNTAGGED;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+            sai_vlan_api_table->set_vlan_member_attribute(vlan_mem_obj_id2,
+                                                    &attr[attr_count]));
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr_count++;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+            sai_vlan_api_table->get_vlan_member_attribute(vlan_mem_obj_id1,
+                                                    attr_count,
+                                                    attr));
+    attr_count = 0;
+    ASSERT_EQ(attr[attr_count].value.u32,SAI_VLAN_TAGGING_MODE_TAGGED);
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr_count++;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+            sai_vlan_api_table->get_vlan_member_attribute(vlan_mem_obj_id2,
+                                                    attr_count,
+                                                    attr));
+    attr_count = 0;
+    ASSERT_EQ(attr[attr_count].value.u32,SAI_VLAN_TAGGING_MODE_UNTAGGED);
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id_1;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_TAGGED;
+    attr_count++;
+
+    ASSERT_EQ(SAI_STATUS_ITEM_ALREADY_EXISTS,
+              sai_vlan_api_table->create_vlan_member(&vlan_mem_obj_fail_id1,
+                                                    0,
+                                                    attr_count,
+                                                    attr));
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id_2;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_UNTAGGED;
+    attr_count++;
+
+    ASSERT_EQ(SAI_STATUS_ITEM_ALREADY_EXISTS,
+              sai_vlan_api_table->create_vlan_member(&vlan_mem_obj_fail_id2,
+                                                    0,
+                                                    attr_count,
+                                                    attr));
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+              sai_vlan_api_table->remove_vlan_member(vlan_mem_obj_id1));
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+              sai_vlan_api_table->remove_vlan_member(vlan_mem_obj_id2));
+
+    ASSERT_EQ(SAI_STATUS_ITEM_NOT_FOUND,
+              sai_vlan_api_table->remove_vlan_member(vlan_mem_obj_id1));
+
+    ASSERT_EQ(SAI_STATUS_ITEM_NOT_FOUND,
+              sai_vlan_api_table->remove_vlan_member(vlan_mem_obj_id2));
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id_invalid;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_TAGGED;
+    attr_count++;
 
     ASSERT_EQ(SAI_STATUS_INVALID_OBJECT_ID,
-              sai_vlan_api_table->add_ports_to_vlan(SAI_GTEST_VLAN,
-                                                    2,
-                                                    (const sai_vlan_port_t*)
-                                                    invalid_vlan_port));
+              sai_vlan_api_table->create_vlan_member(&vlan_mem_obj_fail_id1,
+                                                    0,
+                                                    attr_count,
+                                                    attr));
 
     ASSERT_EQ(SAI_STATUS_INVALID_OBJECT_ID,
-              sai_vlan_api_table->remove_ports_from_vlan(SAI_GTEST_VLAN,
-                                                    2,
-                                                    (const sai_vlan_port_t*)
-                                                    invalid_vlan_port));
-    ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_ports_from_vlan(SAI_GTEST_VLAN,
-                                                    2,
-                                                    (const sai_vlan_port_t*)
-                                                    vlan_port));
-
-    ASSERT_EQ(SAI_STATUS_INVALID_PORT_MEMBER,
-              sai_vlan_api_table->remove_ports_from_vlan(SAI_GTEST_VLAN,
-                                                    2,
-                                                    (const sai_vlan_port_t*)
-                                                    vlan_port));
+                  sai_vlan_api_table->remove_vlan_member(vlan_mem_obj_fail_id1));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->remove_vlan(vlan_obj_id));
 }
 /*
  * VLAN get port test
  */
 TEST_F(vlanInit, vlan_get_port)
 {
-    sai_vlan_port_t vlan_port[2];
-    sai_attribute_t attr;
-    sai_vlan_port_list_t vplist;
-    sai_vlan_port_t get_vlan_port[2];
+    sai_attribute_t attr[SAI_GTEST_VLAN_MEMBER_ATTR_COUNT];
+    sai_object_id_t vlan_obj_id = SAI_NULL_OBJECT_ID;
+    sai_object_id_t vlan_mem_obj_id1 = SAI_NULL_OBJECT_ID;
+    sai_object_id_t vlan_mem_obj_id2 = SAI_NULL_OBJECT_ID;
+    sai_object_id_t port_obj_list[SAI_GTEST_VLAN_MEMBER_PORT_COUNT];
+    //sai_vlan_member_node_t *vlan_node = NULL;
+    uint32_t attr_count = 0;
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_ATTR_VLAN_ID;
+    attr[attr_count].value.u16 = SAI_GTEST_VLAN;
+    attr_count++;
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+              sai_vlan_api_table->create_vlan(&vlan_obj_id,0,attr_count,attr));
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id_1;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_UNTAGGED;
+    attr_count++;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->create_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->create_vlan_member(&vlan_mem_obj_id1,
+                                                    0,
+                                                    attr_count,
+                                                    attr));
 
-    memset(vlan_port, 0, sizeof(vlan_port));
-
-    vlan_port[0].port_id = port_id_1;
-    vlan_port[0].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-    vlan_port[1].port_id = port_id_2;
-    vlan_port[1].tagging_mode = SAI_VLAN_TAGGING_MODE_TAGGED;
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id_2;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_TAGGED;
+    attr_count++;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->add_ports_to_vlan(SAI_GTEST_VLAN,
-                                                    2,
-                                                    (const sai_vlan_port_t*)
-                                                    vlan_port));
-
+              sai_vlan_api_table->create_vlan_member(&vlan_mem_obj_id2,
+                                                    0,
+                                                    attr_count,
+                                                    attr));
+    attr_count = 0;
     memset(&attr, 0, sizeof(attr));
-    memset(&vplist, 0, sizeof(vplist));
-    memset(get_vlan_port, 0, sizeof(get_vlan_port));
-    vplist.count = 2;
-    vplist.list = get_vlan_port;
+    memset(&port_obj_list, 0, sizeof(port_obj_list));
 
-    attr.id = SAI_VLAN_ATTR_PORT_LIST;
-    attr.value.vlanportlist = vplist;
-
-    ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->get_vlan_attribute(SAI_GTEST_VLAN, 1, &attr));
-
-    EXPECT_EQ(vlan_port[0].port_id, get_vlan_port[0].port_id);
-    EXPECT_EQ(vlan_port[1].port_id, get_vlan_port[1].port_id);
-    EXPECT_EQ(vlan_port[0].tagging_mode, get_vlan_port[0].tagging_mode);
-    EXPECT_EQ(vlan_port[1].tagging_mode, get_vlan_port[1].tagging_mode);
+    attr[attr_count].id = SAI_VLAN_ATTR_MEMBER_LIST;
+    attr[attr_count].value.objlist.count = SAI_GTEST_VLAN_MEMBER_PORT_COUNT;
+    attr[attr_count].value.objlist.list = port_obj_list;
+    attr_count++;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_ports_from_vlan(SAI_GTEST_VLAN,
-                                                    2,
-                                                    (const sai_vlan_port_t*)
-                                                    vlan_port));
+              sai_vlan_api_table->get_vlan_attribute(vlan_obj_id, 1, attr));
+
+    EXPECT_EQ(attr[0].value.objlist.count, SAI_GTEST_VLAN_MEMBER_PORT_COUNT);
+    EXPECT_EQ(vlan_mem_obj_id1, port_obj_list[0]);
+    EXPECT_EQ(vlan_mem_obj_id2, port_obj_list[1]);
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr_count++;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_vlan(SAI_GTEST_VLAN));
+            sai_vlan_api_table->get_vlan_member_attribute(
+                vlan_mem_obj_id1,
+                attr_count,
+                attr));
+    EXPECT_EQ(attr[0].value.oid, vlan_obj_id);
+    EXPECT_EQ(attr[1].value.oid, port_id_1);
+    EXPECT_EQ(attr[2].value.u32, SAI_VLAN_TAGGING_MODE_UNTAGGED);
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr_count++;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+            sai_vlan_api_table->get_vlan_member_attribute(
+                vlan_mem_obj_id2,
+                attr_count,
+                attr));
+    EXPECT_EQ(attr[0].value.oid, vlan_obj_id);
+    EXPECT_EQ(attr[1].value.oid, port_id_2);
+    EXPECT_EQ(attr[2].value.u32, SAI_VLAN_TAGGING_MODE_TAGGED);
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+              sai_vlan_api_table->remove_vlan_member(vlan_mem_obj_id1));
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+              sai_vlan_api_table->remove_vlan_member(vlan_mem_obj_id2));
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+              sai_vlan_api_table->remove_vlan(vlan_obj_id));
 }
 /*
  * VLAN port priority tag testing
  */
 TEST_F(vlanInit, vlan_port_priority_tag_test)
 {
-    sai_vlan_port_t vlan_port;
+    sai_attribute_t attr[SAI_GTEST_VLAN_MEMBER_ATTR_COUNT];
+    sai_object_id_t vlan_obj_id = SAI_NULL_OBJECT_ID;
+    sai_object_id_t vlan_mem_obj_id = SAI_NULL_OBJECT_ID;
+    uint32_t attr_count = 0;
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_ATTR_VLAN_ID;
+    attr[attr_count].value.u16 = SAI_GTEST_VLAN;
+    attr_count++;
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+              sai_vlan_api_table->create_vlan(&vlan_obj_id,0,attr_count,attr));
+
+    attr_count = 0;
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id_1;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_PRIORITY_TAGGED;
+    attr_count++;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->create_vlan(SAI_GTEST_VLAN));
-
-    memset(&vlan_port, 0, sizeof(vlan_port));
-
-    vlan_port.port_id = port_id_1;
-    vlan_port.tagging_mode = SAI_VLAN_TAGGING_MODE_PRIORITY_TAGGED;
+              sai_vlan_api_table->create_vlan_member(&vlan_mem_obj_id,
+                                                    0,
+                                                    attr_count,
+                                                    attr));
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->add_ports_to_vlan(SAI_GTEST_VLAN,
-                                                    1,
-                                                    (const sai_vlan_port_t*)
-                                                    &vlan_port));
-    EXPECT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_ports_from_vlan(SAI_GTEST_VLAN,
-                                                    1,
-                                                    (const sai_vlan_port_t*)
-                                                    &vlan_port));
-    EXPECT_EQ(SAI_STATUS_INVALID_PORT_MEMBER,
-              sai_vlan_api_table->remove_ports_from_vlan(SAI_GTEST_VLAN,
-                                                    1,
-                                                    (const sai_vlan_port_t*)
-                                                    &vlan_port));
+              sai_vlan_api_table->remove_vlan_member(vlan_mem_obj_id));
+
+    EXPECT_EQ(SAI_STATUS_ITEM_NOT_FOUND,
+              sai_vlan_api_table->remove_vlan_member(vlan_mem_obj_id));
+
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->remove_vlan(vlan_obj_id));
 }
 /*
  * VLAN test MAX learnt MAC address
@@ -325,27 +532,30 @@ TEST_F(vlanInit, test_max_learnt_mac_address)
 {
     sai_attribute_t set_attr;
     sai_attribute_t get_attr;
-
+    sai_attribute_t attr;
+    sai_object_id_t vlan_obj_id = SAI_NULL_OBJECT_ID;
 
     memset(&set_attr, 0, sizeof(sai_attribute_t));
     memset(&get_attr, 0, sizeof(sai_attribute_t));
 
+    attr.id = SAI_VLAN_ATTR_VLAN_ID;
+    attr.value.u16 = SAI_GTEST_VLAN;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->create_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->create_vlan(&vlan_obj_id,0,1,&attr));
 
     set_attr.id = SAI_VLAN_ATTR_MAX_LEARNED_ADDRESSES;
     set_attr.value.u32 = 100;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->set_vlan_attribute(SAI_GTEST_VLAN,
+              sai_vlan_api_table->set_vlan_attribute(vlan_obj_id,
                                                    (const sai_attribute_t*)&set_attr));
     get_attr.id = SAI_VLAN_ATTR_MAX_LEARNED_ADDRESSES;
     EXPECT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->get_vlan_attribute(SAI_GTEST_VLAN,1,
+              sai_vlan_api_table->get_vlan_attribute(vlan_obj_id,1,
                                                            &get_attr));
     EXPECT_EQ(set_attr.value.u32,get_attr.value.u32);
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->remove_vlan(vlan_obj_id));
 }
 /*
  * VLAN test learn disable
@@ -354,32 +564,35 @@ TEST_F(vlanInit, test_vlan_learn_disable)
 {
     sai_attribute_t set_attr;
     sai_attribute_t get_attr;
-
+    sai_attribute_t attr;
+    sai_object_id_t vlan_obj_id = SAI_NULL_OBJECT_ID;
 
     memset(&set_attr, 0, sizeof(sai_attribute_t));
     memset(&get_attr, 0, sizeof(sai_attribute_t));
 
+    attr.id = SAI_VLAN_ATTR_VLAN_ID;
+    attr.value.u16 = SAI_GTEST_VLAN;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->create_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->create_vlan(&vlan_obj_id,0,1,&attr));
 
     set_attr.id = SAI_VLAN_ATTR_LEARN_DISABLE;
     set_attr.value.booldata = true;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->set_vlan_attribute(SAI_GTEST_VLAN,
+              sai_vlan_api_table->set_vlan_attribute(vlan_obj_id,
                                                    (const sai_attribute_t*)&set_attr));
     get_attr.id = SAI_VLAN_ATTR_LEARN_DISABLE;
     EXPECT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->get_vlan_attribute(SAI_GTEST_VLAN,1,
+              sai_vlan_api_table->get_vlan_attribute(vlan_obj_id,1,
                                                            &get_attr));
     EXPECT_EQ(set_attr.value.booldata,get_attr.value.booldata);
     set_attr.value.booldata = false;
 
     EXPECT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->set_vlan_attribute(SAI_GTEST_VLAN,
+              sai_vlan_api_table->set_vlan_attribute(vlan_obj_id,
                                                    (const sai_attribute_t*)&set_attr));
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->remove_vlan(vlan_obj_id));
 }
 /*
  * VLAN test statistics
@@ -407,16 +620,20 @@ TEST_F(vlanInit, vlan_stats)
     uint64_t counter_val = 0;
     unsigned int idx = 0;
     sai_status_t ret_val = 0;
+    sai_attribute_t attr;
+    sai_object_id_t vlan_obj_id = SAI_NULL_OBJECT_ID;
 
+    attr.id = SAI_VLAN_ATTR_VLAN_ID;
+    attr.value.u16 = SAI_GTEST_VLAN;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->create_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->create_vlan(&vlan_obj_id,0,1,&attr));
 
     for(idx = 0; idx < num_counter; idx++) {
-        ret_val = sai_vlan_api_table->get_vlan_stats(SAI_GTEST_VLAN,
+        ret_val = sai_vlan_api_table->get_vlan_stats(vlan_obj_id,
                                                     (const sai_vlan_stat_t*)
                                                      &counter_ids[idx],1, &counter_val);
         if(ret_val == SAI_STATUS_SUCCESS) {
-            printf("Counter %d val is 0x%"PRIx64"\r\n",counter_ids[idx], counter_val);
+            printf("Counter %d val is 0x%" PRIx64 "\r\n",counter_ids[idx], counter_val);
         } else if(ret_val == SAI_STATUS_NOT_SUPPORTED) {
             printf("Counter %d is not supported\r\n",counter_ids[idx]);
         } else {
@@ -425,16 +642,16 @@ TEST_F(vlanInit, vlan_stats)
     }
 
     for(idx = 0; idx < num_counter; idx++) {
-        ret_val = sai_vlan_api_table->clear_vlan_stats(SAI_GTEST_VLAN,
+        ret_val = sai_vlan_api_table->clear_vlan_stats(vlan_obj_id,
                                                       (const sai_vlan_stat_t*)&counter_ids[idx],1);
         if(ret_val == SAI_STATUS_SUCCESS) {
-            EXPECT_EQ(SAI_STATUS_SUCCESS, sai_vlan_api_table->get_vlan_stats(SAI_GTEST_VLAN,
+            EXPECT_EQ(SAI_STATUS_SUCCESS, sai_vlan_api_table->get_vlan_stats(vlan_obj_id,
                                                                              (const sai_vlan_stat_t*)
                                                                               &counter_ids[idx],1, &counter_val));
             if(counter_val == 0) {
                 printf("Counter %d is cleared\r\n",counter_ids[idx]);
             } else {
-                printf("Counter %d has value 0x%"PRIx64" after clear\r\n",
+                printf("Counter %d has value 0x%" PRIx64 " after clear\r\n",
                        counter_ids[idx], counter_val);
             }
         } else if(ret_val == SAI_STATUS_NOT_SUPPORTED) {
@@ -445,6 +662,6 @@ TEST_F(vlanInit, vlan_stats)
     }
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_vlan_api_table->remove_vlan(SAI_GTEST_VLAN));
+              sai_vlan_api_table->remove_vlan(vlan_obj_id));
 
 }

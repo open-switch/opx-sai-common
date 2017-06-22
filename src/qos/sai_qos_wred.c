@@ -631,7 +631,7 @@ sai_status_t sai_qos_wred_set_on_queue(sai_object_id_t queue_id,
     return sai_rc;
 }
 
-sai_status_t sai_port_attr_wred_profile_set(sai_object_id_t port_id,
+sai_status_t sai_port_attr_wred_profile_set_internal (sai_object_id_t port_id,
                                             const sai_attribute_t *p_attr)
 {
     STD_ASSERT(p_attr != NULL);
@@ -641,6 +641,23 @@ sai_status_t sai_port_attr_wred_profile_set(sai_object_id_t port_id,
     }
 
     return SAI_STATUS_SUCCESS;
+}
+
+sai_status_t sai_port_attr_wred_profile_set(sai_object_id_t port_id,
+                                            const sai_attribute_t *p_attr)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    sai_qos_lock();
+
+    do {
+        sai_rc = sai_port_attr_wred_profile_set_internal(port_id, p_attr);
+
+    } while (0);
+
+    sai_qos_unlock();
+
+    return sai_rc;
 }
 /* API method table for Qos wred to be returned during query.
  **/

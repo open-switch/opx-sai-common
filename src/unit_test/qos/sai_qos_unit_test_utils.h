@@ -39,6 +39,9 @@ void SetUpTestCase();
 
 /* Methods for retrieving SAI port id for routing test cases */
 sai_object_id_t sai_qos_port_id_get (uint32_t port_index);
+sai_object_id_t* sai_qos_update_port_list();
+uint32_t * sai_qos_update_port_count();
+
 sai_object_id_t sai_qos_invalid_port_id_get ();
 sai_object_id_t sai_qos_max_ports_get ();
 
@@ -56,6 +59,12 @@ sai_status_t sai_test_port_sched_group_id_list_get (sai_object_id_t port_id,
                                                     unsigned int sg_count,
                                                     sai_object_id_t *p_sg_id_list);
 
+sai_status_t sai_test_port_queue_create(sai_object_id_t port_id,
+                                       sai_queue_type_t queue_type,
+                                       uint8_t queue_index,
+                                       sai_object_id_t parent_sg_id,
+                                       sai_object_id_t *queue_id);
+
 static inline sai_status_t sai_test_invalid_attr_status_code (
                                           sai_status_t status,
                                           unsigned int attr_index)
@@ -68,6 +77,11 @@ sai_status_t sai_test_scheduler_remove (sai_object_id_t sched_id);
 
 sai_status_t sai_test_cpu_port_id_get (sai_object_id_t *port_id);
 
+sai_status_t sai_test_queue_create(sai_object_id_t *p_queue_id,
+                                   unsigned int attr_count, ...);
+
+sai_status_t sai_test_queue_remove(sai_object_id_t queue_id);
+
 extern sai_switch_api_t            *p_sai_switch_api_table;
 extern sai_scheduler_group_api_t   *p_sai_qos_sg_api_table;
 extern sai_queue_api_t             *p_sai_qos_queue_api_table;
@@ -75,7 +89,6 @@ extern sai_port_api_t              *p_sai_port_api_table;
 extern sai_scheduler_api_t         *p_sai_scheduler_api_table;
 
 extern void sai_port_state_evt_callback (uint32_t count, sai_port_oper_status_notification_t *data);
-extern void sai_port_evt_callback (uint32_t count, sai_port_event_notification_t *data);
 extern void sai_fdb_evt_callback(uint32_t count, sai_fdb_event_notification_data_t *data);
 extern void sai_switch_operstate_callback (sai_switch_oper_status_t switchstate);
 extern sai_status_t sai_packet_rx_callback (void * buffer, uint32_t buffer_size,

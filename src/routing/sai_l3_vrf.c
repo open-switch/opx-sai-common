@@ -34,6 +34,7 @@
 #include "sai_common_infra.h"
 #include "sai_lag_callback.h"
 #include "sai_fdb_main.h"
+#include "sai_l3_next_hop_group_utl.h"
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -254,18 +255,22 @@ uint_t *p_attr_flags)
                 *p_attr_flags |= SAI_FIB_V6_ADMIN_STATE_ATTR_FLAG;
                 break;
 
-            case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION:
+            case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION:
                 sai_rc = sai_fib_vrf_ttl_violation_attr_set (p_vrf_node,
                                                              p_attr->value.s32);
 
                 *p_attr_flags |= SAI_FIB_TTL_VIOLATION_ATTR_FLAG;
                 break;
 
-            case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS:
+            case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION:
                 sai_rc = sai_fib_vrf_ip_options_attr_set (p_vrf_node,
                                                           p_attr->value.s32);
 
                 *p_attr_flags |= SAI_FIB_IP_OPTIONS_ATTR_FLAG;
+                break;
+
+            case SAI_VIRTUAL_ROUTER_ATTR_UNKNOWN_L3_MULTICAST_PACKET_ACTION:
+                sai_rc = SAI_STATUS_ATTR_NOT_IMPLEMENTED_0;
                 break;
 
             default:
@@ -476,7 +481,7 @@ static inline void sai_fib_vrf_default_route_del (sai_fib_vrf_t *p_vrf_node)
 }
 
 static sai_status_t sai_fib_virtual_router_create (
-sai_object_id_t *vr_obj_id, uint32_t attr_count,
+sai_object_id_t *vr_obj_id, sai_object_id_t switch_id, uint32_t attr_count,
 const sai_attribute_t *attr_list)
 {
     sai_status_t         sai_rc = SAI_STATUS_SUCCESS;
@@ -887,6 +892,9 @@ sai_status_t sai_router_init (void)
         return sai_rc;
     }
 
+    /* Initialize the UOID generator for next hop group member id */
+    sai_fib_next_hop_grp_member_gen_info_init();
+
     sai_rc = sai_router_npu_api_get()->fib_init ();
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
@@ -896,7 +904,7 @@ sai_status_t sai_router_init (void)
     }
 
     /* Register RIF callback function for LAG update */
-    sai_lag_rif_callback_register (sai_rif_lag_callback);
+    sai_lag_event_callback_register (SAI_MODULE_ROUTER_INTERFACE, sai_rif_lag_callback);
 
     /* Register Neighbor callback function for FDB entry updates */
     sai_l2_fdb_register_internal_callback (sai_neighbor_fdb_callback);

@@ -38,6 +38,7 @@ extern "C" {
 static const unsigned int default_port = 0;
 static sai_object_id_t queue_list[SAI_MAX_QUEUES] = {0};
 static unsigned int max_queues = 0;
+static sai_object_id_t switch_id = 0;
 
 #define LOG_PRINT(msg, ...) \
     printf(msg, ##__VA_ARGS__)
@@ -55,32 +56,49 @@ class wred : public ::testing::Test
         static void SetUpTestCase()
         {
             ASSERT_EQ(SAI_STATUS_SUCCESS,sai_api_query(SAI_API_SWITCH,
-                                         (static_cast<void**>(static_cast<void*>(&sai_switch_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_switch_api_table)))));
 
             ASSERT_TRUE(sai_switch_api_table != NULL);
 
-            EXPECT_TRUE(sai_switch_api_table->initialize_switch != NULL);
-            EXPECT_TRUE(sai_switch_api_table->shutdown_switch != NULL);
-            EXPECT_TRUE(sai_switch_api_table->connect_switch != NULL);
-            EXPECT_TRUE(sai_switch_api_table->disconnect_switch != NULL);
+            EXPECT_TRUE(sai_switch_api_table->remove_switch != NULL);
             EXPECT_TRUE(sai_switch_api_table->set_switch_attribute != NULL);
             EXPECT_TRUE(sai_switch_api_table->get_switch_attribute != NULL);
 
-            sai_switch_notification_t notification;
 
-            notification.on_switch_state_change = sai_switch_operstate_callback;
-            notification.on_fdb_event = sai_fdb_evt_callback;
-            notification.on_port_state_change = sai_port_state_evt_callback;
-            notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-            notification.on_port_event = sai_port_evt_callback;
-            notification.on_packet_event = sai_packet_event_callback;
+            sai_attribute_t sai_attr_set[7];
+            uint32_t attr_count = 7;
 
-            if(sai_switch_api_table->initialize_switch) {
-                sai_switch_api_table->initialize_switch(0,NULL,NULL,&notification);
-            }
+            memset(sai_attr_set,0, sizeof(sai_attr_set));
+
+            sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+            sai_attr_set[0].value.booldata = 1;
+
+            sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+            sai_attr_set[1].value.u32 = 0;
+
+            sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+            sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+            sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+            sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+            sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+            sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+            sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+            sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+            sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+            sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+            ASSERT_TRUE(sai_switch_api_table->create_switch != NULL);
+
+            EXPECT_EQ (SAI_STATUS_SUCCESS,
+                    (sai_switch_api_table->create_switch (&switch_id , attr_count,
+                                                          sai_attr_set)));
 
             ASSERT_EQ(SAI_STATUS_SUCCESS,sai_api_query(SAI_API_WRED,
-                                         (static_cast<void**>(static_cast<void*>(&sai_wred_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_wred_api_table)))));
 
             ASSERT_TRUE(sai_wred_api_table != NULL);
 
@@ -90,7 +108,7 @@ class wred : public ::testing::Test
             EXPECT_TRUE(sai_wred_api_table->get_wred_attribute != NULL);
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_QUEUE,
-                                         (static_cast<void**>(static_cast<void*>(&sai_queue_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_queue_api_table)))));
 
             ASSERT_TRUE(sai_queue_api_table != NULL);
 
@@ -99,16 +117,30 @@ class wred : public ::testing::Test
             EXPECT_TRUE(sai_queue_api_table->get_queue_stats != NULL);
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_PORT,
-                                         (static_cast<void**>(static_cast<void*>(&sai_port_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_port_api_table)))));
 
             ASSERT_TRUE(sai_port_api_table != NULL);
 
             EXPECT_TRUE(sai_port_api_table->set_port_attribute != NULL);
             EXPECT_TRUE(sai_port_api_table->get_port_attribute != NULL);
-            EXPECT_TRUE(sai_port_api_table->get_port_stats != NULL);
+            sai_attribute_t sai_port_attr;
+            uint32_t * port_count = sai_qos_update_port_count();
+            sai_status_t ret = SAI_STATUS_SUCCESS;
+
+            memset (&sai_port_attr, 0, sizeof (sai_port_attr));
+
+            sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+            sai_port_attr.value.objlist.count = 256;
+            sai_port_attr.value.objlist.list  = sai_qos_update_port_list();
+
+            ret = sai_switch_api_table->get_switch_attribute(0,1,&sai_port_attr);
+            *port_count = sai_port_attr.value.objlist.count;
+
+            ASSERT_EQ(SAI_STATUS_SUCCESS,ret);
+
+             EXPECT_TRUE(sai_port_api_table->get_port_stats != NULL);
 
             ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_list_get());
-
         }
 
         static sai_status_t sai_queue_list_get();
@@ -116,7 +148,7 @@ class wred : public ::testing::Test
         static sai_wred_api_t* sai_wred_api_table;
         static sai_queue_api_t* sai_queue_api_table;
         static sai_port_api_t* sai_port_api_table;
-        static const unsigned int test_port_id = 30;
+        static const unsigned int test_port_id = 3;
 };
 
 sai_switch_api_t* wred ::sai_switch_api_table = NULL;
@@ -138,7 +170,7 @@ sai_status_t wred::sai_queue_list_get()
         return sai_rc;
     } else {
          max_queues = attr.value.u32;
-         printf("Max queues on port 0x%"PRIx64": %d. \n", sai_qos_port_id_get(default_port), max_queues);
+         printf("Max queues on port 0x%" PRIx64 ": %d. \n", sai_qos_port_id_get(default_port), max_queues);
     }
     attr.id = SAI_PORT_ATTR_QOS_QUEUE_LIST;
 
@@ -155,7 +187,7 @@ sai_status_t wred::sai_queue_list_get()
     sai_rc = sai_port_api_table->get_port_attribute (sai_qos_port_id_get(default_port), 1, &attr);
 
     if (sai_rc == SAI_STATUS_BUFFER_OVERFLOW) {
-        printf("Requested queue count %d, Max queues %d on port :0x%"PRIx64".\n",
+        printf("Requested queue count %d, Max queues %d on port :0x%" PRIx64 ".\n",
                max_queues, attr.value.objlist.count, sai_qos_port_id_get(default_port));
         return SAI_STATUS_FAILURE;
     }
@@ -165,13 +197,13 @@ sai_status_t wred::sai_queue_list_get()
         return sai_rc;
     } else {
 
-        printf ("SAI port Get queue id list success for Port Id: 0x%"PRIx64".\n",
+        printf ("SAI port Get queue id list success for Port Id: 0x%" PRIx64 ".\n",
                 sai_qos_port_id_get(default_port));
 
-        printf ("SAI Port 0x%"PRIx64" Queue List.\n", sai_qos_port_id_get(default_port));
+        printf ("SAI Port 0x%" PRIx64 " Queue List.\n", sai_qos_port_id_get(default_port));
 
         for (index = 0; index < attr.value.objlist.count; ++index) {
-            printf ("SAI Queue index %d QOID 0x%"PRIx64".\n",
+            printf ("SAI Queue index %d QOID 0x%" PRIx64 ".\n",
                     index , queue_list[index]);
         }
     }
@@ -214,6 +246,7 @@ TEST_F(wred, wred_create_set)
     ASSERT_EQ(SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING, sai_wred_api_table->create_wred_profile
               (&wred_id1, attr_count, (const sai_attribute_t *)new_attr_list));
 
+    attr_count = 0;
     new_attr_list[attr_count].id = SAI_WRED_ATTR_GREEN_ENABLE;
     new_attr_list[attr_count].value.booldata = true;
 
@@ -407,11 +440,31 @@ TEST_F(wred, two_profiles)
 {
     sai_attribute_t new_attr_list[5];
     sai_attribute_t set_attr;
+    sai_attribute_t get_attr;
     sai_object_id_t wred_id1 = SAI_NULL_OBJECT_ID;
     sai_object_id_t wred_id2 = SAI_NULL_OBJECT_ID;
-    sai_object_id_t queue_id = queue_list[0];
-    sai_object_id_t queue_id1 = queue_list[1];
+    sai_object_id_t queue_id[2]  = { SAI_NULL_OBJECT_ID,
+                                     SAI_NULL_OBJECT_ID };
     unsigned int attr_count = 0;
+    unsigned int queue_idx = 0;
+    unsigned int uc_count = 0;
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    for ( ; (queue_idx < max_queues) && (uc_count < 2); queue_idx++)
+    {
+         get_attr.id = SAI_QUEUE_ATTR_TYPE;
+         sai_rc = sai_queue_api_table->get_queue_attribute (
+                                                 queue_list[queue_idx],
+                                                 1, &get_attr);
+
+         if ((sai_rc == SAI_STATUS_SUCCESS) &&
+               (get_attr.value.s32 == SAI_QUEUE_TYPE_UNICAST)) {
+             queue_id[uc_count] = queue_list[queue_idx];
+             uc_count++;
+         }
+    }
+
+    ASSERT_EQ(2, uc_count);
 
     attr_count = 0;
 
@@ -441,12 +494,12 @@ TEST_F(wred, two_profiles)
     attr_count ++;
 
     new_attr_list[attr_count].id = SAI_WRED_ATTR_RED_MIN_THRESHOLD;
-    new_attr_list[attr_count].value.u32 = 45;
+    new_attr_list[attr_count].value.u32 = 200;
 
     attr_count ++;
 
     new_attr_list[attr_count].id = SAI_WRED_ATTR_RED_MAX_THRESHOLD;
-    new_attr_list[attr_count].value.u32 = 200;
+    new_attr_list[attr_count].value.u32 = 400;
 
     attr_count ++;
 
@@ -457,27 +510,27 @@ TEST_F(wred, two_profiles)
     set_attr.value.oid = wred_id1;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
-              (queue_id,(const sai_attribute_t *)&set_attr));
+              (queue_id[0],(const sai_attribute_t *)&set_attr));
 
 
     set_attr.id = SAI_QUEUE_ATTR_WRED_PROFILE_ID;
     set_attr.value.oid = wred_id2;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
-              (queue_id,(const sai_attribute_t *)&set_attr));
+              (queue_id[0],(const sai_attribute_t *)&set_attr));
 
 
     set_attr.id = SAI_QUEUE_ATTR_WRED_PROFILE_ID;
     set_attr.value.oid = wred_id1;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
-              (queue_id1,(const sai_attribute_t *)&set_attr));
+              (queue_id[1],(const sai_attribute_t *)&set_attr));
 
     set_attr.id = SAI_QUEUE_ATTR_WRED_PROFILE_ID;
     set_attr.value.oid = SAI_NULL_OBJECT_ID;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
-              (queue_id,(const sai_attribute_t *)&set_attr));
+              (queue_id[0],(const sai_attribute_t *)&set_attr));
 
     ASSERT_EQ(SAI_STATUS_OBJECT_IN_USE, sai_wred_api_table->remove_wred_profile
               (wred_id1));
@@ -486,7 +539,7 @@ TEST_F(wred, two_profiles)
     set_attr.value.oid = SAI_NULL_OBJECT_ID;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
-              (queue_id1,(const sai_attribute_t *)&set_attr));
+              (queue_id[1],(const sai_attribute_t *)&set_attr));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_wred_api_table->remove_wred_profile
               (wred_id1));
@@ -503,9 +556,28 @@ TEST_F(wred, create_set_get)
     sai_attribute_t set_attr;
     sai_attribute_t get_attr[5];
     sai_object_id_t wred_id1 = SAI_NULL_OBJECT_ID;
-    sai_object_id_t queue_id = queue_list[0];
-    sai_object_id_t queue_id1 = queue_list[1];
+    sai_object_id_t queue_id[2] = {SAI_NULL_OBJECT_ID,
+                                   SAI_NULL_OBJECT_ID};
     unsigned int attr_count = 0;
+    unsigned int queue_idx = 0;
+    unsigned int uc_count = 0;
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    for ( ; (queue_idx < max_queues) && (uc_count < 2); queue_idx++)
+    {
+         get_attr[0].id = SAI_QUEUE_ATTR_TYPE;
+         sai_rc = sai_queue_api_table->get_queue_attribute (
+                                                 queue_list[queue_idx],
+                                                 1, &get_attr[0]);
+
+         if ((sai_rc == SAI_STATUS_SUCCESS) &&
+               (get_attr[0].value.s32 == SAI_QUEUE_TYPE_UNICAST)) {
+             queue_id[uc_count] = queue_list[queue_idx];
+             uc_count++;
+         }
+    }
+
+    ASSERT_EQ(2, uc_count);
 
     attr_count = 0;
 
@@ -582,14 +654,14 @@ TEST_F(wred, create_set_get)
     set_attr.value.oid = wred_id1;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
-              (queue_id,(const sai_attribute_t *)&set_attr));
+              (queue_id[0],(const sai_attribute_t *)&set_attr));
 
     set_attr.id = SAI_QUEUE_ATTR_WRED_PROFILE_ID;
     set_attr.value.oid = wred_id1;
 
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
-              (queue_id1,(const sai_attribute_t *)&set_attr));
+              (queue_id[1],(const sai_attribute_t *)&set_attr));
 
 
 
@@ -620,13 +692,13 @@ TEST_F(wred, create_set_get)
     set_attr.value.oid = SAI_NULL_OBJECT_ID;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
-              (queue_id,(const sai_attribute_t *)&set_attr));
+              (queue_id[0],(const sai_attribute_t *)&set_attr));
 
     set_attr.id = SAI_QUEUE_ATTR_WRED_PROFILE_ID;
     set_attr.value.oid = SAI_NULL_OBJECT_ID;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
-              (queue_id1,(const sai_attribute_t *)&set_attr));
+              (queue_id[1],(const sai_attribute_t *)&set_attr));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_wred_api_table->remove_wred_profile
               (wred_id1));

@@ -38,6 +38,7 @@ extern "C" {
 #include <inttypes.h>
 }
 
+
 class saiL3NextHopGroupTest : public saiL3Test
 {
     public:
@@ -53,6 +54,14 @@ class saiL3NextHopGroupTest : public saiL3Test
                                          sai_next_hop_group_type_t type,
                                          const unsigned int nh_count,
                                          const sai_object_id_t *p_nh_id_list);
+        static void sai_nh_group_verify_after_creation (
+                                      sai_object_id_t group_id,
+                                      sai_next_hop_group_type_t type,
+                                      const unsigned int grp_nh_count,
+                                      const unsigned int nh_count,
+                                      const sai_object_id_t *p_nh_id_list,
+                                      const sai_object_id_t *p_member_id_list,
+                                      bool  present);
         static void sai_nh_group_verify_after_remove_nh (
                                          sai_object_id_t group_id,
                                          const unsigned int group_nh_count,
@@ -64,8 +73,13 @@ class saiL3NextHopGroupTest : public saiL3Test
         static void sai_nh_group_verify_nh_weight (
                                          sai_object_id_t group_id,
                                          const unsigned int nh_count,
-                                         sai_object_id_t nh_id,
-                                         unsigned int nh_weight);
+                                         sai_object_id_t *nh_list,
+                                         sai_object_id_t *member_list,
+                                         sai_object_id_t nh_id);
+        static sai_status_t sai_test_remove_member_ids_from_group (
+                                              sai_object_id_t  group_id,
+                                              unsigned int     nh_count,
+                                              sai_object_id_t *member_id);
 
         static const unsigned int default_port = 0;
         static const unsigned int max_nh_group_attr_count = 3;
@@ -150,7 +164,7 @@ void saiL3NextHopGroupTest::TearDownTestCase (void)
     attr.id        = SAI_SWITCH_ATTR_ECMP_MEMBERS;
     attr.value.u32 = prev_max_ecmp_paths_value;
 
-    status  = saiL3Test::switch_api_tbl_get()->set_switch_attribute (
+    status  = saiL3Test::switch_api_tbl_get()->set_switch_attribute (switch_id,
                                                (const sai_attribute_t *)&attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 }
@@ -168,7 +182,7 @@ void saiL3NextHopGroupTest::sai_test_setup_max_ecmp_paths (void)
     attr.id = SAI_SWITCH_ATTR_ECMP_MEMBERS;
 
     /* Retrieve and store the current Max ECMP Paths value */
-    status  = saiL3Test::switch_api_tbl_get()->get_switch_attribute (1, &attr);
+    status  = saiL3Test::switch_api_tbl_get()->get_switch_attribute (switch_id,1, &attr);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -178,7 +192,7 @@ void saiL3NextHopGroupTest::sai_test_setup_max_ecmp_paths (void)
     attr.id        = SAI_SWITCH_ATTR_ECMP_MEMBERS;
     attr.value.u32 = max_ecmp_paths;
 
-    status  = saiL3Test::switch_api_tbl_get()->set_switch_attribute (
+    status  = saiL3Test::switch_api_tbl_get()->set_switch_attribute (switch_id,
                                                (const sai_attribute_t *)&attr);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -187,7 +201,7 @@ void saiL3NextHopGroupTest::sai_test_setup_max_ecmp_paths (void)
 
     attr.id = SAI_SWITCH_ATTR_ECMP_MEMBERS;
 
-    status  = saiL3Test::switch_api_tbl_get()->get_switch_attribute (1, &attr);
+    status  = saiL3Test::switch_api_tbl_get()->get_switch_attribute (switch_id,1, &attr);
 
     ASSERT_TRUE (attr.value.u32 != max_ecmp_paths);
 
@@ -343,7 +357,7 @@ void saiL3NextHopGroupTest::sai_nh_group_verify_after_creation (
                                          max_nh_group_attr_count,
                                          SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                          SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_COUNT,
-                                         SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST);
+                                         SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -360,6 +374,52 @@ void saiL3NextHopGroupTest::sai_nh_group_verify_after_creation (
                                                    &weight);
 
         EXPECT_EQ (is_found, true);
+    }
+}
+
+void saiL3NextHopGroupTest::sai_nh_group_verify_after_creation(
+                                        sai_object_id_t group_id,
+                                        sai_next_hop_group_type_t type,
+                                        const unsigned int grp_nh_count,
+                                        const unsigned int nh_count,
+                                        const sai_object_id_t *p_nh_id_list,
+                                        const sai_object_id_t *p_memb_id_list,
+                                        bool  present)
+{
+    sai_status_t      status;
+    sai_attribute_t   attr_list [max_nh_group_attr_count];
+    sai_object_id_t   sai_member_list [max_ecmp_paths];
+    unsigned int      weight = 0;
+    unsigned int      index;
+    bool              is_found;
+
+    attr_list[0].id = SAI_NEXT_HOP_GROUP_ATTR_TYPE;
+    attr_list[1].id = SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_COUNT;
+    attr_list[2].id = SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST;
+
+    /* Set the nh count and pointer in next hop list attribute */
+    attr_list[2].value.objlist.count = max_ecmp_paths;
+    attr_list[2].value.objlist.list  = sai_member_list;
+
+    status = p_sai_nh_grp_api_tbl->
+        get_next_hop_group_attribute (group_id,
+                                      max_nh_group_attr_count,
+                                      attr_list);
+    ASSERT_EQ (SAI_STATUS_SUCCESS, status);
+
+    EXPECT_EQ (type, attr_list[0].value.s32);
+
+    EXPECT_EQ (grp_nh_count, attr_list[1].value.u32);
+
+    EXPECT_EQ (grp_nh_count, attr_list[2].value.objlist.count);
+
+    for (index = 0; index < nh_count; index++) {
+
+        is_found = sai_test_find_nh_id_in_nh_list (p_memb_id_list [index],
+                                                   &attr_list[2].value.objlist,
+                                                   &weight);
+
+        EXPECT_EQ (is_found, present);
     }
 }
 
@@ -386,7 +446,7 @@ void saiL3NextHopGroupTest::sai_nh_group_verify_after_remove_nh (
     status = sai_test_nh_group_attr_get (group_id, attr_list,
                                          (max_nh_group_attr_count - 1),
                                          SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_COUNT,
-                                         SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST);
+                                         SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -423,36 +483,58 @@ void saiL3NextHopGroupTest::sai_nh_group_verify_after_removal (
 void saiL3NextHopGroupTest::sai_nh_group_verify_nh_weight (
                                              sai_object_id_t group_id,
                                              const unsigned int group_nh_count,
-                                             sai_object_id_t nh_id,
-                                             const unsigned int nh_weight)
+                                             sai_object_id_t *nh_list,
+                                             sai_object_id_t *member_list,
+                                             sai_object_id_t nh_id)
 {
     sai_status_t      status;
     sai_attribute_t   attr_list [max_nh_group_attr_count];
-    sai_object_id_t   nh_id_list [max_ecmp_paths];
+    sai_object_id_t   sai_member_list [max_ecmp_paths];
     unsigned int      weight = 0;
     unsigned int      index;
     bool              is_found;
 
     /* Set the nh count and pointer in next hop list attribute */
-    attr_list[0].value.objlist.count = group_nh_count;
-    attr_list[0].value.objlist.list  = nh_id_list;
+    attr_list[0].id = SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST;
+    attr_list[0].value.objlist.count = max_ecmp_paths;
+    attr_list[0].value.objlist.list  = sai_member_list;
 
-    status = sai_test_nh_group_attr_get (group_id, attr_list,
-                                         (max_nh_group_attr_count - 2),
-                                         SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST);
-
+    status = p_sai_nh_grp_api_tbl->
+        get_next_hop_group_attribute (group_id,
+                                      max_nh_group_attr_count - 2,
+                                      attr_list);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    for (index = 0; index < group_nh_count; index++)
-    {
-        is_found = sai_test_find_nh_id_in_nh_list (nh_id,
-                                                   &attr_list[0].value.objlist,
-                                                   &weight);
+    for (index = 0; index < group_nh_count; index++) {
+        if (nh_list [index] == nh_id) {
+            is_found =
+                sai_test_find_nh_id_in_nh_list (member_list [index],
+                                                &attr_list[0].value.objlist,
+                                                &weight);
 
-        EXPECT_EQ (is_found, true);
-
-        EXPECT_EQ (weight, nh_weight);
+            EXPECT_EQ (is_found, true);
+        }
     }
+}
+
+sai_status_t saiL3NextHopGroupTest::
+sai_test_remove_member_ids_from_group (sai_object_id_t  group_id,
+                                       unsigned int     nh_count,
+                                       sai_object_id_t *member_id)
+{
+    sai_status_t status;
+    unsigned int index;
+
+    for (index = 0; index < nh_count; index++) {
+        status = p_sai_nh_grp_api_tbl->
+            remove_next_hop_group_member (member_id [index]);
+
+        if (status != SAI_STATUS_SUCCESS) {
+            return status;
+        }
+    }
+
+    return SAI_STATUS_SUCCESS;
 }
 
 /*
@@ -468,12 +550,12 @@ TEST_F (saiL3NextHopGroupTest, create_and_remove_ecmp_group)
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        nh_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
     sai_nh_group_verify_after_creation (group_id, SAI_NEXT_HOP_GROUP_TYPE_ECMP,
                                         nh_count, p_nh_id_list);
@@ -499,12 +581,12 @@ TEST_F (saiL3NextHopGroupTest, add_nh_to_ecmp_group)
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        old_nh_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
     /* Add a set of new next hops from the global list into group */
     status = sai_test_add_nh_to_group (group_id, new_nh_count,
@@ -512,7 +594,7 @@ TEST_F (saiL3NextHopGroupTest, add_nh_to_ecmp_group)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("Added NH Count: %d to Next Hop Group Id: 0x%"PRIx64".\n",
+    printf ("Added NH Count: %d to Next Hop Group Id: 0x%" PRIx64 ".\n",
             new_nh_count, group_id);
 
     /* Verify the entire count of next hops are added in the group */
@@ -543,12 +625,12 @@ TEST_F (saiL3NextHopGroupTest, remove_nh_from_ecmp_group)
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        old_nh_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
     /* Add a set of new next hops from the global list into group */
     p_new_nh_id_list = &p_nh_id_list [old_nh_count];
@@ -558,7 +640,7 @@ TEST_F (saiL3NextHopGroupTest, remove_nh_from_ecmp_group)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("Added NH Count: %d to Next Hop Group Id: 0x%"PRIx64".\n",
+    printf ("Added NH Count: %d to Next Hop Group Id: 0x%" PRIx64 ".\n",
             new_nh_count, group_id);
 
     /* Verify the entire count of next hops are added in the group */
@@ -574,7 +656,7 @@ TEST_F (saiL3NextHopGroupTest, remove_nh_from_ecmp_group)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("Removed NH Count: %d from Next Hop Group Id: 0x%"PRIx64".\n",
+    printf ("Removed NH Count: %d from Next Hop Group Id: 0x%" PRIx64 ".\n",
             new_nh_count, group_id);
 
     /* Verify the new next hops are removed from the group */
@@ -606,7 +688,7 @@ TEST_F (saiL3NextHopGroupTest, invalid_nh_group_type_attr_value)
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        invalid_group_type,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        nh_count);
 
     EXPECT_EQ ((sai_test_invalid_attr_status_code (SAI_STATUS_INVALID_ATTR_VALUE_0,
@@ -629,20 +711,10 @@ TEST_F (saiL3NextHopGroupTest, invalid_nh_list_attr_value)
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        nh_count);
 
     EXPECT_EQ (SAI_STATUS_INVALID_OBJECT_TYPE, status);
-
-    /* Pass invalid NH count */
-    status = sai_test_nh_group_create (&group_id, p_nh_id_list,
-                                       default_nh_group_attr_count,
-                                       SAI_NEXT_HOP_GROUP_ATTR_TYPE,
-                                       SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
-                                       0);
-
-    EXPECT_EQ (SAI_STATUS_INVALID_PARAMETER, status);
 }
 
 /*
@@ -651,23 +723,42 @@ TEST_F (saiL3NextHopGroupTest, invalid_nh_list_attr_value)
  */
 TEST_F (saiL3NextHopGroupTest, mandatory_attr_missing)
 {
-    sai_status_t         status;
-    const unsigned int   nh_count = 10;
-    sai_object_id_t      group_id = 0;
+    sai_status_t              status;
+    sai_object_id_t           group_id = 0;
+    sai_object_id_t           member_id = 0;
+    static const unsigned int num_nh_member_attr = 3;
+    sai_attribute_t           attr [num_nh_member_attr];
+    uint32_t                  index;
 
-    /* Miss the NH Group Type attribute */
-    status = sai_test_nh_group_create (&group_id, p_nh_id_list,
-                                       default_nh_group_attr_count - 1,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
-                                       nh_count);
+    /* Creating NH Member object with missing mandatory attributes */
+    status = sai_test_nh_group_create_no_nh_list (&group_id,
+                                                  SAI_NEXT_HOP_GROUP_TYPE_ECMP);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, status);
+
+    /* Missing Group Id */
+    memset (attr, 0, sizeof (attr));
+    index = 0;
+
+    attr[index].id = SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_GROUP_ID;
+    attr[index].value.oid = group_id;
+    index++;
+
+    status = p_sai_nh_grp_api_tbl->
+        create_next_hop_group_member (&member_id, saiL3Test::switch_id, index, attr);
 
     EXPECT_EQ (SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING, status);
 
-    /* Miss the NH list attribute */
-    status = sai_test_nh_group_create (&group_id, p_nh_id_list,
-                                       default_nh_group_attr_count - 1,
-                                       SAI_NEXT_HOP_GROUP_ATTR_TYPE,
-                                       SAI_NEXT_HOP_GROUP_TYPE_ECMP);
+    /* Missing NH Id */
+    memset (attr, 0, sizeof (attr));
+    index = 0;
+
+    attr[index].id = SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_ID;
+    attr[index].value.oid = p_nh_id_list [0];
+    index++;
+
+    status = p_sai_nh_grp_api_tbl->
+        create_next_hop_group_member (&member_id, saiL3Test::switch_id, index, attr);
 
     EXPECT_EQ (SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING, status);
 }
@@ -678,23 +769,59 @@ TEST_F (saiL3NextHopGroupTest, mandatory_attr_missing)
  */
 TEST_F (saiL3NextHopGroupTest, invalid_attr_id)
 {
-    sai_status_t             status;
-    const unsigned int       nh_count = 10;
-    sai_object_id_t          group_id = 0;
-    const unsigned int       invalid_attr_pos = 2;
-    const unsigned int       invalid_attr_id = 0xffff;
+    sai_status_t              status;
+    sai_object_id_t           group_id = 0;
+    sai_object_id_t           member_id = 0;
+    static const unsigned int num_nh_member_attr = 3;
+    sai_attribute_t           attr [num_nh_member_attr];
+    uint32_t                  index;
+    const unsigned int        invalid_grp_attr_pos = 1;
+    const unsigned int        invalid_nh_attr_pos = 2;
+    const unsigned int        invalid_attr_id = 0xffff;
 
     /* Pass invalid attribtue id in list */
-    status = sai_test_nh_group_create (&group_id, p_nh_id_list,
-                                       (default_nh_group_attr_count + 1),
-                                       SAI_NEXT_HOP_GROUP_ATTR_TYPE,
-                                       SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
-                                       nh_count,
-                                       invalid_attr_id, 0);
+    memset (&attr, 0, sizeof (attr));
+    index = 0;
 
-    EXPECT_EQ ((sai_test_invalid_attr_status_code (SAI_STATUS_UNKNOWN_ATTRIBUTE_0,
-                invalid_attr_pos)), status);
+    attr [index].id = SAI_NEXT_HOP_GROUP_ATTR_TYPE;
+    attr [index].value.s32 = SAI_NEXT_HOP_GROUP_TYPE_ECMP;
+    index++;
+
+    attr [index].id = invalid_attr_id;
+    index++;
+
+    status = p_sai_nh_grp_api_tbl->
+        create_next_hop_group (&group_id, switch_id, index, attr);
+
+    EXPECT_EQ ((sai_test_invalid_attr_status_code(SAI_STATUS_UNKNOWN_ATTRIBUTE_0,
+                invalid_grp_attr_pos)), status);
+
+    /* Creating NH Member object with missing mandatory attributes */
+    status = sai_test_nh_group_create_no_nh_list (&group_id,
+                                                  SAI_NEXT_HOP_GROUP_TYPE_ECMP);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, status);
+
+    /* Pass invalid attribtue id in list */
+    memset (&attr, 0, sizeof (attr));
+    index = 0;
+
+    attr [index].id = SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_GROUP_ID;
+    attr [index].value.oid = group_id;
+    index++;
+
+    attr [index].id = SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_ID;
+    attr [index].value.oid = p_nh_id_list [0];
+    index++;
+
+    attr [index].id = invalid_attr_id;
+    index++;
+
+    status = p_sai_nh_grp_api_tbl->
+        create_next_hop_group_member (&member_id, saiL3Test::switch_id, index, attr);
+
+    EXPECT_EQ ((sai_test_invalid_attr_status_code(SAI_STATUS_UNKNOWN_ATTRIBUTE_0,
+                invalid_nh_attr_pos)), status);
+
 }
 
 /*
@@ -713,23 +840,18 @@ TEST_F (saiL3NextHopGroupTest, invalid_param_in_add_nh_to_group)
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        old_nh_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
     /* Pass invalid NH Id */
     status = sai_test_add_nh_to_group (group_id, new_nh_count,
                                        &invalid_nh_id);
 
     EXPECT_EQ (SAI_STATUS_INVALID_OBJECT_TYPE, status);
-
-    /* Pass zero NH count */
-    status = sai_test_add_nh_to_group (group_id, 0, p_nh_id_list);
-
-    EXPECT_EQ (SAI_STATUS_INVALID_PARAMETER, status);
 
     status = sai_test_nh_group_remove (group_id);
 
@@ -745,30 +867,24 @@ TEST_F (saiL3NextHopGroupTest, invalid_param_in_remove_nh_from_group)
     sai_status_t         status;
     const unsigned int   old_nh_count = 10;
     sai_object_id_t      group_id = 0;
-    const unsigned int   new_nh_count = 1;
-    sai_object_id_t      invalid_nh_id = 0;
+    sai_object_id_t      invalid_member_id = 0;
 
     status = sai_test_nh_group_create (&group_id, p_nh_id_list,
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        old_nh_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
-    /* Pass invalid NH Id */
-    status = sai_test_remove_nh_from_group (group_id, new_nh_count,
-                                            &invalid_nh_id);
+    /* Pass invalid Member Id */
+    status = p_sai_nh_grp_api_tbl->
+        remove_next_hop_group_member (invalid_member_id);
 
     EXPECT_EQ (SAI_STATUS_INVALID_OBJECT_TYPE, status);
-
-    /* Pass zero NH count */
-    status = sai_test_add_nh_to_group (group_id, 0, p_nh_id_list);
-
-    EXPECT_EQ (SAI_STATUS_INVALID_PARAMETER, status);
 
     status = sai_test_nh_group_remove (group_id);
 
@@ -811,30 +927,22 @@ TEST_F (saiL3NextHopGroupTest, exceed_max_ecmp_paths)
     sai_object_id_t  group_id = 0;
 
     /* Create NH Group with nh count more than max paths and verify it fails */
-    status = sai_test_nh_group_create (&group_id, p_nh_id_list,
-                                       default_nh_group_attr_count,
-                                       SAI_NEXT_HOP_GROUP_ATTR_TYPE,
-                                       SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
-                                       max_ecmp_paths + 1);
+    status = sai_test_nh_group_create_no_nh_list (&group_id,
+                                                  SAI_NEXT_HOP_GROUP_TYPE_ECMP);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
+    status = sai_test_add_nh_to_group (group_id,
+                                       max_ecmp_paths + 1, p_nh_id_list);
     EXPECT_NE (SAI_STATUS_SUCCESS, status);
 
     /* Add NH to Group whose nh count is equal to max paths and
      * verify it fails */
-    status = sai_test_nh_group_create (&group_id, p_nh_id_list,
-                                       default_nh_group_attr_count,
-                                       SAI_NEXT_HOP_GROUP_ATTR_TYPE,
-                                       SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
-                                       max_ecmp_paths);
-
+    status = sai_test_add_nh_to_group (group_id, max_ecmp_paths, p_nh_id_list);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
     status = sai_test_add_nh_to_group (group_id, 1, p_nh_id_list);
-
     EXPECT_NE (SAI_STATUS_SUCCESS, status);
 
     status = sai_test_nh_group_remove (group_id);
@@ -855,53 +963,58 @@ TEST_F (saiL3NextHopGroupTest, create_and_remove_with_weighted_nh)
     const sai_object_id_t      nh1_id = p_nh_id_list [0];
     const sai_object_id_t      nh2_id = p_nh_id_list [1];
     const sai_object_id_t      nh3_id = p_nh_id_list [2];
-    sai_object_id_t            wt_nh_id_list [max_ecmp_paths];
+    sai_object_id_t            wt_nh_id_list [max_ecmp_paths] = {0};
+    sai_object_id_t            member_list [max_ecmp_paths] = {0};
     unsigned int               nh_count = 0;
     unsigned int               wt_index;
     sai_next_hop_group_type_t  group_type = SAI_NEXT_HOP_GROUP_TYPE_ECMP;
 
     /* Copy the next hop id to introduce weights */
-    for (wt_index = 0; wt_index < nh1_weight; wt_index++, nh_count++)
-    {
+    for (wt_index = 0; wt_index < nh1_weight; wt_index++, nh_count++) {
         wt_nh_id_list [nh_count] = nh1_id;
     }
 
-    for (wt_index = 0; wt_index < nh2_weight; wt_index++, nh_count++)
-    {
+    for (wt_index = 0; wt_index < nh2_weight; wt_index++, nh_count++) {
         wt_nh_id_list [nh_count] = nh2_id;
     }
 
-    for (wt_index = 0; wt_index < nh3_weight; wt_index++, nh_count++)
-    {
+    for (wt_index = 0; wt_index < nh3_weight; wt_index++, nh_count++) {
         wt_nh_id_list [nh_count] = nh3_id;
     }
 
-    status = sai_test_nh_group_create (&group_id, wt_nh_id_list,
-                                       default_nh_group_attr_count,
-                                       SAI_NEXT_HOP_GROUP_ATTR_TYPE,
-                                       group_type,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
-                                       nh_count);
-
+    status = sai_test_nh_group_create_no_nh_list (&group_id, group_type);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
+    status = sai_test_add_nh_to_group (group_id, nh_count,
+                                       wt_nh_id_list, member_list);
+    ASSERT_EQ (SAI_STATUS_SUCCESS, status);
+
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
     sai_nh_group_verify_after_creation (group_id, group_type, nh_count,
-                                        wt_nh_id_list);
+                                        nh_count, wt_nh_id_list,
+                                        member_list, true);
 
     /* Verify the weights */
-    sai_nh_group_verify_nh_weight (group_id, nh_count, nh1_id, nh1_weight);
+    sai_nh_group_verify_nh_weight (group_id, nh_count, wt_nh_id_list,
+                                   member_list, nh1_id);
 
-    sai_nh_group_verify_nh_weight (group_id, nh_count, nh2_id, nh2_weight);
+    sai_nh_group_verify_nh_weight (group_id, nh_count, wt_nh_id_list,
+                                   member_list, nh2_id);
 
-    sai_nh_group_verify_nh_weight (group_id, nh_count, nh3_id, nh3_weight);
+    sai_nh_group_verify_nh_weight (group_id, nh_count, wt_nh_id_list,
+                                   member_list, nh3_id);
 
-    status = sai_test_nh_group_remove (group_id);
-
+    status = sai_test_remove_member_ids_from_group (group_id,
+                                                    nh_count, member_list);
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
-    sai_nh_group_verify_after_removal (group_id);
+    status = p_sai_nh_grp_api_tbl->remove_next_hop_group (group_id);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, status);
+
+    /* Verify if nexthop group remove is successful. */
+    status = p_sai_nh_grp_api_tbl->remove_next_hop_group (group_id);
+    EXPECT_EQ (SAI_STATUS_INVALID_OBJECT_ID, status);
 }
 
 /*
@@ -916,55 +1029,65 @@ TEST_F (saiL3NextHopGroupTest, add_weighted_nh_to_group)
     const unsigned int         nh2_weight = 4;
     const sai_object_id_t      nh1_id = p_nh_id_list [5];
     const sai_object_id_t      nh2_id = p_nh_id_list [7];
-    sai_object_id_t            wt_nh_id_list [max_ecmp_paths];
+    sai_object_id_t            wt_nh_id_list [max_ecmp_paths]= {0};
+    sai_object_id_t            member_list [max_ecmp_paths] = {0};
     unsigned int               new_nh_count = 0;
     unsigned int               wt_index;
+    unsigned int               index;
     sai_next_hop_group_type_t  group_type = SAI_NEXT_HOP_GROUP_TYPE_ECMP;
 
-    status = sai_test_nh_group_create (&group_id, p_nh_id_list,
-                                       default_nh_group_attr_count,
-                                       SAI_NEXT_HOP_GROUP_ATTR_TYPE,
-                                       group_type,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
-                                       nh_count);
+    for (index = 0; index < nh_count; index++) {
+        wt_nh_id_list [index] = p_nh_id_list [index];
+    }
 
+    status = sai_test_nh_group_create_no_nh_list (&group_id, group_type);
+    ASSERT_EQ (SAI_STATUS_SUCCESS, status);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
+
+    status = sai_test_add_nh_to_group (group_id, nh_count,
+                                       wt_nh_id_list, member_list);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
-
     /* Increase weight for the next hops */
-    for (wt_index = 0; wt_index < nh1_weight; wt_index++, new_nh_count++)
-    {
-        wt_nh_id_list [new_nh_count] = nh1_id;
+    for (wt_index = 0; wt_index < nh1_weight; wt_index++, index++) {
+        wt_nh_id_list [index] = nh1_id;
     }
 
-    for (wt_index = 0; wt_index < nh2_weight; wt_index++, new_nh_count++)
-    {
-        wt_nh_id_list [new_nh_count] = nh2_id;
+    for (wt_index = 0; wt_index < nh2_weight; wt_index++, index++) {
+        wt_nh_id_list [index] = nh2_id;
     }
+
+    new_nh_count = nh1_weight + nh2_weight;
 
     /* Add the new list to group to increase weight for the next hops */
     status = sai_test_add_nh_to_group (group_id, new_nh_count,
-                                       wt_nh_id_list);
-
+                                       &wt_nh_id_list [nh_count],
+                                       &member_list [nh_count]);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("Added NH Count: %d to Next Hop Group Id: 0x%"PRIx64".\n",
+    printf ("Added NH Count: %d to Next Hop Group Id: 0x%" PRIx64 ".\n",
             new_nh_count, group_id);
 
     /* Verify the next hop weight is updated from 1 to the given weight in
      * the NH Group */
     sai_nh_group_verify_nh_weight (group_id, (nh_count + new_nh_count),
-                                   nh1_id, (nh1_weight + 1));
+                                   wt_nh_id_list, member_list, nh1_id);
 
     sai_nh_group_verify_nh_weight (group_id, (nh_count + new_nh_count),
-                                   nh2_id, (nh2_weight + 1));
+                                   wt_nh_id_list, member_list, nh2_id);
 
-    status = sai_test_nh_group_remove (group_id);
-
+    status = sai_test_remove_member_ids_from_group (group_id,
+                                                    nh_count + new_nh_count,
+                                                    member_list);
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
-    sai_nh_group_verify_after_removal (group_id);
+
+    status = p_sai_nh_grp_api_tbl->remove_next_hop_group (group_id);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, status);
+
+    /* Verify if nexthop group remove is successful. */
+    status = p_sai_nh_grp_api_tbl->remove_next_hop_group (group_id);
+    EXPECT_EQ (SAI_STATUS_INVALID_OBJECT_ID, status);
 }
 
 /*
@@ -980,85 +1103,136 @@ TEST_F (saiL3NextHopGroupTest, remove_weighted_nh_from_group)
     const sai_object_id_t      nh1_id = p_nh_id_list [0];
     const sai_object_id_t      nh2_id = p_nh_id_list [1];
     const sai_object_id_t      nh3_id = p_nh_id_list [2];
-    sai_object_id_t            wt_nh_id_list [max_ecmp_paths];
+    sai_object_id_t            wt_nh_id_list [max_ecmp_paths]= {0};
+    sai_object_id_t            member_list [max_ecmp_paths] = {0};
+    sai_object_id_t            tmp_member_list [max_ecmp_paths] = {0};
+    sai_object_id_t            nh1_members [max_ecmp_paths] = {0};
+    sai_object_id_t            nh2_members [max_ecmp_paths] = {0};
+    sai_object_id_t            nh3_members [max_ecmp_paths] = {0};
     unsigned int               nh_count = 0;
+    unsigned int               nh1_id_start = 0;
+    unsigned int               nh2_id_start = 0;
+    unsigned int               nh3_id_start = 0;
     unsigned int               wt_index;
-    sai_object_id_t            remove_nh_id_list [max_ecmp_paths];
+    unsigned int               index;
+    unsigned int               tmp_index;
+    sai_object_id_t            remove_nh_id_list [max_ecmp_paths] = {0};
     unsigned int               remove_nh_count = 0;
     const unsigned int         remove_weight = 4;
     sai_next_hop_group_type_t  group_type = SAI_NEXT_HOP_GROUP_TYPE_ECMP;
 
     /* Copy the next hop id to introduce weights */
-    for (wt_index = 0; wt_index < nh1_weight; wt_index++, nh_count++)
-    {
+    nh1_id_start = 0;
+    for (wt_index = 0; wt_index < nh1_weight; wt_index++, nh_count++) {
         wt_nh_id_list [nh_count] = nh1_id;
     }
 
-    for (wt_index = 0; wt_index < nh2_weight; wt_index++, nh_count++)
-    {
+    nh2_id_start = nh_count;
+    for (wt_index = 0; wt_index < nh2_weight; wt_index++, nh_count++) {
         wt_nh_id_list [nh_count] = nh2_id;
     }
 
-    for (wt_index = 0; wt_index < nh3_weight; wt_index++, nh_count++)
-    {
+    nh3_id_start = nh_count;
+    for (wt_index = 0; wt_index < nh3_weight; wt_index++, nh_count++) {
         wt_nh_id_list [nh_count] = nh3_id;
     }
 
     /* Create a Group with weighted next hops */
-    status = sai_test_nh_group_create (&group_id, wt_nh_id_list,
-                                       default_nh_group_attr_count,
-                                       SAI_NEXT_HOP_GROUP_ATTR_TYPE,
-                                       group_type,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
-                                       nh_count);
+    status = sai_test_nh_group_create_no_nh_list (&group_id, group_type);
+    ASSERT_EQ (SAI_STATUS_SUCCESS, status);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
+    status = sai_test_add_nh_to_group (group_id, nh_count,
+                                       wt_nh_id_list, member_list);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
-
     sai_nh_group_verify_after_creation (group_id, group_type, nh_count,
-                                        wt_nh_id_list);
+                                        nh_count, wt_nh_id_list,
+                                        member_list, true);
 
-    /* Reduce weight for NH2 by four times */
-    for (wt_index = 0; wt_index < remove_weight; wt_index++, remove_nh_count++)
-    {
-        remove_nh_id_list [remove_nh_count] = nh2_id;
+    for (index = 0; index < nh1_weight; index++) {
+        nh1_members [index] = member_list [nh1_id_start + index];
+    }
+
+    for (index = 0; index < nh2_weight; index++) {
+        nh2_members [index] = member_list [nh2_id_start + index];
+    }
+
+    for (index = 0; index < nh3_weight; index++) {
+        nh3_members [index] = member_list [nh3_id_start + index];
     }
 
     /* Remove the NH1 fully from group */
-    for (wt_index = 0; wt_index < nh1_weight; wt_index++, remove_nh_count++)
-    {
-        remove_nh_id_list [remove_nh_count] = nh1_id;
+    for (wt_index = 0; wt_index < nh1_weight; wt_index++, remove_nh_count++) {
+        remove_nh_id_list [remove_nh_count] = nh1_members [wt_index];
+        nh1_members [wt_index] = 0;
+    }
+
+    /* Reduce weight for NH2 by four times */
+    for (wt_index = 0; wt_index < remove_weight; wt_index++, remove_nh_count++) {
+        remove_nh_id_list [remove_nh_count] = nh2_members [wt_index];
+        nh2_members [wt_index] = 0;
     }
 
     /* Remove the list of NHs from group */
-    status = sai_test_remove_nh_from_group (group_id, remove_nh_count,
-                                            remove_nh_id_list);
-
+    status = sai_test_remove_member_ids_from_group (group_id, remove_nh_count,
+                                                    remove_nh_id_list);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("Removed NH Count: %d from Next Hop Group Id: 0x%"PRIx64".\n",
+    printf ("Removed NH Count: %d from Next Hop Group Id: 0x%" PRIx64 ".\n",
             remove_nh_count, group_id);
 
     /* Verify NH3 weight is same as before */
-    sai_nh_group_verify_nh_weight (group_id, (nh_count - remove_nh_count),
-                                   nh3_id, nh3_weight);
+    for (index = 0; index < nh3_weight; index++) {
+        wt_nh_id_list [index] = nh3_id;
+        tmp_member_list [index] = nh3_members [index];
+    }
+    sai_nh_group_verify_nh_weight (group_id, index,
+                                   wt_nh_id_list, tmp_member_list, nh3_id);
 
     /* Verify NH2 weight is reduced by the given weight in the NH Group */
-    sai_nh_group_verify_nh_weight (group_id, (nh_count - remove_nh_count),
-                                   nh2_id, (nh2_weight - remove_weight));
+    for (index = 0, tmp_index = 0; index < nh2_weight; index++) {
+        if (nh2_members [index] != 0) {
+            wt_nh_id_list [tmp_index] = nh2_id;
+            tmp_member_list [tmp_index] = nh2_members [index];
+            tmp_index++;
+        }
+    }
+    sai_nh_group_verify_nh_weight (group_id, tmp_index,
+                                   wt_nh_id_list, tmp_member_list, nh2_id);
 
     /* Verify NH1 is removed from the NH Group fully */
-    remove_nh_id_list [0] = nh1_id;
+    for (index = nh1_id_start; index < nh1_weight; index++) {
+        wt_nh_id_list [index] = nh3_id;
+    }
+    sai_nh_group_verify_after_creation (group_id, group_type,
+                                        nh_count - remove_nh_count,
+                                        index, wt_nh_id_list,
+                                        nh1_members, false);
 
-    sai_nh_group_verify_after_remove_nh (group_id, (nh_count - remove_nh_count),
-                                         1, &remove_nh_id_list [0]);
+    /* Get the Valid members of NH2 and NH3 to remove them from the Group. */
+    for (index = 0, tmp_index = 0; index < nh2_weight; index++) {
+        if (nh2_members [index] != 0) {
+            member_list [tmp_index] = nh2_members [index];
+            tmp_index++;
+        }
+    }
 
-    status = sai_test_nh_group_remove (group_id);
+    for (index = 0; index < nh3_weight; index++, tmp_index++) {
+        member_list [tmp_index] = nh3_members [index];
+    }
 
+    /* Remove the list of NHs from group */
+    status = sai_test_remove_member_ids_from_group (group_id, tmp_index,
+                                                    member_list);
+    ASSERT_EQ (SAI_STATUS_SUCCESS, status);
+
+    status = p_sai_nh_grp_api_tbl->remove_next_hop_group (group_id);
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
-    sai_nh_group_verify_after_removal (group_id);
+    /* Verify if nexthop group remove is successful. */
+    status = p_sai_nh_grp_api_tbl->remove_next_hop_group (group_id);
+    EXPECT_EQ (SAI_STATUS_INVALID_OBJECT_ID, status);
 }
 
 /*
@@ -1078,12 +1252,12 @@ TEST_F (saiL3NextHopGroupTest, nh_list_get_attr_buffer_overflow)
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        nh_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
     sai_nh_group_verify_after_creation (group_id, SAI_NEXT_HOP_GROUP_TYPE_ECMP,
                                         nh_count, p_nh_id_list);
@@ -1096,7 +1270,7 @@ TEST_F (saiL3NextHopGroupTest, nh_list_get_attr_buffer_overflow)
                                          max_nh_group_attr_count,
                                          SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                          SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_COUNT,
-                                         SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST);
+                                         SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST);
 
     EXPECT_EQ (SAI_STATUS_BUFFER_OVERFLOW, status);
 
@@ -1110,7 +1284,7 @@ TEST_F (saiL3NextHopGroupTest, nh_list_get_attr_buffer_overflow)
                                          max_nh_group_attr_count,
                                          SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                          SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_COUNT,
-                                         SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST);
+                                         SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST);
 
     EXPECT_EQ (SAI_STATUS_BUFFER_OVERFLOW, status);
 

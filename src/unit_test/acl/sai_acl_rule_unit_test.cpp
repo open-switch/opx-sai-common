@@ -28,6 +28,7 @@
 #include "sai_udf_unit_test.h"
 
 extern "C" {
+#include "sai.h"
 #include "saiswitch.h"
 #include "saistatus.h"
 #include "saitypes.h"
@@ -162,16 +163,37 @@ void saiACLRuleTest ::SetUpTestCase (void)
     saiACLTest ::SetUpTestCase ();
     saiL3Test ::SetUpL3ApiQuery ();
 
+    /* Set up the default VLAN OBJ ID for L3 API */
+    {
+        sai_attribute_t attr;
+        sai_switch_api_t* lp_sai_switch_api_tbl = NULL;
+        sai_object_id_t switch_id = saiACLTest ::sai_acl_get_global_switch_id();
+
+        EXPECT_EQ (SAI_STATUS_SUCCESS, sai_api_query
+                (SAI_API_SWITCH, (static_cast<void**>
+                                  (static_cast<void*>(&lp_sai_switch_api_tbl)))));
+
+        ASSERT_TRUE (lp_sai_switch_api_tbl != NULL);
+        memset (&attr, 0, sizeof (attr));
+
+        attr.id = SAI_SWITCH_ATTR_DEFAULT_VLAN_ID;
+        sai_rc = lp_sai_switch_api_tbl->get_switch_attribute (switch_id, 1, &attr);
+        ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+        printf ("Default VLAN obj ID is %lu.\r\n", attr.value.oid);
+        saiL3Test ::sai_l3_default_vlan_obj_id_set(attr.value.oid);
+    }
+
     /* Create MAC Based Ingress ACL Table */
     sai_rc = sai_test_acl_table_create (&mac_table_id, 17,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
                                         SAI_ACL_TABLE_ATTR_FIELD_DST_MAC,
                                         SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
-                                        SAI_ACL_TABLE_ATTR_FIELD_VLAN_TAGS,
-                                        SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE,
+                                        SAI_ACL_TABLE_ATTR_FIELD_PACKET_VLAN,
+                                        SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI,
@@ -185,19 +207,19 @@ void saiACLRuleTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Ingress MAC ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Ingress MAC ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  mac_table_id);
     }
 
     /* Create MAC Based Egress ACL Table */
     sai_rc = sai_test_acl_table_create (&mac_egress_table_id, 12,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_EGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
                                         SAI_ACL_TABLE_ATTR_FIELD_DST_MAC,
                                         SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
-                                        SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE,
+                                        SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI,
@@ -207,13 +229,13 @@ void saiACLRuleTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Egress MAC ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Egress MAC ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  mac_egress_table_id);
     }
 
     /* Create IP Based Ingress ACL Table */
     sai_rc = sai_test_acl_table_create (&ip_table_id, 18,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 2,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_IP,
@@ -224,9 +246,9 @@ void saiACLRuleTest ::SetUpTestCase (void)
                                         SAI_ACL_TABLE_ATTR_FIELD_TCP_FLAGS,
                                         SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL,
                                         SAI_ACL_TABLE_ATTR_FIELD_TOS,
-                                        SAI_ACL_TABLE_ATTR_FIELD_IP_FRAG,
+                                        SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_FRAG,
                                         SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
-                                        SAI_ACL_TABLE_ATTR_FIELD_VLAN_TAGS,
+                                        SAI_ACL_TABLE_ATTR_FIELD_PACKET_VLAN,
                                         SAI_ACL_TABLE_ATTR_FIELD_IN_PORT,
                                         SAI_ACL_TABLE_ATTR_FIELD_IN_PORTS,
                                         SAI_ACL_TABLE_ATTR_FIELD_ICMP_TYPE,
@@ -235,13 +257,13 @@ void saiACLRuleTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Ingress IP ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Ingress IP ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  ip_table_id);
     }
 
     /* Create IP Based Egress ACL Table */
     sai_rc = sai_test_acl_table_create (&ip_egress_table_id, 5,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_EGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 2,
                                         SAI_ACL_TABLE_ATTR_FIELD_OUTER_VLAN_PRI,
@@ -250,13 +272,13 @@ void saiACLRuleTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Egress IP ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Egress IP ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  ip_egress_table_id);
     }
 
     /* Create IPv6 Based Ingress ACL Table */
     sai_rc = sai_test_acl_table_create (&ipv6_table_id, 16,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 3,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_IPv6,
@@ -270,19 +292,19 @@ void saiACLRuleTest ::SetUpTestCase (void)
                                         SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
                                         SAI_ACL_TABLE_ATTR_FIELD_IN_PORT,
                                         SAI_ACL_TABLE_ATTR_FIELD_IN_PORTS,
-                                        SAI_ACL_TABLE_ATTR_FIELD_IP_FRAG,
+                                        SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_FRAG,
                                         SAI_ACL_TABLE_ATTR_FIELD_ICMP_TYPE,
                                         SAI_ACL_TABLE_ATTR_FIELD_IPv6_FLOW_LABEL);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Ingress IPv6 ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Ingress IPv6 ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  ipv6_table_id);
     }
 
     /* Create IP + MAC Based ACL Table */
     sai_rc = sai_test_acl_table_create (&ip_and_mac_table_id, 23,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 4,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -309,7 +331,7 @@ void saiACLRuleTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("IP + MAC ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("IP + MAC ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                 ip_and_mac_table_id);
     }
 
@@ -368,7 +390,7 @@ sai_object_id_t saiACLRuleTest ::sai_test_acl_rule_entry_create (
                                        1, &dst_mac_data, &dst_mac_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_ETHER_TYPE,
                                        1, 34825, standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_IP_TYPE,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_TYPE,
                                        1, (unsigned long) SAI_ACL_IP_TYPE_ARP,
                                        standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_INNER_VLAN_ID,
@@ -407,7 +429,7 @@ sai_object_id_t saiACLRuleTest ::sai_test_acl_rule_entry_create (
                                        1, 6 /* TCP */, standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_TOS,
                                        1, 32 , standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_IP_FRAG,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_FRAG,
                                        1, (unsigned long) SAI_ACL_IP_FRAG_NON_FRAG,
                                        standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_IPv6_FLOW_LABEL,
@@ -446,7 +468,7 @@ sai_object_id_t saiACLRuleTest ::sai_test_acl_rule_entry_create (
                                        1, 6 /* TCP */, standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_TOS,
                                        1, 32 , standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_IP_FRAG,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_FRAG,
                                        1, (unsigned long) SAI_ACL_IP_FRAG_NON_FRAG,
                                        standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS,
@@ -696,11 +718,11 @@ sai_status_t saiACLRuleTest ::sai_test_acl_rule_setup_nexthop(
                                                   default_nh_group_attr_count,
                                                   SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                                   SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                                   max_paths);
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id created in ACL: 0x%"PRIx64".\n", nexthop_group_id);
+    printf ("SAI Next Hop Group Object Id created in ACL: 0x%" PRIx64 ".\n", nexthop_group_id);
 
     *group_id = nexthop_group_id;
 
@@ -963,7 +985,7 @@ TEST_F(saiACLRuleTest, rule_create_and_remove)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Ingress ACL Rule Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Ingress ACL Rule Successfully created with ID 0x%" PRIx64 " \r\n",
                  acl_rule_id_ingress);
     }
 
@@ -983,7 +1005,7 @@ TEST_F(saiACLRuleTest, rule_create_and_remove)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Egress ACL Rule Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Egress ACL Rule Successfully created with ID 0x%" PRIx64 " \r\n",
                  acl_rule_id_egress);
     }
 
@@ -1004,7 +1026,7 @@ TEST_F(saiACLRuleTest, rule_create_with_cpu_port)
 
     cpu_port = sai_test_acl_get_cpu_port ();
 
-    printf("Ethernet CPU Port = 0x%"PRIx64" \r\n", cpu_port);
+    printf("Ethernet CPU Port = 0x%" PRIx64 " \r\n", cpu_port);
 
     /* Create ACL Rule with Ethernet CPU Port as In Port */
     sai_rc = sai_test_acl_rule_create (&acl_rule_id, 4,
@@ -1037,7 +1059,7 @@ TEST_F(saiACLRuleTest, rule_create_with_counter)
                                           SAI_ACL_COUNTER_ATTR_ENABLE_PACKET_COUNT, true);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    printf ("ACL Packet Counter Successfully created with ID 0x%"PRIx64" \r\n",
+    printf ("ACL Packet Counter Successfully created with ID 0x%" PRIx64 " \r\n",
              acl_packet_counter_id);
 
     /* Fetch the default values using the GET API */
@@ -1104,7 +1126,7 @@ TEST_F(saiACLRuleTest, rule_create_with_counter)
                                           SAI_ACL_COUNTER_ATTR_ENABLE_BYTE_COUNT, true);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    printf ("ACL Byte Counter Successfully created with ID 0x%"PRIx64" \r\n",
+    printf ("ACL Byte Counter Successfully created with ID 0x%" PRIx64 " \r\n",
              acl_byte_counter_id);
 
     /* Table mismatch */
@@ -1122,7 +1144,7 @@ TEST_F(saiACLRuleTest, rule_create_with_counter)
                                           SAI_ACL_COUNTER_ATTR_ENABLE_BYTE_COUNT, true);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    printf ("ACL Byte Counter Successfully created with ID 0x%"PRIx64" \r\n",
+    printf ("ACL Byte Counter Successfully created with ID 0x%" PRIx64 " \r\n",
              acl_byte_counter_id);
 
     sai_rc = sai_test_acl_rule_set (acl_rule_id, 1,
@@ -2213,7 +2235,7 @@ TEST_F(saiACLRuleTest, rule_with_num_vlan_tags_filter)
                                        1, &src_ip_data, &src_ip_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_L4_SRC_PORT,
                                        1, 25, standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_VLAN_TAGS,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_PACKET_VLAN,
                                        1, SAI_PACKET_VLAN_DOUBLE_TAG, standard_mask,
                                        SAI_ACL_ENTRY_ATTR_ACTION_PACKET_ACTION, true,
                                        SAI_PACKET_ACTION_LOG);
@@ -2225,23 +2247,23 @@ TEST_F(saiACLRuleTest, rule_with_num_vlan_tags_filter)
 
     sai_rc = sai_test_acl_rule_get (acl_rule_id, p_attr_list_get,
                                     test_attr_count,
-                                    SAI_ACL_ENTRY_ATTR_FIELD_VLAN_TAGS);
+                                    SAI_ACL_ENTRY_ATTR_FIELD_PACKET_VLAN);
 
     EXPECT_EQ (p_attr_list_get[0].value.aclfield.data.s32, SAI_PACKET_VLAN_DOUBLE_TAG);
 
     sai_rc = sai_test_acl_rule_set (acl_rule_id, 1,
-                                    SAI_ACL_ENTRY_ATTR_FIELD_VLAN_TAGS, 1,
+                                    SAI_ACL_ENTRY_ATTR_FIELD_PACKET_VLAN, 1,
                                     SAI_PACKET_VLAN_SINGLE_OUTER_TAG, standard_mask);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_acl_rule_get (acl_rule_id, p_attr_list_get,
                                     test_attr_count,
-                                    SAI_ACL_ENTRY_ATTR_FIELD_VLAN_TAGS);
+                                    SAI_ACL_ENTRY_ATTR_FIELD_PACKET_VLAN);
 
     EXPECT_EQ (p_attr_list_get[0].value.aclfield.data.s32, SAI_PACKET_VLAN_SINGLE_OUTER_TAG);
 
     sai_rc = sai_test_acl_rule_set (acl_rule_id, 1,
-                                    SAI_ACL_ENTRY_ATTR_FIELD_VLAN_TAGS, 0, 0, 0);
+                                    SAI_ACL_ENTRY_ATTR_FIELD_PACKET_VLAN, 0, 0, 0);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_test_acl_rule_free_attr_list (p_attr_list_get, test_attr_count);
@@ -3062,7 +3084,7 @@ TEST_F(saiACLRuleTest, rule_with_multiple_mirror_action)
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = port_id_1;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_acl_rule_mirror_session_create(&mirror_id[0], 2, attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -3070,7 +3092,7 @@ TEST_F(saiACLRuleTest, rule_with_multiple_mirror_action)
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = port_id_2;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_acl_rule_mirror_session_create(&mirror_id[1], 2, attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -3078,7 +3100,7 @@ TEST_F(saiACLRuleTest, rule_with_multiple_mirror_action)
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = port_id_3;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_acl_rule_mirror_session_create(&mirror_id[2], 2, attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -3086,7 +3108,7 @@ TEST_F(saiACLRuleTest, rule_with_multiple_mirror_action)
     attr[0].id =  SAI_MIRROR_SESSION_ATTR_MONITOR_PORT;
     attr[0].value.oid = port_id_4;
     attr[1].id =  SAI_MIRROR_SESSION_ATTR_TYPE;
-    attr[1].value.s32 = SAI_MIRROR_TYPE_LOCAL;
+    attr[1].value.s32 = SAI_MIRROR_SESSION_TYPE_LOCAL;
 
     sai_rc = sai_test_acl_rule_mirror_session_create(&mirror_id[3], 2, attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -3268,169 +3290,6 @@ TEST_F(saiACLRuleTest, rule_with_multiple_mirror_action)
     }
 }
 
-TEST_F(saiACLRuleTest, rule_with_pre_ingress_meta_data)
-{
-    sai_status_t             sai_rc = SAI_STATUS_SUCCESS;
-    sai_object_id_t          pre_ingress_table_id = 0;
-    sai_object_id_t          ingress_table_id = 0;
-    sai_object_id_t          pre_ingress_rule_id = 0, ingress_rule_id = 0;
-    sai_attribute_t         *p_attr_list_get = NULL;
-    unsigned int             test_attr_count = 1;
-    sai_object_id_t          meta_data_counter_id = 0;
-    unsigned int             pre_ingress_meta_data_max = 0;
-    unsigned int             pre_ingress_meta_data_min = 0;
-
-    sai_rc = sai_test_acl_rule_create_attr_list (&p_attr_list_get, test_attr_count,
-                                                 0, 0, false, false);
-    ASSERT_TRUE (SAI_STATUS_SUCCESS == sai_rc);
-
-    sai_rc = sai_test_acl_table_switch_get(p_attr_list_get,
-                                test_attr_count,
-                                SAI_SWITCH_ATTR_ACL_USER_META_DATA_RANGE);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    pre_ingress_meta_data_min = p_attr_list_get[0].value.u32range.min;
-    pre_ingress_meta_data_max = p_attr_list_get[0].value.u32range.max;
-
-    printf("\r\n Min/Max ACL meta data supported is %d/%d \r\n",
-            pre_ingress_meta_data_min, pre_ingress_meta_data_max);
-
-    /* Pre Ingress Table Create */
-    sai_rc = sai_test_acl_table_create (&pre_ingress_table_id, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
-                             SAI_ACL_STAGE_SUBSTAGE_INGRESS_PRE_L2,
-                             SAI_ACL_TABLE_ATTR_PRIORITY, 1,
-                             SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
-                             SAI_ACL_TABLE_ATTR_FIELD_L4_DST_PORT,
-                             SAI_ACL_TABLE_ATTR_FIELD_SRC_IP,
-                             SAI_ACL_TABLE_ATTR_FIELD_DST_IP,
-                             SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL,
-                             SAI_ACL_TABLE_ATTR_FIELD_IN_PORT,
-                             SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_rc = sai_test_acl_rule_create (&pre_ingress_rule_id, 6,
-                                SAI_ACL_ENTRY_ATTR_TABLE_ID, pre_ingress_table_id,
-                                SAI_ACL_ENTRY_ATTR_PRIORITY, 6,
-                                SAI_ACL_ENTRY_ATTR_ADMIN_STATE, true,
-                                SAI_ACL_ENTRY_ATTR_FIELD_SRC_IP,
-                                1, &src_ip_data, &src_ip_mask,
-                                SAI_ACL_ENTRY_ATTR_FIELD_IP_PROTOCOL,
-                                1, 6, 0xff,
-                                SAI_ACL_ENTRY_ATTR_ACTION_SET_ACL_META_DATA,
-                                true, pre_ingress_meta_data_max);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_rc = sai_test_acl_rule_get (pre_ingress_rule_id, p_attr_list_get,
-                                    test_attr_count, SAI_ACL_ENTRY_ATTR_ACTION_SET_ACL_META_DATA);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    EXPECT_EQ (p_attr_list_get[0].value.aclaction.enable, true);
-    EXPECT_EQ (p_attr_list_get[0].value.aclaction.parameter.u32, pre_ingress_meta_data_max);
-
-    /* Table Create */
-    sai_rc = sai_test_acl_table_create (&ingress_table_id, 10,
-                             SAI_ACL_TABLE_ATTR_STAGE,
-                             SAI_ACL_STAGE_INGRESS,
-                             SAI_ACL_TABLE_ATTR_PRIORITY, 10,
-                             SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
-                             SAI_ACL_TABLE_ATTR_FIELD_L4_DST_PORT,
-                             SAI_ACL_TABLE_ATTR_FIELD_SRC_IP,
-                             SAI_ACL_TABLE_ATTR_FIELD_DST_IP,
-                             SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL,
-                             SAI_ACL_TABLE_ATTR_FIELD_IN_PORT,
-                             SAI_ACL_TABLE_ATTR_FIELD_ACL_USER_META,
-                             SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    /* Create a counter and associate to the ingress rule */
-    sai_rc = sai_test_acl_counter_create (&meta_data_counter_id, 2,
-                                          SAI_ACL_COUNTER_ATTR_TABLE_ID, ingress_table_id,
-                                          SAI_ACL_COUNTER_ATTR_ENABLE_PACKET_COUNT, true);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_rc = sai_test_acl_rule_create (&ingress_rule_id, 7,
-                                SAI_ACL_ENTRY_ATTR_TABLE_ID, ingress_table_id,
-                                SAI_ACL_ENTRY_ATTR_PRIORITY, 6,
-                                SAI_ACL_ENTRY_ATTR_ADMIN_STATE, true,
-                                SAI_ACL_ENTRY_ATTR_FIELD_SRC_IP,
-                                1, &src_ip_data, &src_ip_mask,
-                                SAI_ACL_ENTRY_ATTR_FIELD_IP_PROTOCOL,
-                                1, 6, 0xff,
-                                SAI_ACL_ENTRY_ATTR_FIELD_ACL_USER_META,
-                                1, pre_ingress_meta_data_max + 1, 0x3ff,
-                                SAI_ACL_ENTRY_ATTR_ACTION_PACKET_ACTION, true,
-                                SAI_PACKET_ACTION_DENY);
-    EXPECT_EQ (SAI_STATUS_INVALID_ATTR_VALUE_0, sai_rc);
-
-    sai_rc = sai_test_acl_rule_create (&ingress_rule_id, 8,
-                                SAI_ACL_ENTRY_ATTR_TABLE_ID, ingress_table_id,
-                                SAI_ACL_ENTRY_ATTR_PRIORITY, 6,
-                                SAI_ACL_ENTRY_ATTR_ADMIN_STATE, true,
-                                SAI_ACL_ENTRY_ATTR_FIELD_SRC_IP,
-                                1, &src_ip_data, &src_ip_mask,
-                                SAI_ACL_ENTRY_ATTR_FIELD_IP_PROTOCOL,
-                                1, 6, 0xff,
-                                SAI_ACL_ENTRY_ATTR_FIELD_ACL_USER_META,
-                                1, pre_ingress_meta_data_max, 0x3ff,
-                                SAI_ACL_ENTRY_ATTR_ACTION_PACKET_ACTION, true,
-                                SAI_PACKET_ACTION_DENY,
-                                SAI_ACL_ENTRY_ATTR_ACTION_COUNTER, 1,
-                                meta_data_counter_id);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_rc = sai_test_acl_rule_get (ingress_rule_id, p_attr_list_get,
-                                    test_attr_count, SAI_ACL_ENTRY_ATTR_FIELD_ACL_USER_META);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    EXPECT_EQ (p_attr_list_get[0].value.aclfield.enable, true);
-    EXPECT_EQ (p_attr_list_get[0].value.aclfield.data.u32, pre_ingress_meta_data_max);
-
-    /* Change the ACL Metadata to a different value */
-
-    if (pre_ingress_meta_data_max != pre_ingress_meta_data_min) {
-        sai_rc = sai_test_acl_rule_set (pre_ingress_rule_id, 1,
-                            SAI_ACL_ENTRY_ATTR_ACTION_SET_ACL_META_DATA,
-                            true, pre_ingress_meta_data_max - 1);
-        EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-        sai_rc = sai_test_acl_rule_get (pre_ingress_rule_id, p_attr_list_get,
-                                        test_attr_count, SAI_ACL_ENTRY_ATTR_ACTION_SET_ACL_META_DATA);
-        EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-        EXPECT_EQ (p_attr_list_get[0].value.aclaction.enable, true);
-        EXPECT_EQ (p_attr_list_get[0].value.aclaction.parameter.u32, pre_ingress_meta_data_max - 1);
-
-        sai_rc = sai_test_acl_rule_set (ingress_rule_id, 1,
-                            SAI_ACL_ENTRY_ATTR_FIELD_ACL_USER_META,
-                            1, pre_ingress_meta_data_max - 1, 0x3ff);
-        EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-        sai_rc = sai_test_acl_rule_get (ingress_rule_id, p_attr_list_get,
-                                    test_attr_count, SAI_ACL_ENTRY_ATTR_FIELD_ACL_USER_META);
-        EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-        EXPECT_EQ (p_attr_list_get[0].value.aclfield.enable, true);
-        EXPECT_EQ (p_attr_list_get[0].value.aclfield.data.u32, pre_ingress_meta_data_max - 1);
-    }
-
-    /* Clean Up */
-    sai_rc = sai_test_acl_rule_remove (pre_ingress_rule_id);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_rc = sai_test_acl_rule_remove (ingress_rule_id);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_rc = sai_test_acl_counter_remove (meta_data_counter_id);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_rc = sai_test_acl_table_remove (pre_ingress_table_id);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_rc = sai_test_acl_table_remove (ingress_table_id);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_test_acl_rule_free_attr_list (p_attr_list_get, test_attr_count);
-}
-
 TEST_F(saiACLRuleTest, rule_with_fdb_meta_data)
 {
     sai_status_t             sai_rc = SAI_STATUS_SUCCESS;
@@ -3462,7 +3321,7 @@ TEST_F(saiACLRuleTest, rule_with_fdb_meta_data)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&fdb_table_id, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                              SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
@@ -3634,7 +3493,7 @@ TEST_F(saiACLRuleTest, rule_with_port_meta_data)
 
     /* Table Create on Ingress Stage */
     sai_rc = sai_test_acl_table_create (&ingress_table_id, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                              SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
@@ -3725,7 +3584,7 @@ TEST_F(saiACLRuleTest, rule_with_port_meta_data)
 
     /* Create Egress Table and Rule */
     sai_rc = sai_test_acl_table_create (&egress_table_id, 3,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_EGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                              SAI_ACL_TABLE_ATTR_FIELD_PORT_USER_META);
@@ -3786,7 +3645,8 @@ TEST_F(saiACLRuleTest, rule_with_vlan_meta_data)
     unsigned int             vlan_meta_data_min = 0;
     unsigned int             vlan_meta_data_max = 0;
     sai_object_id_t          meta_data_counter_id = 0;
-    sai_vlan_port_t          vlan_port;
+    sai_object_id_t          vlan_obj_id = 0;
+    sai_object_id_t          vlan_member_id = 0;
 
     sai_rc = sai_test_acl_rule_create_attr_list (&p_attr_list_get, test_attr_count,
                                                  0, 0, false, false);
@@ -3804,19 +3664,17 @@ TEST_F(saiACLRuleTest, rule_with_vlan_meta_data)
             vlan_meta_data_min, vlan_meta_data_max);
 
     /* Set Vlan MetaData in the VLAN Table */
-    memset(&vlan_port, 0, sizeof(sai_vlan_port_t));
     memset(&vlan_attr_list, 0, sizeof(sai_attribute_t));
-
-    vlan_port.port_id = port_id_1;
-    vlan_port.tagging_mode = SAI_VLAN_TAGGING_MODE_TAGGED;
 
     vlan_attr_list.id = SAI_VLAN_ATTR_META_DATA;
     vlan_attr_list.value.u32 = vlan_meta_data_max;
 
-    sai_rc = sai_test_acl_rule_vlan_set(SAI_ACL_TEST_VLAN, &vlan_attr_list, true);
+    sai_rc = sai_test_acl_rule_vlan_set(&vlan_obj_id, SAI_ACL_TEST_VLAN,
+            &vlan_attr_list, true);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    sai_rc = sai_test_acl_rule_vlan_port_set(SAI_ACL_TEST_VLAN, &vlan_port, true);
+    sai_rc = sai_test_acl_rule_vlan_port_add(&vlan_member_id, vlan_obj_id,
+            port_id_1, SAI_VLAN_TAGGING_MODE_TAGGED);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Get Vlan MetaData from the VLAN Table */
@@ -3824,12 +3682,12 @@ TEST_F(saiACLRuleTest, rule_with_vlan_meta_data)
 
     vlan_attr_list.id = SAI_VLAN_ATTR_META_DATA;
 
-    sai_rc = sai_test_acl_rule_vlan_get(SAI_ACL_TEST_VLAN, &vlan_attr_list);
+    sai_rc = sai_test_acl_rule_vlan_get(vlan_obj_id, &vlan_attr_list);
     EXPECT_EQ (vlan_attr_list.value.u32, vlan_meta_data_max);
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&table_id, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                              SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
@@ -3891,7 +3749,8 @@ TEST_F(saiACLRuleTest, rule_with_vlan_meta_data)
         vlan_attr_list.id = SAI_VLAN_ATTR_META_DATA;
         vlan_attr_list.value.u32 = vlan_meta_data_max - 1;
 
-        sai_rc = sai_test_acl_rule_vlan_set(SAI_ACL_TEST_VLAN, &vlan_attr_list, false);
+        sai_rc = sai_test_acl_rule_vlan_set(&vlan_obj_id, SAI_ACL_TEST_VLAN,
+                &vlan_attr_list, false);
         EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
         /* Get Vlan MetaData from the VLAN Table */
@@ -3899,7 +3758,7 @@ TEST_F(saiACLRuleTest, rule_with_vlan_meta_data)
 
         vlan_attr_list.id = SAI_VLAN_ATTR_META_DATA;
 
-        sai_rc = sai_test_acl_rule_vlan_get(SAI_ACL_TEST_VLAN, &vlan_attr_list);
+        sai_rc = sai_test_acl_rule_vlan_get(vlan_obj_id, &vlan_attr_list);
         EXPECT_EQ (vlan_attr_list.value.u32, vlan_meta_data_max - 1);
 
         sai_rc = sai_test_acl_rule_set (rule_id, 1,
@@ -3930,10 +3789,10 @@ TEST_F(saiACLRuleTest, rule_with_vlan_meta_data)
     sai_rc = sai_test_acl_table_remove (table_id);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    sai_rc = sai_test_acl_rule_vlan_port_set(SAI_ACL_TEST_VLAN, &vlan_port, false);
+    sai_rc = sai_test_acl_rule_vlan_port_remove(vlan_member_id);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    sai_rc = sai_test_acl_rule_vlan_remove(SAI_ACL_TEST_VLAN);
+    sai_rc = sai_test_acl_rule_vlan_remove(vlan_obj_id);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_test_acl_rule_free_attr_list (p_attr_list_get, test_attr_count);
@@ -4023,7 +3882,7 @@ TEST_F(saiACLRuleTest, rule_with_l3_meta_data)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&table_id, 10,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                              SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
@@ -4316,7 +4175,7 @@ TEST_F(saiACLRuleTest, rule_with_npu_meta_data)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&fdb_table_id, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                              SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
@@ -4421,7 +4280,7 @@ TEST_F(saiACLRuleTest, rule_with_npu_meta_data)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&l3_table_id, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 11,
                              SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
@@ -4517,7 +4376,7 @@ TEST_F(saiACLRuleTest, rule_with_udf_field)
 
     /* ACL Table Creation with invalid UDF Group Id */
     sai_rc = sai_test_acl_table_create (&acl_udf_table_id, 3,
-                                        SAI_ACL_TABLE_ATTR_STAGE, SAI_ACL_STAGE_INGRESS,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE, SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                                         udf_l2_attr_idx,
                                         0);
@@ -4525,7 +4384,7 @@ TEST_F(saiACLRuleTest, rule_with_udf_field)
 
     /* ACL Table Creation with unsupported UDF Group type */
     sai_rc = sai_test_acl_table_create (&acl_udf_table_id, 3,
-                                        SAI_ACL_TABLE_ATTR_STAGE, SAI_ACL_STAGE_INGRESS,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE, SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                                         udf_l2_attr_idx,
                                         udf_hash_group_id);
@@ -4578,7 +4437,7 @@ TEST_F(saiACLRuleTest, rule_with_udf_field)
 
     /* ACL Table Create with UDF qualifier on the egress stage */
     sai_rc = sai_test_acl_table_create (&acl_udf_table_id, 4,
-                                        SAI_ACL_TABLE_ATTR_STAGE, SAI_ACL_STAGE_EGRESS,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE, SAI_ACL_STAGE_EGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                                         SAI_ACL_TABLE_ATTR_SIZE, 100,
                                         SAI_ACL_TABLE_ATTR_USER_DEFINED_FIELD_GROUP_MIN,
@@ -4587,7 +4446,7 @@ TEST_F(saiACLRuleTest, rule_with_udf_field)
 
     /* ACL Table Create with UDF Qualifier */
     sai_rc = sai_test_acl_table_create (&acl_udf_table_id, 10,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                              SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
@@ -4824,7 +4683,7 @@ TEST_F(saiACLRuleTest, rule_with_outport)
 
     /* ACL Table Create with Outport Qualifier */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 10,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 10,
                              SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
@@ -4935,7 +4794,179 @@ TEST_F(saiACLRuleTest, rule_with_outport)
     sai_rc = sai_test_acl_table_remove (acl_table_id);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 }
+TEST_F(saiACLRuleTest, acl_range)
+{
+    sai_status_t    sai_rc = SAI_STATUS_SUCCESS;
+    sai_object_id_t acl_rule_id = 0;
+    sai_object_id_t acl_table_id = 0;
+    sai_object_id_t acl_range_id = 0;
+    sai_object_id_t acl_range_id1 = 0;
+    sai_attribute_t new_attr_list[5];
+    sai_attribute_t set_attr;
+    sai_attribute_t get_attr;
 
+    unsigned int attr_count = 0;
+    sai_object_id_t switch_id = saiACLTest ::sai_acl_get_global_switch_id();
+
+    /* Table Create */
+    sai_rc = sai_test_acl_table_create (&acl_table_id, 8,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
+                             SAI_ACL_STAGE_INGRESS,
+                             SAI_ACL_TABLE_ATTR_PRIORITY, 23,
+                             SAI_ACL_TABLE_ATTR_FIELD_ACL_RANGE_TYPE,
+                             SAI_ACL_TABLE_ATTR_FIELD_SRC_IP,
+                             SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
+                             SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
+                             SAI_ACL_TABLE_ATTR_FIELD_DSCP,
+                             SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    new_attr_list[attr_count].id = SAI_ACL_RANGE_ATTR_TYPE;
+    new_attr_list[attr_count].value.s32 = SAI_ACL_RANGE_TYPE_PACKET_LENGTH;
+
+    attr_count ++;
+    new_attr_list[attr_count].id = SAI_ACL_RANGE_ATTR_LIMIT;
+    new_attr_list[attr_count].value.s32range.min = 3000;
+    new_attr_list[attr_count].value.s32range.max = 0xffff;
+
+    attr_count ++;
+
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+              create_acl_range(&acl_range_id,switch_id,
+                                   attr_count,
+                                   (const sai_attribute_t *)new_attr_list));
+
+    attr_count = 0;
+    new_attr_list[attr_count].id = SAI_ACL_RANGE_ATTR_TYPE;
+    new_attr_list[attr_count].value.s32 = SAI_ACL_RANGE_TYPE_L4_SRC_PORT_RANGE;
+
+    attr_count ++;
+    new_attr_list[attr_count].id = SAI_ACL_RANGE_ATTR_LIMIT;
+    new_attr_list[attr_count].value.s32range.min = 3000;
+    new_attr_list[attr_count].value.s32range.max = 5000;
+
+    attr_count ++;
+
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+              create_acl_range(&acl_range_id1,switch_id,
+                                   attr_count,
+                                   (const sai_attribute_t *)new_attr_list));
+
+    sai_rc = sai_test_acl_rule_create (&acl_rule_id, 5,
+                                SAI_ACL_ENTRY_ATTR_TABLE_ID, acl_table_id,
+                                SAI_ACL_ENTRY_ATTR_PRIORITY, 5,
+                                SAI_ACL_ENTRY_ATTR_ADMIN_STATE, true,
+                                SAI_ACL_ENTRY_ATTR_FIELD_ETHER_TYPE,
+                                1, 34825, 0xffff,
+                                SAI_ACL_ENTRY_ATTR_FIELD_ACL_RANGE_TYPE,
+                                0,2,acl_range_id, acl_range_id1);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    sai_rc = sai_test_acl_rule_set (acl_rule_id, 1,
+                                    SAI_ACL_ENTRY_ATTR_FIELD_ACL_RANGE_TYPE,
+                                    1, 2,acl_range_id, acl_range_id1);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    set_attr.id = SAI_ACL_RANGE_ATTR_TYPE;
+    set_attr.value.s32 = SAI_ACL_RANGE_TYPE_L4_SRC_PORT_RANGE;
+
+    ASSERT_EQ(SAI_STATUS_INVALID_ATTRIBUTE_0, p_sai_acl_api_tbl->
+              set_acl_range_attribute(acl_range_id,(const sai_attribute_t *)&set_attr));
+
+    get_attr.id = SAI_ACL_RANGE_ATTR_TYPE;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+              get_acl_range_attribute(acl_range_id, 1,&get_attr));
+
+    ASSERT_EQ(SAI_ACL_RANGE_TYPE_PACKET_LENGTH, get_attr.value.s32);
+
+    get_attr.id = SAI_ACL_RANGE_ATTR_LIMIT;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+              get_acl_range_attribute(acl_range_id, 1,&get_attr));
+
+    ASSERT_EQ(3000, get_attr.value.s32range.min);
+    ASSERT_EQ(0xFFFF, get_attr.value.s32range.max);
+
+    ASSERT_EQ(SAI_STATUS_OBJECT_IN_USE, p_sai_acl_api_tbl->
+                            remove_acl_range(acl_range_id));
+    ASSERT_EQ(SAI_STATUS_OBJECT_IN_USE, p_sai_acl_api_tbl->
+                            remove_acl_range(acl_range_id1));
+
+    sai_rc = sai_test_acl_rule_set (acl_rule_id, 1,
+                                    SAI_ACL_ENTRY_ATTR_FIELD_ACL_RANGE_TYPE,
+                                    0, 2,acl_range_id, acl_range_id1);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+                            remove_acl_range(acl_range_id));
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+                            remove_acl_range(acl_range_id1));
+
+    sai_rc = sai_test_acl_rule_remove(acl_rule_id);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    sai_rc = sai_test_acl_table_remove (acl_table_id);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+}
+TEST_F(saiACLRuleTest, rule_with_next_header)
+{
+    sai_status_t    sai_rc = SAI_STATUS_SUCCESS;
+    sai_object_id_t acl_rule_id = 0;
+    sai_object_id_t acl_table_id = 0;
+
+    /* Table Create */
+    sai_rc = sai_test_acl_table_create (&acl_table_id, 9,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
+                             SAI_ACL_STAGE_INGRESS,
+                             SAI_ACL_TABLE_ATTR_PRIORITY, 23,
+                             SAI_ACL_TABLE_ATTR_FIELD_ACL_RANGE_TYPE,
+                             SAI_ACL_TABLE_ATTR_FIELD_SRC_IP,
+                             SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
+                             SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
+                             SAI_ACL_TABLE_ATTR_FIELD_DSCP,
+                             SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL,
+                             SAI_ACL_TABLE_ATTR_FIELD_IPV6_NEXT_HEADER);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+
+    sai_rc = sai_test_acl_rule_create (&acl_rule_id, 5,
+                                SAI_ACL_ENTRY_ATTR_TABLE_ID, acl_table_id,
+                                SAI_ACL_ENTRY_ATTR_PRIORITY, 5,
+                                SAI_ACL_ENTRY_ATTR_ADMIN_STATE, true,
+                                SAI_ACL_ENTRY_ATTR_FIELD_ETHER_TYPE,
+                                1, 34825, 0xffff,
+                                SAI_ACL_ENTRY_ATTR_FIELD_IPV6_NEXT_HEADER,
+                                1, 6, 0xff);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    sai_rc = sai_test_acl_rule_set (acl_rule_id, 1,
+                                    SAI_ACL_ENTRY_ATTR_FIELD_IPV6_NEXT_HEADER,
+                                    1, 7, 0xff);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+
+    sai_rc = sai_test_acl_rule_set (acl_rule_id, 1,
+                                    SAI_ACL_ENTRY_ATTR_FIELD_IPV6_NEXT_HEADER,
+                                    0, 1, 0xff);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    sai_rc = sai_test_acl_rule_remove(acl_rule_id);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    sai_rc = sai_test_acl_table_remove (acl_table_id);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+}
 int main (int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

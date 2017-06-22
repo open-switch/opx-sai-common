@@ -80,6 +80,7 @@ static sai_status_t sai_qos_buffer_pool_attributes_validate (
 }
 
 static sai_status_t sai_qos_create_buffer_pool(sai_object_id_t* pool_id,
+                                               _In_ sai_object_id_t switch_id,
                                                uint32_t attr_count,
                                                const sai_attribute_t *attr_list)
 {
@@ -227,7 +228,7 @@ static sai_status_t sai_qos_buffer_pool_attr_set (sai_object_id_t pool_id,
                                                                     attr);
                 break;
 
-            case SAI_BUFFER_POOL_ATTR_TH_MODE:
+            case SAI_BUFFER_POOL_ATTR_THRESHOLD_MODE:
             case SAI_BUFFER_POOL_ATTR_SHARED_SIZE:
             case SAI_BUFFER_POOL_ATTR_TYPE:
                 sai_rc = SAI_STATUS_INVALID_ATTRIBUTE_0;
@@ -346,6 +347,7 @@ static sai_status_t sai_qos_buffer_profile_attributes_validate (
 }
 
 static sai_status_t sai_qos_create_buffer_profile (sai_object_id_t* profile_id,
+                                                   _In_ sai_object_id_t switch_id,
                                                    uint32_t attr_count,
                                                    const sai_attribute_t *attr_list)
 {
@@ -450,7 +452,7 @@ static sai_status_t sai_qos_remove_buffer_profile (sai_object_id_t profile_id)
     return sai_rc;
 }
 
-static sai_status_t sai_qos_buffer_profile_attr_get (sai_object_id_t profile_id,
+static sai_status_t sai_qos_buffer_profile_attr_get_internal (sai_object_id_t profile_id,
                                                      uint32_t attr_count,
                                                      sai_attribute_t *attr_list)
 {
@@ -466,8 +468,6 @@ static sai_status_t sai_qos_buffer_profile_attr_get (sai_object_id_t profile_id,
         return sai_rc;
     }
 
-    sai_qos_lock();
-
     p_buf_profile_node = sai_qos_buffer_profile_node_get (profile_id);
 
     if (NULL == p_buf_profile_node) {
@@ -479,6 +479,19 @@ static sai_status_t sai_qos_buffer_profile_attr_get (sai_object_id_t profile_id,
 
     sai_rc = sai_qos_read_buffer_profile_node (p_buf_profile_node,
                                                attr_count, attr_list);
+
+    return sai_rc;
+}
+
+static sai_status_t sai_qos_buffer_profile_attr_get (sai_object_id_t profile_id,
+                                                     uint32_t attr_count,
+                                                     sai_attribute_t *attr_list)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    sai_qos_lock();
+
+    sai_rc = sai_qos_buffer_profile_attr_get_internal (profile_id, attr_count, attr_list);
 
     sai_qos_unlock();
 
@@ -535,6 +548,7 @@ static sai_status_t sai_qos_buffer_pool_size_recalc (sai_object_id_t pool_id,
 
 static sai_status_t sai_qos_update_buffer_profile_ports (dn_sai_qos_buffer_profile_t
                                                          *p_buf_profile_node,
+                                                         const sai_attribute_t *old_attr,
                                                          const sai_attribute_t *attr,
                                                          sai_object_id_t *port_id)
 {
@@ -551,7 +565,7 @@ static sai_status_t sai_qos_update_buffer_profile_ports (dn_sai_qos_buffer_profi
 
         sai_rc = sai_buffer_npu_api_get()->buffer_profile_attr_set (
                 port_node->port_id, p_buf_profile_node,
-                attr);
+                old_attr, attr);
 
         if(sai_rc != SAI_STATUS_SUCCESS) {
             *port_id = port_node->port_id;
@@ -563,6 +577,7 @@ static sai_status_t sai_qos_update_buffer_profile_ports (dn_sai_qos_buffer_profi
 
 static sai_status_t sai_qos_update_buffer_profile_queues (dn_sai_qos_buffer_profile_t
                                                           *p_buf_profile_node,
+                                                          const sai_attribute_t *old_attr,
                                                           const sai_attribute_t *attr,
                                                           sai_object_id_t *queue_id)
 {
@@ -578,7 +593,7 @@ static sai_status_t sai_qos_update_buffer_profile_queues (dn_sai_qos_buffer_prof
         }
         sai_rc = sai_buffer_npu_api_get()->buffer_profile_attr_set (
                 queue_node->key.queue_id, p_buf_profile_node,
-                attr);
+                old_attr, attr);
 
         if(sai_rc != SAI_STATUS_SUCCESS) {
             *queue_id = queue_node->key.queue_id;
@@ -590,6 +605,7 @@ static sai_status_t sai_qos_update_buffer_profile_queues (dn_sai_qos_buffer_prof
 
 static sai_status_t sai_qos_update_buffer_profile_pgs (dn_sai_qos_buffer_profile_t
                                                        *p_buf_profile_node,
+                                                       const sai_attribute_t *old_attr,
                                                        const sai_attribute_t *attr,
                                                        sai_object_id_t *pg_id)
 {
@@ -605,20 +621,20 @@ static sai_status_t sai_qos_update_buffer_profile_pgs (dn_sai_qos_buffer_profile
         }
         sai_rc = sai_buffer_npu_api_get()->buffer_profile_attr_set (
                                       pg_node->key.pg_id, p_buf_profile_node,
-                                      attr);
+                                      old_attr, attr);
 
         if (sai_rc != SAI_STATUS_SUCCESS) {
             *pg_id = pg_node->key.pg_id;
             return sai_rc;
-        }
+       }
     }
     return SAI_STATUS_SUCCESS;
 }
 
 static sai_status_t sai_qos_update_buffer_profile_objects (dn_sai_qos_buffer_profile_t
                                                            *p_buf_profile_node,
-                                                           const sai_attribute_t *attr,
-                                                           const sai_attribute_t *old_attr)
+                                                           const sai_attribute_t *old_attr,
+                                                           const sai_attribute_t *attr)
 {
     sai_object_id_t port_id = SAI_NULL_OBJECT_ID;
     sai_object_id_t queue_id = SAI_NULL_OBJECT_ID;
@@ -629,26 +645,25 @@ static sai_status_t sai_qos_update_buffer_profile_objects (dn_sai_qos_buffer_pro
     sai_status_t sai_rc;
 
     do {
-        if (attr->id == SAI_BUFFER_PROFILE_ATTR_TH_MODE) {
+        if (attr->id == SAI_BUFFER_PROFILE_ATTR_THRESHOLD_MODE) {
             sai_rc = sai_qos_update_buffer_profile_node (p_buf_profile_node, 1, attr);
             if (sai_rc != SAI_STATUS_SUCCESS) {
                 SAI_BUFFER_LOG_ERR ("Failed to update the cache for profile");
             }
-            /* This is a cache update */
             break;
         }
 
         if ((attr->id != SAI_BUFFER_PROFILE_ATTR_XOFF_TH) &&
             (attr->id != SAI_BUFFER_PROFILE_ATTR_XON_TH)) {
 
-            sai_rc = sai_qos_update_buffer_profile_ports(p_buf_profile_node,attr,&port_id);
+            sai_rc = sai_qos_update_buffer_profile_ports(p_buf_profile_node, old_attr, attr, &port_id);
             port_update = true;
             if (sai_rc != SAI_STATUS_SUCCESS) {
                 SAI_BUFFER_LOG_ERR ("Object update failed for port:0x%"PRIx64"",port_id);
                 break;
             }
 
-            sai_rc = sai_qos_update_buffer_profile_queues(p_buf_profile_node,attr,&queue_id);
+            sai_rc = sai_qos_update_buffer_profile_queues(p_buf_profile_node,old_attr, attr, &queue_id);
             queue_update = true;
             if (sai_rc != SAI_STATUS_SUCCESS) {
                 SAI_BUFFER_LOG_ERR ("Object update failed for Queue:0x%"PRIx64"",queue_id);
@@ -656,7 +671,7 @@ static sai_status_t sai_qos_update_buffer_profile_objects (dn_sai_qos_buffer_pro
             }
         }
 
-        sai_rc = sai_qos_update_buffer_profile_pgs(p_buf_profile_node,attr,&pg_id);
+        sai_rc = sai_qos_update_buffer_profile_pgs(p_buf_profile_node, old_attr, attr, &pg_id);
         pg_update = true;
         if (sai_rc != SAI_STATUS_SUCCESS) {
             SAI_BUFFER_LOG_ERR ("Object update failed for pg:0x%"PRIx64"",pg_id);
@@ -672,15 +687,15 @@ static sai_status_t sai_qos_update_buffer_profile_objects (dn_sai_qos_buffer_pro
 
     if(sai_rc != SAI_STATUS_SUCCESS) {
         if(port_update) {
-            sai_qos_update_buffer_profile_ports(p_buf_profile_node, old_attr, &port_id);
+            sai_qos_update_buffer_profile_ports(p_buf_profile_node, attr, old_attr, &port_id);
         }
 
         if(queue_update) {
-            sai_qos_update_buffer_profile_queues(p_buf_profile_node, old_attr, &queue_id);
+            sai_qos_update_buffer_profile_queues(p_buf_profile_node, attr, old_attr, &queue_id);
         }
 
         if(pg_update) {
-            sai_qos_update_buffer_profile_pgs(p_buf_profile_node, old_attr, &pg_id);
+            sai_qos_update_buffer_profile_pgs(p_buf_profile_node, attr, old_attr, &pg_id);
         }
     }
     return sai_rc;
@@ -785,27 +800,26 @@ static sai_status_t sai_qos_buffer_profile_attr_set (sai_object_id_t profile_id,
     bool is_add = false;
     sai_attribute_t old_attr;
 
-    memset(&old_attr, 0, sizeof(old_attr));
-    old_attr.id = attr->id;
-    sai_rc = sai_qos_buffer_profile_attr_get (profile_id, 1, &old_attr);
-
     STD_ASSERT(attr != NULL);
 
     sai_rc = sai_qos_buffer_profile_attributes_validate (1, attr, SAI_OP_SET);
 
-    if(sai_rc != SAI_STATUS_SUCCESS) {
+    if (sai_rc != SAI_STATUS_SUCCESS) {
         return sai_rc;
     }
 
-
-    if(sai_rc != SAI_STATUS_SUCCESS) {
-        SAI_BUFFER_LOG_ERR ("Unable to get old buffer profile attribute value");
-        return sai_rc;
-    }
+    memset(&old_attr, 0, sizeof(old_attr));
+    old_attr.id = attr->id;
 
     sai_qos_lock ();
 
     do {
+        sai_rc = sai_qos_buffer_profile_attr_get_internal (profile_id, 1, &old_attr);
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_BUFFER_LOG_ERR ("Unable to get old buffer profile attribute value");
+            break;
+        }
+
         p_buf_profile_node = sai_qos_buffer_profile_node_get (profile_id);
 
         if (NULL == p_buf_profile_node) {
@@ -827,7 +841,7 @@ static sai_status_t sai_qos_buffer_profile_attr_set (sai_object_id_t profile_id,
             break;
         }
 
-        sai_rc = sai_qos_update_buffer_profile_objects (p_buf_profile_node, attr, &old_attr);
+        sai_rc = sai_qos_update_buffer_profile_objects (p_buf_profile_node, &old_attr, attr);
         if(sai_rc != SAI_STATUS_SUCCESS) {
             SAI_BUFFER_LOG_ERR ("Unable to update buffer profile objects");
             break;
@@ -906,7 +920,7 @@ sai_status_t sai_qos_obj_update_buffer_profile (sai_object_id_t object_id,
 
     if(old_profile_id == profile_id) {
         SAI_BUFFER_LOG_INFO ("Item already exists");
-        return SAI_STATUS_ITEM_ALREADY_EXISTS;
+        return SAI_STATUS_SUCCESS;
     }
 
     if (profile_id != SAI_NULL_OBJECT_ID) {
@@ -927,7 +941,7 @@ sai_status_t sai_qos_obj_update_buffer_profile (sai_object_id_t object_id,
         new_size = p_buf_profile_node->size + p_buf_profile_node->xoff_th;
         new_pool_id = p_buf_profile_node->buffer_pool_id;
     } else {
-        memset(&def_buf_profile, 0, sizeof(def_buf_profile));
+        memset(&def_buf_profile, 0, sizeof(dn_sai_qos_buffer_profile_t));
         sai_qos_get_default_buffer_profile (&def_buf_profile);
         p_buf_profile_node = &def_buf_profile;
     }
@@ -939,15 +953,15 @@ sai_status_t sai_qos_obj_update_buffer_profile (sai_object_id_t object_id,
                                 old_profile_id);
             return SAI_STATUS_ITEM_NOT_FOUND;
         }
-
-        if(!profile_id) {
-            p_buf_profile_node->buffer_pool_id = p_old_buf_profile_node->buffer_pool_id;
-        }
         old_size = p_old_buf_profile_node->size + p_old_buf_profile_node->xoff_th;
         old_pool_id = p_old_buf_profile_node->buffer_pool_id;
         if(p_old_buf_profile_node->profile_th_enable) {
             check_th = false;
         }
+    } else {
+        memset(&def_buf_profile, 0, sizeof(dn_sai_qos_buffer_profile_t));
+        sai_qos_get_default_buffer_profile (&def_buf_profile);
+        p_old_buf_profile_node = &def_buf_profile;
     }
 
     sai_rc = sai_qos_calc_pool_size (old_pool_id, new_pool_id, check_th,
@@ -955,8 +969,9 @@ sai_status_t sai_qos_obj_update_buffer_profile (sai_object_id_t object_id,
     if(sai_rc != SAI_STATUS_SUCCESS) {
         return sai_rc;
     }
-    sai_rc = sai_buffer_npu_api_get()->buffer_profile_apply (object_id,
-                                                             p_buf_profile_node);
+
+    sai_rc = sai_buffer_npu_api_get()->buffer_profile_apply (object_id, p_old_buf_profile_node,
+                                                             p_buf_profile_node, false);
     if(sai_rc != SAI_STATUS_SUCCESS) {
         SAI_BUFFER_LOG_ERR ("Error unable to set buffer profile object");
         return sai_rc;
@@ -967,8 +982,8 @@ sai_status_t sai_qos_obj_update_buffer_profile (sai_object_id_t object_id,
     if(sai_rc != SAI_STATUS_SUCCESS) {
         SAI_BUFFER_LOG_ERR ("Error unable to update buffer profile node");
         if(old_profile_id != SAI_NULL_OBJECT_ID) {
-            sai_buffer_npu_api_get()->buffer_profile_apply (object_id,
-                                                            p_old_buf_profile_node);
+            sai_buffer_npu_api_get()->buffer_profile_apply (object_id, p_buf_profile_node,
+                                                            p_old_buf_profile_node, false);
         }
         return sai_rc;
     }
@@ -990,24 +1005,9 @@ sai_status_t sai_buffer_init (void)
 {
     sai_status_t sai_rc;
 
-    sai_qos_npu_buffer_info_t buffer_npu_info;
-
-    memset (&buffer_npu_info, 0, sizeof(buffer_npu_info));
-
-    buffer_npu_info.ing_max_buf_pools = sai_switch_ing_max_buf_pools_get ();
-    buffer_npu_info.egr_max_buf_pools = sai_switch_egr_max_buf_pools_get ();
-    buffer_npu_info.max_buffer_size = sai_switch_max_buffer_size_get ();
-    buffer_npu_info.cell_size = sai_switch_cell_size_get ();
-    buffer_npu_info.num_pg = sai_switch_num_pg_get ();
-    sai_rc = sai_buffer_npu_api_get()->buffer_init(&buffer_npu_info);
-
+    sai_rc = sai_buffer_npu_api_get()->buffer_init();
     if(sai_rc != SAI_STATUS_SUCCESS) {
         SAI_BUFFER_LOG_CRIT ("Error NPU init failed");
-        return sai_rc;
-    }
-
-    if(sai_rc != SAI_STATUS_SUCCESS) {
-        SAI_BUFFER_LOG_CRIT ("Error PG init failed");
         return sai_rc;
     }
 
@@ -1022,12 +1022,21 @@ sai_status_t sai_qos_buffer_pool_stats_get (sai_object_id_t pool_id,
                                                            number_of_counters, counters);
 }
 
+sai_status_t sai_qos_buffer_pool_stats_clear (sai_object_id_t pool_id,
+                                              _In_ uint32_t number_of_counters,
+                                              _In_ const sai_buffer_pool_stat_t *counter_ids)
+{
+    /** TODO - Implement it */
+    return SAI_STATUS_NOT_IMPLEMENTED;
+}
+
 static sai_buffer_api_t sai_qos_buffer_method_table = {
     sai_qos_create_buffer_pool,
     sai_qos_remove_buffer_pool,
     sai_qos_buffer_pool_attr_set,
     sai_qos_buffer_pool_attr_get,
     sai_qos_buffer_pool_stats_get,
+    sai_qos_buffer_pool_stats_clear,
     sai_qos_pg_attr_set,
     sai_qos_pg_attr_get,
     sai_qos_pg_stats_get,

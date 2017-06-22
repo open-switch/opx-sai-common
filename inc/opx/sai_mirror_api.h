@@ -110,5 +110,11 @@ bool sai_mirror_is_valid_mirror_session (sai_object_id_t mirror_object);
  */
 rbtree_handle sai_mirror_sessions_db_get (void);
 
-void sai_mirror_dump (void);
+/*
+ * Dump function for Mirror session params
+ * param - Mirror session Id
+ * param - all Set to dump 'all' or single session
+ * return - void
+ */
+void sai_mirror_dump(sai_object_id_t session_id, bool all);
 #endif /* __SAI_MIRROR_API_H__ */

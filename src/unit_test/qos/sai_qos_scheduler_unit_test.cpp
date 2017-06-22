@@ -35,54 +35,65 @@ extern "C" {
 }
 
 #define SAI_MAX_QUEUES_PER_PORT  40
-static const unsigned int default_port = 31;
+static const unsigned int default_port = 0;
 static sai_object_id_t  default_port_id  = 0;
 static sai_object_id_t  cpu_port_id = 0;
 static sai_object_id_t  queue_id_list[SAI_MAX_QUEUES_PER_PORT];
 unsigned int            max_queues = 0;
+static sai_object_id_t switch_id = 0;
 
 /* SAI initialization */
 void SetUpTestCase (void)
 {
-    sai_switch_notification_t notification;
-    memset (&notification, 0, sizeof(sai_switch_notification_t));
-
     /*
      * Query and populate the SAI Switch API Table.
      */
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_api_query
-               (SAI_API_SWITCH, (static_cast<void**>
-                                 (static_cast<void*>(&p_sai_switch_api_table)))));
+            (SAI_API_SWITCH, (static_cast<void**>
+                              (static_cast<void*>(&p_sai_switch_api_table)))));
 
     ASSERT_TRUE (p_sai_switch_api_table != NULL);
 
-    ASSERT_TRUE (p_sai_switch_api_table->initialize_switch != NULL);
-    ASSERT_TRUE (p_sai_switch_api_table->shutdown_switch != NULL);
-    ASSERT_TRUE (p_sai_switch_api_table->connect_switch != NULL);
-    ASSERT_TRUE (p_sai_switch_api_table->disconnect_switch != NULL);
+    ASSERT_TRUE (p_sai_switch_api_table->remove_switch != NULL);
     ASSERT_TRUE (p_sai_switch_api_table->set_switch_attribute != NULL);
     ASSERT_TRUE (p_sai_switch_api_table->get_switch_attribute != NULL);
 
-    /*
-     * Switch Initialization.
-     * Fill in notification callback routines with stubs.
-     */
-    notification.on_switch_state_change = sai_switch_operstate_callback;
-    notification.on_fdb_event = sai_fdb_evt_callback;
-    notification.on_port_state_change = sai_port_state_evt_callback;
-    notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-    notification.on_port_event = sai_port_evt_callback;
+    sai_attribute_t sai_attr_set[7];
+    uint32_t attr_count = 7;
 
-    ASSERT_TRUE(p_sai_switch_api_table->initialize_switch != NULL);
+    memset(sai_attr_set,0, sizeof(sai_attr_set));
 
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               (p_sai_switch_api_table->initialize_switch (0, NULL, NULL,
-                                                         &notification)));
+    sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+    sai_attr_set[0].value.booldata = 1;
+
+    sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+    sai_attr_set[1].value.u32 = 0;
+
+    sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+    sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+    sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+    sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+    sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+    sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+    sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+    sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+    sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+    sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+    ASSERT_TRUE(p_sai_switch_api_table->create_switch != NULL);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS,
+            (p_sai_switch_api_table->create_switch (&switch_id , attr_count,
+                                                    sai_attr_set)));
 
     printf("Switch Init success \r\n");
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_api_query(SAI_API_QUEUE,
-                    (static_cast<void**>(static_cast<void*>(&p_sai_qos_queue_api_table)))));
+                (static_cast<void**>(static_cast<void*>(&p_sai_qos_queue_api_table)))));
 
     ASSERT_TRUE (p_sai_qos_queue_api_table != NULL);
 
@@ -91,7 +102,7 @@ void SetUpTestCase (void)
     ASSERT_TRUE (p_sai_qos_queue_api_table->get_queue_stats != NULL);
 
     ASSERT_EQ (NULL, sai_api_query(SAI_API_PORT,
-              (static_cast<void**>(static_cast<void*>(&p_sai_port_api_table)))));
+                (static_cast<void**>(static_cast<void*>(&p_sai_port_api_table)))));
 
     ASSERT_TRUE (p_sai_port_api_table != NULL);
 
@@ -100,7 +111,7 @@ void SetUpTestCase (void)
     ASSERT_TRUE (p_sai_port_api_table->get_port_stats != NULL);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_api_query(SAI_API_SCHEDULER,
-                    (static_cast<void**>(static_cast<void*>(&p_sai_scheduler_api_table)))));
+                (static_cast<void**>(static_cast<void*>(&p_sai_scheduler_api_table)))));
 
     ASSERT_TRUE (p_sai_scheduler_api_table != NULL);
 
@@ -108,6 +119,21 @@ void SetUpTestCase (void)
     ASSERT_TRUE (p_sai_scheduler_api_table->remove_scheduler_profile != NULL);
     ASSERT_TRUE (p_sai_scheduler_api_table->set_scheduler_attribute != NULL);
     ASSERT_TRUE (p_sai_scheduler_api_table->get_scheduler_attribute != NULL);
+
+    sai_attribute_t sai_port_attr;
+    uint32_t * port_count = sai_qos_update_port_count();
+    sai_status_t ret = SAI_STATUS_SUCCESS;
+
+    memset (&sai_port_attr, 0, sizeof (sai_port_attr));
+
+    sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+    sai_port_attr.value.objlist.count = 256;
+    sai_port_attr.value.objlist.list  = sai_qos_update_port_list();
+
+    ret = p_sai_switch_api_table->get_switch_attribute(0,1,&sai_port_attr);
+    *port_count = sai_port_attr.value.objlist.count;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,ret);
 }
 
 static void sai_test_scheduler_attr_list_print (unsigned int attr_count,
@@ -122,7 +148,7 @@ static void sai_test_scheduler_attr_list_print (unsigned int attr_count,
 
         switch (p_attr->id) {
 
-            case SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM:
+            case SAI_SCHEDULER_ATTR_SCHEDULING_TYPE:
                 printf ("Index: %d, Scheduler algorithem %d.\n",
                         attr_index, p_attr->value.s32);
                 break;
@@ -132,28 +158,28 @@ static void sai_test_scheduler_attr_list_print (unsigned int attr_count,
                         attr_index, p_attr->value.u8);
                 break;
 
-            case SAI_SCHEDULER_ATTR_SHAPER_TYPE:
+            case SAI_SCHEDULER_ATTR_METER_TYPE:
                 printf ("Index: %d, Scheduler shape type %d.\n",
                         attr_index, p_attr->value.u8);
                 break;
 
             case SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE:
-                printf ("Index: %d, Scheduler min bw rate %"PRIu64".\n",
+                printf ("Index: %d, Scheduler min bw rate %" PRIu64 ".\n",
                         attr_index, p_attr->value.u64);
                 break;
 
             case SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE:
-                printf ("Index: %d, Scheduler min bw burst %"PRIu64".\n",
+                printf ("Index: %d, Scheduler min bw burst %" PRIu64 ".\n",
                         attr_index, p_attr->value.u64);
                 break;
 
             case SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE:
-                printf ("Index: %d, Scheduler max bw rate %"PRIu64".\n",
+                printf ("Index: %d, Scheduler max bw rate %" PRIu64 ".\n",
                         attr_index, p_attr->value.u64);
                 break;
 
             case SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_BURST_RATE:
-                printf ("Index: %d, Scheduler max bw burst %"PRIu64".\n",
+                printf ("Index: %d, Scheduler max bw burst %" PRIu64 ".\n",
                         attr_index, p_attr->value.u64);
                 break;
 
@@ -226,7 +252,7 @@ TEST (saiQosSchedulerTest, scheduler_create_and_remove)
     sai_scheduler_verify_after_removal (sched_id);
 
     sai_rc = sai_test_scheduler_create (&sched_id, 2,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_DWRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_DWRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -234,7 +260,7 @@ TEST (saiQosSchedulerTest, scheduler_create_and_remove)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_scheduler_create (&sched_id, 3,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -243,7 +269,7 @@ TEST (saiQosSchedulerTest, scheduler_create_and_remove)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_scheduler_create (&sched_id, 3,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 20480,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_BURST_RATE, 10240);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -268,9 +294,9 @@ TEST (saiQosSchedulerTest, schededuler_attribute_get)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_scheduler_attr_get (sched_id, &attr_list[0], attr_count,
-                                            SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM,
+                                            SAI_SCHEDULER_ATTR_SCHEDULING_TYPE,
                                             SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT,
-                                            SAI_SCHEDULER_ATTR_SHAPER_TYPE,
+                                            SAI_SCHEDULER_ATTR_METER_TYPE,
                                             SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE,
                                             SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE,
                                             SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE,
@@ -288,9 +314,9 @@ TEST (saiQosSchedulerTest, schededuler_attribute_get)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_scheduler_create (&sched_id, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_DWRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_DWRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 20480,
@@ -299,9 +325,9 @@ TEST (saiQosSchedulerTest, schededuler_attribute_get)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_scheduler_attr_get (sched_id, &attr_list[0], attr_count,
-                                            SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM,
+                                            SAI_SCHEDULER_ATTR_SCHEDULING_TYPE,
                                             SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT,
-                                            SAI_SCHEDULER_ATTR_SHAPER_TYPE,
+                                            SAI_SCHEDULER_ATTR_METER_TYPE,
                                             SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE,
                                             SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE,
                                             SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE,
@@ -334,7 +360,7 @@ TEST (saiQosSchedulerTest, scheduler_attribute_set)
     sai_rc = sai_test_scheduler_create (&sched_id, 0);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    attr.id = SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM;
+    attr.id = SAI_SCHEDULER_ATTR_SCHEDULING_TYPE;
     attr.value.s32 = SAI_SCHEDULING_TYPE_DWRR;
 
     sai_rc = p_sai_scheduler_api_table->set_scheduler_attribute (sched_id,
@@ -348,7 +374,7 @@ TEST (saiQosSchedulerTest, scheduler_attribute_set)
                                                                  &attr);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    attr.id = SAI_SCHEDULER_ATTR_SHAPER_TYPE;
+    attr.id = SAI_SCHEDULER_ATTR_METER_TYPE;
     attr.value.s32 = SAI_METER_TYPE_BYTES;
 
     sai_rc = p_sai_scheduler_api_table->set_scheduler_attribute (sched_id,
@@ -380,9 +406,9 @@ TEST (saiQosSchedulerTest, scheduler_attribute_set)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_scheduler_attr_get (sched_id, &attr_list[0], attr_count,
-                                            SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM,
+                                            SAI_SCHEDULER_ATTR_SCHEDULING_TYPE,
                                             SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT,
-                                            SAI_SCHEDULER_ATTR_SHAPER_TYPE,
+                                            SAI_SCHEDULER_ATTR_METER_TYPE,
                                             SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE,
                                             SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE,
                                             SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE,
@@ -417,9 +443,9 @@ TEST (saiQosSchedulerTest, scheduler_on_queue)
 
     /* Scheduler DWRR + SHAPE */
     sai_rc = sai_test_scheduler_create (&sched_id, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_DWRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_DWRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 10000000,
@@ -470,9 +496,9 @@ TEST (saiQosSchedulerTest, scheduler_strict_priority_on_queue)
 
     /* Test Strict priority + shape scheduler on queue */
     sai_rc = sai_test_scheduler_create (&sched_id, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_STRICT,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_STRICT,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 20480,
@@ -540,9 +566,9 @@ TEST (saiQosSchedulerTest, scheduler_replace_on_queue)
     sai_object_id_t  sched_id_2 = SAI_NULL_OBJECT_ID;
 
     sai_rc = sai_test_scheduler_create (&sched_id_1, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_WRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_WRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 20480,
@@ -550,9 +576,9 @@ TEST (saiQosSchedulerTest, scheduler_replace_on_queue)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_scheduler_create (&sched_id_2, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_DWRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_DWRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 100,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 4098,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 409800,
@@ -597,9 +623,9 @@ TEST (saiQosSchedulerTest, scheduler_on_port)
     sai_attribute_t  attr;
 
     sai_rc = sai_test_scheduler_create (&sched_id, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_DWRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_DWRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 20480,
@@ -641,9 +667,9 @@ TEST (saiQosSchedulerTest, scheduler_replace_on_port)
     sai_object_id_t  sched_id_2 = SAI_NULL_OBJECT_ID;
 
     sai_rc = sai_test_scheduler_create (&sched_id_1, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_WRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_WRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 20480,
@@ -651,9 +677,9 @@ TEST (saiQosSchedulerTest, scheduler_replace_on_port)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_scheduler_create (&sched_id_2, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_DWRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_DWRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 100,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 4098,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 409800,
@@ -704,9 +730,9 @@ TEST (saiQosSchedulerTest, scheduler_modify)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_scheduler_create (&sched_id, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_WRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_WRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 20480,
@@ -728,7 +754,7 @@ TEST (saiQosSchedulerTest, scheduler_modify)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Modify */
-    attr.id = SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM;
+    attr.id = SAI_SCHEDULER_ATTR_SCHEDULING_TYPE;
     attr.value.s32 = SAI_SCHEDULING_TYPE_STRICT;
 
     sai_rc = p_sai_scheduler_api_table->set_scheduler_attribute (sched_id,
@@ -741,7 +767,7 @@ TEST (saiQosSchedulerTest, scheduler_modify)
                                                                  &attr);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    attr.id = SAI_SCHEDULER_ATTR_SHAPER_TYPE;
+    attr.id = SAI_SCHEDULER_ATTR_METER_TYPE;
     attr.value.s32 = SAI_METER_TYPE_PACKETS;
 
     sai_rc = p_sai_scheduler_api_table->set_scheduler_attribute (sched_id,
@@ -789,9 +815,9 @@ TEST (saiQosSchedulerTest, scheduler_on_cpu_port_queue)
 
     /* Scheduler DWRR + SHAPE */
     sai_rc = sai_test_scheduler_create (&sched_id, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_DWRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_DWRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 20480,
@@ -810,7 +836,7 @@ TEST (saiQosSchedulerTest, scheduler_on_cpu_port_queue)
     }
 
     /* Test Packet mode */
-    attr.id = SAI_SCHEDULER_ATTR_SHAPER_TYPE;
+    attr.id = SAI_SCHEDULER_ATTR_METER_TYPE;
     attr.value.s32 = SAI_METER_TYPE_PACKETS;
     sai_rc = p_sai_scheduler_api_table->set_scheduler_attribute (sched_id,
                                                                  &attr);
@@ -868,9 +894,9 @@ TEST (saiQosSchedulerTest, scheduler_on_cpu_port)
     sai_attribute_t  attr;
 
     sai_rc = sai_test_scheduler_create (&sched_id, 7,
-                                        SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM, SAI_SCHEDULING_TYPE_DWRR,
+                                        SAI_SCHEDULER_ATTR_SCHEDULING_TYPE, SAI_SCHEDULING_TYPE_DWRR,
                                         SAI_SCHEDULER_ATTR_SCHEDULING_WEIGHT, 10,
-                                        SAI_SCHEDULER_ATTR_SHAPER_TYPE, SAI_METER_TYPE_BYTES,
+                                        SAI_SCHEDULER_ATTR_METER_TYPE, SAI_METER_TYPE_BYTES,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_RATE, 2048,
                                         SAI_SCHEDULER_ATTR_MIN_BANDWIDTH_BURST_RATE, 1024,
                                         SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE, 20480,

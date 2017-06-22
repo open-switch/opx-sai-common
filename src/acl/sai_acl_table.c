@@ -266,7 +266,7 @@ static sai_status_t sai_acl_table_validate_attributes(uint_t attr_count,
          attribute_id = attr_list[attribute_count].id;
          attribute_value = attr_list[attribute_count].value;
 
-         if (attribute_id == SAI_ACL_TABLE_ATTR_STAGE) {
+         if (attribute_id == SAI_ACL_TABLE_ATTR_ACL_STAGE) {
              if(sai_acl_valid_stage(attribute_value.s32) == false) {
                 return sai_get_indexed_ret_val (SAI_STATUS_INVALID_ATTR_VALUE_0,
                                                 attribute_count);
@@ -293,7 +293,7 @@ static sai_status_t sai_acl_table_validate_attributes(uint_t attr_count,
 
         switch (attribute_id) {
             /* Mandatory Attributes */
-            case SAI_ACL_TABLE_ATTR_STAGE:
+            case SAI_ACL_TABLE_ATTR_ACL_STAGE:
                 attr_stage_present = true;
                 break;
             case SAI_ACL_TABLE_ATTR_PRIORITY:
@@ -467,7 +467,7 @@ static sai_status_t sai_acl_table_populate(sai_acl_table_t *acl_table,
         attribute_value = attr_list[attribute_count].value;
 
         switch (attribute_id) {
-            case SAI_ACL_TABLE_ATTR_STAGE:
+            case SAI_ACL_TABLE_ATTR_ACL_STAGE:
                 acl_table->acl_stage = attribute_value.s32;
                 break;
             case SAI_ACL_TABLE_ATTR_PRIORITY:
@@ -544,6 +544,7 @@ static sai_status_t sai_create_acl_table_id (
 }
 
 sai_status_t sai_create_acl_table(sai_object_id_t *acl_table_id,
+                                  sai_object_id_t switch_id,
                                   uint32_t attr_count,
                                   const sai_attribute_t *attr_list)
 {
@@ -781,7 +782,7 @@ sai_status_t sai_get_acl_table(sai_object_id_t table_id,
                 break;
              }
              switch (attribute_id) {
-                 case SAI_ACL_TABLE_ATTR_STAGE:
+                 case SAI_ACL_TABLE_ATTR_ACL_STAGE:
                      attr_list[attribute_count].value.s32 = acl_table->acl_stage;
                      break;
                  case SAI_ACL_TABLE_ATTR_PRIORITY:

@@ -41,14 +41,14 @@ void sai_mirror_dump_session_params (sai_mirror_session_info_t *p_mirror_info)
 
     SAI_DEBUG ("Class of service %u", p_mirror_info->session_params.class_of_service);
     SAI_DEBUG ("Monitor Port 0x%"PRIx64"", p_mirror_info->monitor_port);
-    if (p_mirror_info->span_type == SAI_MIRROR_TYPE_LOCAL) {
+    if (p_mirror_info->span_type == SAI_MIRROR_SESSION_TYPE_LOCAL) {
         SAI_DEBUG ("SPAN Session");
-    } else if (p_mirror_info->span_type == SAI_MIRROR_TYPE_REMOTE) {
+    } else if (p_mirror_info->span_type == SAI_MIRROR_SESSION_TYPE_REMOTE) {
         SAI_DEBUG ("RSPAN Session");
         SAI_DEBUG ("Vlan TPID 0x%u", p_mirror_info->session_params.tpid);
         SAI_DEBUG ("Vlan Id %u", p_mirror_info->session_params.vlan_id);
         SAI_DEBUG ("Vlan Priority %u", p_mirror_info->session_params.vlan_priority);
-    } else if (p_mirror_info->span_type == SAI_MIRROR_TYPE_ENHANCED_REMOTE) {
+    } else if (p_mirror_info->span_type == SAI_MIRROR_SESSION_TYPE_ENHANCED_REMOTE) {
         SAI_DEBUG ("ERSPAN Session");
         SAI_DEBUG ("Vlan TPID 0x%u", p_mirror_info->session_params.tpid);
         SAI_DEBUG ("Vlan Id %u", p_mirror_info->session_params.vlan_id);
@@ -100,24 +100,31 @@ void sai_mirror_dump_session_node (sai_object_id_t mirror_session_id)
                 p_mirror_info->session_id,
                 p_port_node->mirror_direction);
     }
+    SAI_DEBUG ("\r\n");
 }
 
-void sai_mirror_dump (void)
+void sai_mirror_dump(sai_object_id_t session_id, bool all)
 {
     sai_mirror_session_info_t *p_mirror_info = NULL;
-    sai_mirror_session_info_t tmp_mirror_info;
+    sai_object_id_t sai_session_id = SAI_NULL_OBJECT_ID;
 
-    for (p_mirror_info = std_rbtree_getfirst(sai_mirror_sessions_db_get());
-            p_mirror_info != NULL;
-            p_mirror_info = std_rbtree_getnext (sai_mirror_sessions_db_get(),
-                                  p_mirror_info))
-    {
-        memcpy (&tmp_mirror_info, p_mirror_info,
-                sizeof(sai_mirror_session_info_t));
-        SAI_DEBUG ("Mirror session id 0x%"PRIx64"",
-                p_mirror_info->session_id);
-
-        sai_mirror_dump_session_node (p_mirror_info->session_id);
+    if(all) {
+        for (p_mirror_info = std_rbtree_getfirst(sai_mirror_sessions_db_get());
+                p_mirror_info != NULL;
+                p_mirror_info = std_rbtree_getnext (sai_mirror_sessions_db_get(),
+                    p_mirror_info))
+        {
+            sai_mirror_dump_session_node (p_mirror_info->session_id);
+        }
+    } else {
+        if(sai_is_obj_id_mirror_session(session_id)) {
+            sai_session_id = session_id;
+        } else {
+            sai_session_id = sai_uoid_create(
+                    SAI_OBJECT_TYPE_MIRROR_SESSION,
+                    (sai_npu_object_id_t)session_id);
+        }
+        sai_mirror_dump_session_node(sai_session_id);
     }
 
 }

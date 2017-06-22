@@ -24,6 +24,7 @@
 
 extern "C" {
 #include "sai.h"
+#include "saiacl.h"
 #include "saistatus.h"
 #include "saitypes.h"
 #include "saiswitch.h"
@@ -34,7 +35,6 @@ extern "C" {
 #include <stdio.h>
 #include <inttypes.h>
 }
-
 #define SAI_SAMPLE_NO_OF_MANDAT_ATTRIB 1
 
 TEST_F(samplepacketTest, sample_set) {
@@ -221,21 +221,21 @@ TEST_F(samplepacketTest, flow_based) {
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    table_attr[0].id = SAI_ACL_TABLE_ATTR_STAGE;
+    table_attr[0].id = SAI_ACL_TABLE_ATTR_ACL_STAGE;
     table_attr[0].value.s32= 0;
     table_attr[1].id =  SAI_ACL_TABLE_ATTR_PRIORITY;
     table_attr[1].value.u32 = 1;
     table_attr[2].id = SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC;
     table_attr[3].id = SAI_ACL_TABLE_ATTR_FIELD_DST_MAC;
     table_attr[4].id = SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE;
-    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE;
+    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE;
     table_attr[6].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID;
     table_attr[7].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI;
     table_attr[8].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI;
     table_attr[9].id = SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL;
     table_attr[10].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORT;
     table_attr[11].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS;
-    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, 12,
+    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, switch_id, 12,
                                                   table_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -254,7 +254,7 @@ TEST_F(samplepacketTest, flow_based) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->remove_acl_entry(acl_rule_id));
@@ -274,7 +274,7 @@ TEST_F(samplepacketTest, flow_based) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Without INPORTS */
@@ -291,7 +291,7 @@ TEST_F(samplepacketTest, flow_based) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_EGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id2, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id2, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->remove_acl_entry(acl_rule_id));
@@ -329,21 +329,21 @@ TEST_F(samplepacketTest, flow_based_set) {
     sai_rc = sai_test_samplepacket_session_create (&session_id_dup, SAI_SAMPLE_NO_OF_MANDAT_ATTRIB, attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    table_attr[0].id = SAI_ACL_TABLE_ATTR_STAGE;
+    table_attr[0].id = SAI_ACL_TABLE_ATTR_ACL_STAGE;
     table_attr[0].value.s32= 0;
     table_attr[1].id =  SAI_ACL_TABLE_ATTR_PRIORITY;
     table_attr[1].value.u32 = 1;
     table_attr[2].id = SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC;
     table_attr[3].id = SAI_ACL_TABLE_ATTR_FIELD_DST_MAC;
     table_attr[4].id = SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE;
-    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE;
+    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE;
     table_attr[6].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID;
     table_attr[7].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI;
     table_attr[8].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI;
     table_attr[9].id = SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL;
     table_attr[10].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORT;
     table_attr[11].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS;
-    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, 12,
+    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, switch_id, 12,
                                                   table_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -365,7 +365,7 @@ TEST_F(samplepacketTest, flow_based_set) {
     rule_attr[5].id = SAI_ACL_ENTRY_ATTR_ACTION_EGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[5].value.aclaction.enable = true;
     rule_attr[5].value.aclaction.parameter.oid = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, 6, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, switch_id, 6, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
     free (rule_attr[3].value.aclfield.data.objlist.list);
 
@@ -394,7 +394,7 @@ TEST_F(samplepacketTest, flow_based_set) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id_dup;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id2, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id2, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
     free (rule_attr[3].value.aclfield.data.objlist.list);
 
@@ -479,21 +479,21 @@ TEST_F(samplepacketTest, flow_based_and_port_based) {
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    table_attr[0].id = SAI_ACL_TABLE_ATTR_STAGE;
+    table_attr[0].id = SAI_ACL_TABLE_ATTR_ACL_STAGE;
     table_attr[0].value.s32= 0;
     table_attr[1].id =  SAI_ACL_TABLE_ATTR_PRIORITY;
     table_attr[1].value.u32 = 1;
     table_attr[2].id = SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC;
     table_attr[3].id = SAI_ACL_TABLE_ATTR_FIELD_DST_MAC;
     table_attr[4].id = SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE;
-    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE;
+    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE;
     table_attr[6].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID;
     table_attr[7].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI;
     table_attr[8].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI;
     table_attr[9].id = SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL;
     table_attr[10].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORT;
     table_attr[11].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS;
-    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, 12, table_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, switch_id, 12, table_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     rule_attr[0].id = SAI_ACL_ENTRY_ATTR_TABLE_ID;
@@ -511,14 +511,14 @@ TEST_F(samplepacketTest, flow_based_and_port_based) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_OBJECT_IN_USE, sai_rc);
 
     sai_rc = sai_test_samplepacket_session_ingress_port_add (port_id_1, SAI_NULL_OBJECT_ID);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->remove_acl_entry(acl_rule_id));
@@ -565,21 +565,21 @@ TEST_F(samplepacketTest, flow_based_duplicate) {
     sai_rc = sai_test_samplepacket_session_create (&session_id_dup2, SAI_SAMPLE_NO_OF_MANDAT_ATTRIB, attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-    table_attr[0].id = SAI_ACL_TABLE_ATTR_STAGE;
+    table_attr[0].id = SAI_ACL_TABLE_ATTR_ACL_STAGE;
     table_attr[0].value.s32= 0;
     table_attr[1].id =  SAI_ACL_TABLE_ATTR_PRIORITY;
     table_attr[1].value.u32 = 1;
     table_attr[2].id = SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC;
     table_attr[3].id = SAI_ACL_TABLE_ATTR_FIELD_DST_MAC;
     table_attr[4].id = SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE;
-    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE;
+    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE;
     table_attr[6].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID;
     table_attr[7].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI;
     table_attr[8].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI;
     table_attr[9].id = SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL;
     table_attr[10].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORT;
     table_attr[11].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS;
-    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, 12, table_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, switch_id, 12, table_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     rule_attr[0].id = SAI_ACL_ENTRY_ATTR_TABLE_ID;
@@ -597,7 +597,7 @@ TEST_F(samplepacketTest, flow_based_duplicate) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_1, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_1, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
     free (rule_attr[3].value.aclfield.data.objlist.list);
 
@@ -616,7 +616,7 @@ TEST_F(samplepacketTest, flow_based_duplicate) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id_dup;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_2, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_2, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
     free (rule_attr[3].value.aclfield.data.objlist.list);
 
@@ -636,7 +636,7 @@ TEST_F(samplepacketTest, flow_based_duplicate) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id_dup;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_3, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_3, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_FAILURE, sai_rc);
     free (rule_attr[3].value.objlist.list);
 
@@ -653,7 +653,7 @@ TEST_F(samplepacketTest, flow_based_duplicate) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_3, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_3, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_FAILURE, sai_rc);
 
     rule_attr[0].id = SAI_ACL_ENTRY_ATTR_TABLE_ID;
@@ -669,15 +669,15 @@ TEST_F(samplepacketTest, flow_based_duplicate) {
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = session_id_dup;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_4, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_4, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_FAILURE, sai_rc);
 
     rule_attr[4].value.aclaction.parameter.oid = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_4, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_4, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_FAILURE, sai_rc);
 
     rule_attr[4].value.aclaction.parameter.oid = session_id_dup2;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_4, 5, rule_attr);
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id_4, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_FAILURE, sai_rc);
 
     sai_rc = sai_test_samplepacket_session_destroy (session_id);
@@ -699,69 +699,6 @@ TEST_F(samplepacketTest, flow_based_duplicate) {
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 }
 
-TEST_F(samplepacketTest, attr_breakout_mode_set_get)
-{
-    sai_object_id_t acl_table_id;
-    sai_object_id_t acl_rule_id;
-    sai_object_id_t session_id;
-    sai_attribute_t rule_attr[10] = {0};
-    sai_attribute_t table_attr[12] = {0};
-    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
-    sai_attribute_t attr[SAI_SAMPLE_NO_OF_MANDAT_ATTRIB + 1] = {0};
-
-    attr[0].id =  SAI_SAMPLEPACKET_ATTR_SAMPLE_RATE;
-    attr[0].value.u32 = 2048;
-
-    sai_rc = sai_test_samplepacket_session_create (&session_id, SAI_SAMPLE_NO_OF_MANDAT_ATTRIB, attr);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    table_attr[0].id = SAI_ACL_TABLE_ATTR_STAGE;
-    table_attr[0].value.s32= 0;
-    table_attr[1].id =  SAI_ACL_TABLE_ATTR_PRIORITY;
-    table_attr[1].value.u32 = 1;
-    table_attr[2].id = SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC;
-    table_attr[3].id = SAI_ACL_TABLE_ATTR_FIELD_DST_MAC;
-    table_attr[4].id = SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE;
-    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE;
-    table_attr[6].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID;
-    table_attr[7].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI;
-    table_attr[8].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI;
-    table_attr[9].id = SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL;
-    table_attr[10].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORT;
-    table_attr[11].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS;
-    sai_rc = p_sai_acl_api_tbl->create_acl_table (&acl_table_id, 12,
-                                                  table_attr);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    /* Without INPORTS */
-    rule_attr[0].id = SAI_ACL_ENTRY_ATTR_TABLE_ID;
-    rule_attr[0].value.oid = acl_table_id;
-    rule_attr[1].id =  SAI_ACL_ENTRY_ATTR_PRIORITY;
-    rule_attr[1].value.u32 = 1;
-    rule_attr[2].id = SAI_ACL_ENTRY_ATTR_ADMIN_STATE;
-    rule_attr[2].value.booldata= true;
-    rule_attr[3].id = SAI_ACL_ENTRY_ATTR_FIELD_IP_PROTOCOL;
-    rule_attr[3].value.aclfield.enable = true;
-    rule_attr[3].value.aclfield.data.u8 = 17;
-    rule_attr[3].value.aclfield.mask.u8 = 0xff;
-    rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_INGRESS_SAMPLEPACKET_ENABLE;
-    rule_attr[4].value.aclaction.enable = true;
-    rule_attr[4].value.aclaction.parameter.oid = session_id;
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (&acl_rule_id, 5, rule_attr);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-    sai_test_samplepacket_port_breakout ();
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->remove_acl_entry(acl_rule_id));
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->remove_acl_table (acl_table_id));
-
-    sai_rc = sai_test_samplepacket_session_destroy (session_id);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
-}
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);

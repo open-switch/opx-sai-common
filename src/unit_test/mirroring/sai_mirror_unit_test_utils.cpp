@@ -70,36 +70,6 @@ static inline void sai_packet_event_callback (const void *buffer,
 {
 }
 
-static inline void sai_port_evt_callback (uint32_t count,
-                                          sai_port_event_notification_t *data)
-{
-    uint32_t port_idx = 0;
-    sai_object_id_t port_id = 0;
-    sai_port_event_t port_event;
-
-    for(port_idx = 0; port_idx < count; port_idx++) {
-        port_id = data[port_idx].port_id;
-        port_event = data[port_idx].port_event;
-
-        if(port_event == SAI_PORT_EVENT_ADD) {
-            if(port_count < SAI_MAX_PORTS) {
-                port_list[port_count] = port_id;
-                port_count++;
-            }
-
-            printf("PORT ADD EVENT FOR port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else if(port_event == SAI_PORT_EVENT_DELETE) {
-            port_count = 0;
-
-            printf("PORT DELETE EVENT for  port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else {
-            printf("Invalid PORT EVENT for port 0x%"PRIx64" \r\n", port_id);
-        }
-    }
-}
-
 static inline void  sai_switch_shutdown_callback (void) {
 }
 
@@ -119,9 +89,11 @@ sai_object_id_t mirrorTest ::sai_mirror_invalid_port_id_get ()
 
 
 void mirrorTest ::SetUpTestCase (void) {
-    sai_switch_notification_t notification;
-    memset (&notification, 0, sizeof(sai_switch_notification_t));
 
+    sai_attribute_t sai_attr_set[7];
+    uint32_t attr_count = 7;
+
+    memset(sai_attr_set,0, sizeof(sai_attr_set));
     /*
      * Query and populate the SAI Switch API Table.
      */
@@ -131,25 +103,33 @@ void mirrorTest ::SetUpTestCase (void) {
 
     ASSERT_TRUE (p_sai_switch_api_tbl != NULL);
 
-    /*
-     * Switch Initialization.
-     */
-    ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
+    sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+    sai_attr_set[0].value.booldata = 1;
 
-    /*
-     * Fill in notification callback routines with stubs.
-     */
-    notification.on_switch_state_change = sai_switch_operstate_callback;
-    notification.on_fdb_event = sai_fdb_evt_callback;
-    notification.on_port_state_change = sai_port_state_evt_callback;
-    notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-    //notification.on_packet_rx = sai_packet_rx_callback;
-    notification.on_port_event = sai_port_evt_callback;
-    notification.on_packet_event = sai_packet_event_callback;
+    sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+    sai_attr_set[1].value.u32 = 0;
+
+    sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+    sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+    sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+    sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+    sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+    sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+    sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+    sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+    sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+    sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+    ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-               (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                         &notification)));
+               (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                         sai_attr_set)));
+
     /*
      * Query and populate the SAI Port API Table.
      */
@@ -200,6 +180,19 @@ void mirrorTest ::SetUpTestCase (void) {
 
     ASSERT_TRUE (p_sai_lag_api_table != NULL);
 
+    sai_attribute_t sai_port_attr;
+    sai_status_t ret = SAI_STATUS_SUCCESS;
+
+    memset (&sai_port_attr, 0, sizeof (sai_port_attr));
+
+    sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+    sai_port_attr.value.objlist.count = SAI_MAX_PORTS;
+    sai_port_attr.value.objlist.list  = port_list;
+
+    ret = p_sai_switch_api_tbl->get_switch_attribute(0,1,&sai_port_attr);
+    port_count = sai_port_attr.value.objlist.count;
+    EXPECT_EQ (SAI_STATUS_SUCCESS,ret);
+
     sai_mirror_first_port = port_list[port_count - 2];
     sai_mirror_second_port = sai_mirror_port_id_get (17);
     sai_mirror_third_port = sai_mirror_port_id_get (9);
@@ -207,8 +200,19 @@ void mirrorTest ::SetUpTestCase (void) {
     sai_second_monitor_port = sai_mirror_port_id_get (13);
     sai_invalid_port = sai_mirror_invalid_port_id_get();
 
-    EXPECT_EQ (SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->create_vlan(SAI_MIRROR_VLAN_2));
-    EXPECT_EQ (SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->create_vlan(SAI_MIRROR_VLAN_3));
+    {
+        sai_attribute_t attr;
+
+        attr.id = SAI_VLAN_ATTR_VLAN_ID;
+        attr.value.u16 = SAI_MIRROR_VLAN_2;
+        EXPECT_EQ(SAI_STATUS_SUCCESS,
+                p_sai_vlan_api_tbl->create_vlan(&sai_mirror_vlan_2,0,1,&attr));
+
+        attr.id = SAI_VLAN_ATTR_VLAN_ID;
+        attr.value.u16 = SAI_MIRROR_VLAN_3;
+        EXPECT_EQ(SAI_STATUS_SUCCESS,
+                p_sai_vlan_api_tbl->create_vlan(&sai_mirror_vlan_3,0,1,&attr));
+    }
 }
 
 sai_switch_api_t* mirrorTest ::p_sai_switch_api_tbl = NULL;
@@ -223,6 +227,9 @@ sai_object_id_t mirrorTest ::sai_mirror_third_port = 0;
 sai_object_id_t mirrorTest ::sai_monitor_port = 0;
 sai_object_id_t mirrorTest ::sai_second_monitor_port = 0;
 sai_object_id_t mirrorTest ::sai_invalid_port = 0;
+sai_object_id_t mirrorTest ::sai_mirror_vlan_2 = 0;
+sai_object_id_t mirrorTest ::sai_mirror_vlan_3 = 0;
+sai_object_id_t mirrorTest ::switch_id = 0;
 
 sai_status_t mirrorTest ::sai_test_mirror_session_create (sai_object_id_t *p_session_id,
         uint32_t attr_count,
@@ -233,8 +240,8 @@ sai_status_t mirrorTest ::sai_test_mirror_session_create (sai_object_id_t *p_ses
 
     printf ("Testing Session Create API with attribute count: %d\r\n", attr_count);
 
-    sai_rc = p_sai_mirror_api_tbl->create_mirror_session (p_session_id,attr_count,
-            p_attr_list);
+    sai_rc = p_sai_mirror_api_tbl->create_mirror_session (p_session_id,switch_id,
+                                                          attr_count,p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI Mirror session Creation API failed with error: %d\r\n", sai_rc);
@@ -336,148 +343,9 @@ sai_status_t mirrorTest ::sai_test_mirror_session_egress_port_get (sai_object_id
     return sai_rc;
 }
 
-void mirrorTest ::sai_test_mirror_port_breakout (sai_object_id_t session_id)
-{
-    sai_status_t ret = SAI_STATUS_FAILURE;
-    sai_object_list_t obj_list;
-    sai_object_id_t *sessions = NULL;
-    bool is_supported =  false;
-    uint32_t idx;
-    sai_object_id_t breakout_port = SAI_NULL_OBJECT_ID;
-
-    /*set the breakout mode*/
-    for(idx = 0; idx < port_count; idx++) {
-        sai_check_supported_breakout_mode (p_sai_port_api_tbl,
-                port_list[idx], SAI_PORT_BREAKOUT_MODE_4_LANE,
-                &is_supported);
-        if(is_supported) {
-            breakout_port = port_list[idx];
-            break;
-        }
-    }
-    if(breakout_port == SAI_NULL_OBJECT_ID) {
-        printf("Breakout is not supported on any port");
-        return;
-    }
-    ret = sai_port_break_out_mode_set (p_sai_switch_api_tbl,
-                                       p_sai_port_api_tbl,
-                                       breakout_port,
-                                       SAI_PORT_BREAKOUT_MODE_4_LANE);
-    ASSERT_EQ(ret, SAI_STATUS_SUCCESS);
-
-    obj_list.count = 1;
-    sessions = (sai_object_id_t *) calloc (1, sizeof(sai_object_id_t));
-    sessions[0] = session_id;
-    obj_list.list = sessions;
-    ret = sai_test_mirror_session_ingress_port_add (port_list[0], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_ingress_port_add (port_list[1], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_ingress_port_add (port_list[2], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_ingress_port_add (port_list[3], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[0], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[1], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[2], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[3], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    obj_list.count = 0;
-    ret = sai_test_mirror_session_ingress_port_add (port_list[0], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_ingress_port_add (port_list[1], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_ingress_port_add (port_list[2], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_ingress_port_add (port_list[3], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[0], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[1], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[2], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[3], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    /*get the mode and check*/
-    ret = sai_port_break_out_mode_get(p_sai_port_api_tbl,
-                                      port_list[0],
-                                      SAI_PORT_BREAKOUT_MODE_4_LANE);
-    ASSERT_EQ(ret, SAI_STATUS_SUCCESS);
-
-    /*set the breakin mode*/
-    ret = sai_port_break_in_mode_set(p_sai_switch_api_tbl,
-                                     p_sai_port_api_tbl,
-                                     4,
-                                     port_list,
-                                     SAI_PORT_BREAKOUT_MODE_1_LANE);
-    ASSERT_EQ(ret, SAI_STATUS_SUCCESS);
-
-    /*get the mode and check*/
-    ret = sai_port_break_out_mode_get(p_sai_port_api_tbl,
-                                      port_list[0],
-                                      SAI_PORT_BREAKOUT_MODE_1_LANE);
-    ASSERT_EQ(ret, SAI_STATUS_SUCCESS);
-
-    obj_list.count = 1;
-    sessions[0] = session_id;
-    obj_list.list = sessions;
-    ret = sai_test_mirror_session_ingress_port_add (port_list[0], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[0], &obj_list);
-
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    obj_list.count = 0;
-    ret = sai_test_mirror_session_ingress_port_add (port_list[0], &obj_list);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    ret = sai_test_mirror_session_egress_port_add (port_list[0], &obj_list);
-    EXPECT_EQ (SAI_STATUS_SUCCESS, ret);
-
-    free (sessions);
-}
-
 void mirrorTest ::TearDownTestCase (void)
 {
-    EXPECT_EQ (SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->remove_vlan(SAI_MIRROR_VLAN_2));
-    EXPECT_EQ (SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->remove_vlan(SAI_MIRROR_VLAN_3));
+    EXPECT_EQ (SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->remove_vlan(sai_mirror_vlan_2));
+    EXPECT_EQ (SAI_STATUS_SUCCESS,p_sai_vlan_api_tbl->remove_vlan(sai_mirror_vlan_3));
 }
 

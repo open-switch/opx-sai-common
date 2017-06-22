@@ -114,7 +114,7 @@ TEST_F(saiACLTableTest, table_create_with_out_of_range_attr)
 
     /* ACL Table Attribute not in the range */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 1,
-                            SAI_ACL_TABLE_ATTR_FIELD_END + 1);
+                            SAI_ACL_TABLE_ATTR_GROUP_ID + 1);
     EXPECT_EQ (SAI_STATUS_INVALID_ATTRIBUTE_0, sai_rc);
 }
 
@@ -143,16 +143,16 @@ TEST_F(saiACLTableTest, table_create_without_mandatory_attr)
 
     /* ACL Table Stage, Priority and Field are mandatory attributes */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 1,
-                            SAI_ACL_TABLE_ATTR_STAGE, SAI_ACL_STAGE_INGRESS);
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE, SAI_ACL_STAGE_INGRESS);
     EXPECT_EQ (SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING, sai_rc);
 
     sai_rc = sai_test_acl_table_create (&acl_table_id, 2,
-                            SAI_ACL_TABLE_ATTR_STAGE, SAI_ACL_STAGE_INGRESS,
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE, SAI_ACL_STAGE_INGRESS,
                             SAI_ACL_TABLE_ATTR_PRIORITY, 2);
     EXPECT_EQ (SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING, sai_rc);
 
     sai_rc = sai_test_acl_table_create (&acl_table_id, 2,
-                            SAI_ACL_TABLE_ATTR_STAGE, SAI_ACL_STAGE_INGRESS,
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE, SAI_ACL_STAGE_INGRESS,
                             SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT);
     EXPECT_EQ (SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING, sai_rc);
 }
@@ -166,8 +166,8 @@ TEST_F(saiACLTableTest, table_create_with_invalid_stage_value)
     printf ("Expecting error - SAI_STATUS_INVALID_ATTR_VALUE. \r\n");
 
     sai_rc = sai_test_acl_table_create (&acl_table_id, 3,
-                            SAI_ACL_TABLE_ATTR_STAGE,
-                            SAI_ACL_STAGE_SUBSTAGE_INGRESS_POST_L3 + 1,
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE,
+                            SAI_ACL_STAGE_EGRESS + 1,
                             SAI_ACL_TABLE_ATTR_PRIORITY, 2,
                             SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT);
     EXPECT_EQ (SAI_STATUS_INVALID_ATTR_VALUE_0, sai_rc);
@@ -183,10 +183,10 @@ TEST_F(saiACLTableTest, table_create_with_dup_attr)
 
     /* Duplicate Attribute ACL Table Stage */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 4,
-                            SAI_ACL_TABLE_ATTR_STAGE,
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE,
                             SAI_ACL_STAGE_EGRESS,
                             SAI_ACL_TABLE_ATTR_PRIORITY, 2,
-                            SAI_ACL_TABLE_ATTR_STAGE,
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE,
                             SAI_ACL_STAGE_INGRESS,
                             SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT);
     EXPECT_EQ (sai_test_invalid_attr_status_code (SAI_STATUS_INVALID_ATTRIBUTE_0, 2), sai_rc);
@@ -202,7 +202,7 @@ TEST_F(saiACLTableTest, table_create_with_unsupported_field_attr)
 
     /* Testing table create with unsupported ingress field. */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 4,
-                            SAI_ACL_TABLE_ATTR_STAGE,
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE,
                             SAI_ACL_STAGE_INGRESS,
                             SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                             SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -223,7 +223,7 @@ TEST_F(saiACLTableTest, table_create_with_unsupported_field_attr)
 
     /* Testing table create with unsupported egress field. */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 4,
-                            SAI_ACL_TABLE_ATTR_STAGE,
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE,
                             SAI_ACL_STAGE_EGRESS,
                             SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                             SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -249,7 +249,7 @@ TEST_F(saiACLTableTest, table_create_and_remove)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 8,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -261,7 +261,7 @@ TEST_F(saiACLTableTest, table_create_and_remove)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                 acl_table_id);
     }
 
@@ -271,7 +271,7 @@ TEST_F(saiACLTableTest, table_create_and_remove)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("ACL Table Successfully removed for ID 0x%"PRIx64" \r\n",
+        printf ("ACL Table Successfully removed for ID 0x%" PRIx64 " \r\n",
                 acl_table_id);
     }
 }
@@ -283,7 +283,7 @@ TEST_F(saiACLTableTest, table_remove_with_invalid_id)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 8,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -320,7 +320,7 @@ TEST_F(saiACLTableTest, table_remove_with_rule_present)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 8,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -332,7 +332,7 @@ TEST_F(saiACLTableTest, table_remove_with_rule_present)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                 acl_table_id);
     }
 
@@ -378,7 +378,7 @@ TEST_F(saiACLTableTest, table_create_with_same_priority)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 8,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -390,14 +390,14 @@ TEST_F(saiACLTableTest, table_create_with_same_priority)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                 acl_table_id);
         printf ("Table Creation with Same Priority & Stage of "
                 "Existing ACL Table \r\n");
         printf ("Expecting error - SAI_STATUS_INVALID_ATTR_VALUE. \r\n");
 
         sai_rc = sai_test_acl_table_create (&acl_table_id_dup, 5,
-                            SAI_ACL_TABLE_ATTR_STAGE,
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE,
                             SAI_ACL_STAGE_INGRESS,
                             SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                             SAI_ACL_TABLE_ATTR_FIELD_SRC_IPv6,
@@ -410,7 +410,7 @@ TEST_F(saiACLTableTest, table_create_with_same_priority)
         printf ("Expecting error - SAI_STATUS_SUCCESS.\r\n");
 
         sai_rc = sai_test_acl_table_create (&acl_table_id_dup, 5,
-                            SAI_ACL_TABLE_ATTR_STAGE,
+                            SAI_ACL_TABLE_ATTR_ACL_STAGE,
                             SAI_ACL_STAGE_EGRESS,
                             SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                             SAI_ACL_TABLE_ATTR_FIELD_SRC_IPv6,
@@ -438,7 +438,7 @@ TEST_F(saiACLTableTest, table_set)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 8,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -450,11 +450,11 @@ TEST_F(saiACLTableTest, table_set)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                 acl_table_id);
     }
 
-    printf ("Table Set for Table Id 0x%"PRIx64" \r\n", acl_table_id);
+    printf ("Table Set for Table Id 0x%" PRIx64 " \r\n", acl_table_id);
     printf ("Expecting error - SAI_STATUS_NOT_SUPPORTED.\r\n");
 
     /* Table Set */
@@ -485,7 +485,7 @@ TEST_F(saiACLTableTest, table_get)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 8,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -497,27 +497,27 @@ TEST_F(saiACLTableTest, table_get)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                 acl_table_id);
     }
 
-    printf ("Table Get for Table Id 0x%"PRIx64" \r\n", acl_table_id);
+    printf ("Table Get for Table Id 0x%" PRIx64 " \r\n", acl_table_id);
     printf ("Expecting error - SAI_STATUS_SUCCESS.\r\n");
 
     /* Table Get */
     sai_rc = sai_test_acl_table_get (acl_table_id, p_attr_list_get, 2,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_TABLE_ATTR_PRIORITY);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Table Get with invalid Table Id */
     sai_rc = sai_test_acl_table_get ((acl_table_id + 1), p_attr_list_get, 1,
-                             SAI_ACL_TABLE_ATTR_STAGE);
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE);
     EXPECT_EQ (SAI_STATUS_INVALID_OBJECT_ID, sai_rc);
 
     /* Table Get with out of range Table Attribute */
     sai_rc = sai_test_acl_table_get (acl_table_id, p_attr_list_get, 1,
-                             (SAI_ACL_TABLE_ATTR_FIELD_END + 1));
+                             (SAI_ACL_TABLE_ATTR_GROUP_ID + 1));
     EXPECT_EQ (SAI_STATUS_INVALID_ATTRIBUTE_0, sai_rc);
 
     /* Table Get with invalid Table Id */
@@ -549,7 +549,7 @@ TEST_F(saiACLTableTest, table_with_invalid_object_type)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 8,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -561,11 +561,11 @@ TEST_F(saiACLTableTest, table_with_invalid_object_type)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                 acl_table_id);
     }
 
-    printf ("Table Get for Invalid Table Id 0x%"PRIx64" \r\n",
+    printf ("Table Get for Invalid Table Id 0x%" PRIx64 " \r\n",
              acl_table_invalid_id);
     printf ("Expecting error - SAI_STATUS_INVALID_OBJECT_TYPE.\r\n");
 
@@ -575,7 +575,7 @@ TEST_F(saiACLTableTest, table_with_invalid_object_type)
 
     /* Table Get with invalid Table Id */
     sai_rc = sai_test_acl_table_get (acl_table_invalid_id, p_attr_list_get, 1,
-                             SAI_ACL_TABLE_ATTR_STAGE);
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE);
     EXPECT_EQ (SAI_STATUS_INVALID_OBJECT_TYPE, sai_rc);
 
     sai_rc = sai_test_acl_table_remove (acl_table_id);
@@ -605,7 +605,7 @@ TEST_F(saiACLTableTest, table_with_fix_size)
 
     /* Ingress Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_SIZE,
@@ -632,7 +632,7 @@ TEST_F(saiACLTableTest, table_with_fix_size)
 
     /* Ingress Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_SIZE,
@@ -739,7 +739,7 @@ TEST_F(saiACLTableTest, table_with_fix_size)
 
     /* Compare Table creation with both fix and dynamic size tables */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                              SAI_ACL_TABLE_ATTR_SIZE,
@@ -761,7 +761,7 @@ TEST_F(saiACLTableTest, table_with_fix_size)
 
     /* Ingress Table Create with size more than allowed */
     sai_rc = sai_test_acl_table_create (&acl_table_id_2, 9,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 2,
                              SAI_ACL_TABLE_ATTR_SIZE,
@@ -800,7 +800,7 @@ TEST_F(saiACLTableTest, table_with_virtual_priority)
 
     /* Table Create */
     sai_rc = sai_test_acl_table_create (&acl_table_id, 4,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_SIZE, 100,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 1,
@@ -816,7 +816,7 @@ TEST_F(saiACLTableTest, table_with_virtual_priority)
 
     /* Table Create with invalid group id */
     sai_rc = sai_test_acl_table_create (&acl_table_id_group_1, 4,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 2,
                              SAI_ACL_TABLE_ATTR_GROUP_ID, 0,
@@ -825,7 +825,7 @@ TEST_F(saiACLTableTest, table_with_virtual_priority)
 
     /* Table grouping but with different stage */
     sai_rc = sai_test_acl_table_create (&acl_table_id_group_1, 4,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_EGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 2,
                              SAI_ACL_TABLE_ATTR_GROUP_ID,
@@ -835,7 +835,7 @@ TEST_F(saiACLTableTest, table_with_virtual_priority)
 
     /* Table Grouping */
     sai_rc = sai_test_acl_table_create (&acl_table_id_group_1, 6,
-                             SAI_ACL_TABLE_ATTR_STAGE,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
                              SAI_ACL_STAGE_INGRESS,
                              SAI_ACL_TABLE_ATTR_PRIORITY, 2,
                              SAI_ACL_TABLE_ATTR_GROUP_ID,
@@ -891,7 +891,7 @@ TEST_F(saiACLTableTest, table_with_virtual_priority)
 
     /* Create and group other tables without size */
     sai_rc = sai_test_acl_table_create (&acl_table_id_group_2, 4,
-                                SAI_ACL_TABLE_ATTR_STAGE,
+                                SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                 SAI_ACL_STAGE_INGRESS,
                                 SAI_ACL_TABLE_ATTR_PRIORITY, 3,
                                 SAI_ACL_TABLE_ATTR_GROUP_ID,
@@ -900,7 +900,7 @@ TEST_F(saiACLTableTest, table_with_virtual_priority)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     sai_rc = sai_test_acl_table_create (&acl_table_id_group_3, 5,
-                                SAI_ACL_TABLE_ATTR_STAGE,
+                                SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                 SAI_ACL_STAGE_INGRESS,
                                 SAI_ACL_TABLE_ATTR_PRIORITY, 4,
                                 SAI_ACL_TABLE_ATTR_GROUP_ID,
@@ -958,6 +958,209 @@ TEST_F(saiACLTableTest, table_with_virtual_priority)
 
     sai_rc = sai_test_acl_table_remove (acl_table_id_group_3);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+}
+
+TEST_F(saiACLTableTest, acl_group_member)
+{
+    unsigned int i = 0;
+    sai_status_t    sai_rc = SAI_STATUS_SUCCESS;
+    sai_object_id_t acl_rule_id = 0;
+    sai_object_id_t acl_table_id = 0;
+    sai_object_id_t acl_table_id1 = 0;
+    sai_object_id_t acl_table_group_id = 0;
+    sai_object_id_t acl_table_group_mem_id = 0;
+    sai_object_id_t acl_table_group_mem_id1 = 0;
+    sai_attribute_t new_attr_list[5];
+    sai_attribute_t group_mem_attr[5];
+    sai_attribute_t set_attr;
+    sai_attribute_t get_attr;
+    sai_s32_list_t  table_list;
+    int32_t         *list = NULL;
+    unsigned int attr_count = 0;
+
+    /* Table Create */
+    sai_rc = sai_test_acl_table_create (&acl_table_id, 8,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
+                             SAI_ACL_STAGE_INGRESS,
+                             SAI_ACL_TABLE_ATTR_PRIORITY, 1,
+                             SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
+                             SAI_ACL_TABLE_ATTR_FIELD_SRC_IP,
+                             SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
+                             SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
+                             SAI_ACL_TABLE_ATTR_FIELD_DSCP,
+                             SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    sai_rc = sai_test_acl_table_create (&acl_table_id1, 8,
+                             SAI_ACL_TABLE_ATTR_ACL_STAGE,
+                             SAI_ACL_STAGE_INGRESS,
+                             SAI_ACL_TABLE_ATTR_PRIORITY, 2,
+                             SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
+                             SAI_ACL_TABLE_ATTR_FIELD_SRC_IP,
+                             SAI_ACL_TABLE_ATTR_FIELD_L4_SRC_PORT,
+                             SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
+                             SAI_ACL_TABLE_ATTR_FIELD_DSCP,
+                             SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+    new_attr_list[attr_count].id = SAI_ACL_TABLE_GROUP_ATTR_ACL_STAGE;
+    new_attr_list[attr_count].value.s32 = SAI_ACL_STAGE_INGRESS;
+
+    attr_count ++;
+    new_attr_list[attr_count].id = SAI_ACL_TABLE_GROUP_ATTR_TYPE;
+    new_attr_list[attr_count].value.s32 = SAI_ACL_TABLE_GROUP_TYPE_PARALLEL;
+
+    attr_count ++;
+
+    table_list.count = 2;
+    list = (int32_t *) calloc (table_list.count, sizeof (int32_t));
+    list[0] = SAI_ACL_BIND_POINT_TYPE_PORT;
+    list[1] = SAI_ACL_BIND_POINT_TYPE_SWITCH;
+    table_list.list = list;
+
+    new_attr_list[attr_count].id = SAI_ACL_TABLE_GROUP_ATTR_ACL_BIND_POINT_TYPE_LIST;
+    new_attr_list[attr_count].value.s32list = table_list;
+
+    attr_count ++;
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+            create_acl_table_group(&acl_table_group_id,
+                saiACLTest ::sai_acl_get_global_switch_id(),
+                attr_count,
+                (const sai_attribute_t *)new_attr_list));
+
+    free(list);
+
+    attr_count = 1;
+    get_attr.id = SAI_ACL_TABLE_GROUP_ATTR_ACL_BIND_POINT_TYPE_LIST;
+
+    table_list.count = 1;
+    list = (int32_t *) calloc (table_list.count, sizeof (int32_t));
+    table_list.list = list;
+
+    get_attr.value.s32list = table_list;
+
+    ASSERT_EQ(SAI_STATUS_BUFFER_OVERFLOW, p_sai_acl_api_tbl->
+              get_acl_table_group_attribute(acl_table_group_id,
+                                     attr_count,
+                                     &get_attr));
+
+    table_list.count = get_attr.value.s32list.count;
+    table_list.list = (int32_t *) calloc (table_list.count, sizeof (int32_t));
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+              get_acl_table_group_attribute(acl_table_group_id,
+                                     attr_count,
+                                     &get_attr));
+
+    for(i = 0; i <  get_attr.value.s32list.count; i ++)
+    {
+        printf("Bind point %d \r\n",  get_attr.value.s32list.list[i]);
+    }
+
+    free(list);
+
+    attr_count = 0;
+    group_mem_attr[attr_count].id = SAI_ACL_TABLE_GROUP_MEMBER_ATTR_ACL_TABLE_GROUP_ID;
+    group_mem_attr[attr_count].value.oid = acl_table_group_id;
+
+    attr_count ++;
+
+    group_mem_attr[attr_count].id = SAI_ACL_TABLE_GROUP_MEMBER_ATTR_ACL_TABLE_ID;
+    group_mem_attr[attr_count].value.oid = acl_table_id;
+
+    attr_count ++;
+    group_mem_attr[attr_count].id = SAI_ACL_TABLE_GROUP_MEMBER_ATTR_PRIORITY;
+    group_mem_attr[attr_count].value.s32 = 5;
+
+    attr_count ++;
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+            create_acl_table_group_member(&acl_table_group_mem_id,
+                saiACLTest ::sai_acl_get_global_switch_id(),
+                attr_count,
+                (const sai_attribute_t *)group_mem_attr));
+
+    attr_count = 0;
+    group_mem_attr[attr_count].id = SAI_ACL_TABLE_GROUP_MEMBER_ATTR_ACL_TABLE_GROUP_ID;
+    group_mem_attr[attr_count].value.oid = acl_table_group_id;
+
+    attr_count ++;
+
+    group_mem_attr[attr_count].id = SAI_ACL_TABLE_GROUP_MEMBER_ATTR_ACL_TABLE_ID;
+    group_mem_attr[attr_count].value.oid = acl_table_id1;
+
+    attr_count ++;
+    group_mem_attr[attr_count].id = SAI_ACL_TABLE_GROUP_MEMBER_ATTR_PRIORITY;
+    group_mem_attr[attr_count].value.s32 = 6;
+
+    attr_count ++;
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+            create_acl_table_group_member(&acl_table_group_mem_id1,
+                saiACLTest ::sai_acl_get_global_switch_id(),
+                attr_count,
+                (const sai_attribute_t *)group_mem_attr));
+
+    printf("Acl table id 0x%" PRIx64 "\r\n", acl_table_id);
+    printf("Acl table group id 0x%" PRIx64 "\r\n", acl_table_group_id);
+    printf("Acl table group mem id 0x%" PRIx64 "\r\n", acl_table_group_mem_id);
+    printf("Acl table group mem id 0x%" PRIx64 "\r\n", acl_table_group_mem_id1);
+
+    attr_count  = 0;
+    get_attr.id = SAI_ACL_TABLE_GROUP_MEMBER_ATTR_PRIORITY;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+              get_acl_table_group_member_attribute(acl_table_group_mem_id1,
+                                                   1,
+                                                   &get_attr));
+
+    ASSERT_EQ(get_attr.value.s32,6);
+
+    sai_rc = sai_test_acl_rule_create (&acl_rule_id, 4,
+                                SAI_ACL_ENTRY_ATTR_TABLE_ID, acl_table_id,
+                                SAI_ACL_ENTRY_ATTR_PRIORITY, 5,
+                                SAI_ACL_ENTRY_ATTR_ADMIN_STATE, true,
+                                SAI_ACL_ENTRY_ATTR_FIELD_ETHER_TYPE,
+                                1, 34825, 0xffff);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    set_attr.id = SAI_PORT_ATTR_INGRESS_ACL;
+    set_attr.value.oid = acl_table_group_id;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_port_api_tbl->set_port_attribute(
+                                                          port_id_1,
+                                                       (const sai_attribute_t *)&set_attr));
+
+
+    set_attr.id = SAI_ACL_TABLE_GROUP_ATTR_TYPE;
+    set_attr.value.s32 = SAI_ACL_TABLE_GROUP_TYPE_PARALLEL;
+    ASSERT_EQ(SAI_STATUS_INVALID_ATTRIBUTE_0, p_sai_acl_api_tbl->set_acl_table_group_attribute(
+                                                          acl_table_group_id,
+                                                       (const sai_attribute_t *)&set_attr));
+
+    set_attr.id = SAI_ACL_TABLE_GROUP_MEMBER_ATTR_PRIORITY;
+    set_attr.value.s32 = 10;
+    ASSERT_EQ(SAI_STATUS_INVALID_ATTRIBUTE_0, p_sai_acl_api_tbl->set_acl_table_group_member_attribute(
+                                                          acl_table_group_mem_id,
+                                                       (const sai_attribute_t *)&set_attr));
+    sai_rc = sai_test_acl_rule_remove(acl_rule_id);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    sai_rc = sai_test_acl_table_remove (acl_table_id);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    ASSERT_EQ(SAI_STATUS_OBJECT_IN_USE, p_sai_acl_api_tbl->
+              remove_acl_table_group(acl_table_group_id));
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+              remove_acl_table_group_member(acl_table_group_mem_id));
+
+    ASSERT_EQ(SAI_STATUS_OBJECT_IN_USE, p_sai_acl_api_tbl->
+              remove_acl_table_group(acl_table_group_id));
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+              remove_acl_table_group_member(acl_table_group_mem_id1));
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS, p_sai_acl_api_tbl->
+              remove_acl_table_group(acl_table_group_id));
+
+
 }
 
 int main (int argc, char **argv)

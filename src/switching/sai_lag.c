@@ -36,7 +36,7 @@
 #include <inttypes.h>
 #include "std_assert.h"
 
-static sai_lag_callback_t lag_callback;
+static sai_lag_event_t lag_event[SAI_MODULE_MAX];
 
 sai_status_t sai_lag_init(void)
 {
@@ -45,58 +45,29 @@ sai_status_t sai_lag_init(void)
     return SAI_STATUS_SUCCESS;
 }
 
-void sai_lag_rif_callback_register(sai_lag_l3_rif_callback rif_callback)
+sai_status_t sai_lag_event_callback_register(sai_module_t module_id, sai_lag_event_callback lag_callback)
 {
-    sai_lag_lock();
-    lag_callback.rif_callback = rif_callback;
-    sai_lag_unlock();
-}
-
-static sai_status_t sai_lag_rif_notify(sai_object_id_t lag_id,
-                                       sai_lag_operation_t lag_operation,
-                                       const sai_object_list_t *lag_port_list)
-{
-    sai_object_id_t rif_id;
-
-    rif_id = sai_lag_get_rif_id(lag_id);
-    if(sai_is_obj_id_rif(rif_id) &&
-       (lag_callback.rif_callback !=NULL)) {
-        return lag_callback.rif_callback(lag_id, rif_id, lag_port_list, lag_operation);
+    if(module_id >= SAI_MODULE_MAX) {
+        SAI_LAG_LOG_ERR("Error! Unknown module id %d",module_id);
+        return SAI_STATUS_FAILURE;
     }
+    lag_event[module_id].lag_callback = lag_callback;
     return SAI_STATUS_SUCCESS;
 }
-static sai_status_t sai_l2_remove_all_lag_ports(sai_object_id_t lag_id)
+
+static sai_status_t sai_lag_notify_modules (sai_object_id_t lag_id,
+                                            sai_lag_operation_t lag_operation,
+                                            const sai_object_list_t *lag_port_list)
 {
-    sai_object_list_t lag_port_list;
-    sai_status_t ret_val = SAI_STATUS_FAILURE;
+    sai_module_t mod_idx = 0;
 
-    ret_val = sai_lag_port_count_get(lag_id, &(lag_port_list.count));
 
-    if(ret_val != SAI_STATUS_SUCCESS) {
-        SAI_LAG_LOG_WARN("Unable to obtain port count for lag :0x%"PRIx64"",lag_id);
-        return ret_val;
+    for(mod_idx = 0; mod_idx < SAI_MODULE_MAX; mod_idx++) {
+
+        if(lag_event[mod_idx].lag_callback != NULL) {
+            lag_event[mod_idx].lag_callback(lag_id, lag_operation, lag_port_list);
+        }
     }
-    if(lag_port_list.count == 0 ) {
-        return SAI_STATUS_SUCCESS;
-    }
-    sai_object_id_t port_list[lag_port_list.count];
-
-    memset(port_list, 0, sizeof(port_list));
-    lag_port_list.list = port_list;
-
-    ret_val = sai_lag_port_list_get(lag_id, &lag_port_list);
-    if(ret_val != SAI_STATUS_SUCCESS) {
-        SAI_LAG_LOG_ERR("Unable to obtain port list for lag :0x%"PRIx64"",lag_id);
-        return ret_val;
-    }
-
-    ret_val = sai_lag_npu_api_get()->remove_ports_from_lag(lag_id,(const sai_object_list_t *)
-                                            &lag_port_list);
-    if(ret_val != SAI_STATUS_SUCCESS) {
-        SAI_LAG_LOG_ERR("Unable to remove port list for lag :0x%"PRIx64"",lag_id);
-        return ret_val;
-    }
-    sai_remove_all_lag_port_nodes(lag_id);
 
     return SAI_STATUS_SUCCESS;
 }
@@ -155,99 +126,8 @@ static sai_status_t sai_l2_remove_lag_port (sai_object_id_t lag_id,
     return ret_val;
 }
 
-static sai_status_t sai_l2_lag_port_list_set(sai_object_id_t lag_id,
-                                      const sai_object_list_t *lag_port_list)
-{
-    unsigned int num_port = 0;
-    unsigned int tmp_port = 0;
-    unsigned int num_nodes = 0;
-    unsigned int invalid_idx = 0;
-    sai_object_id_t member_id;
-    sai_status_t ret_val = SAI_STATUS_FAILURE;
-    sai_object_list_t non_dup_port_list;
-
-    STD_ASSERT(lag_port_list != NULL);
-    if(!sai_is_port_list_valid(lag_port_list, &invalid_idx)) {
-        SAI_LAG_LOG_ERR("Invalid port list");
-        return SAI_STATUS_INVALID_PARAMETER;
-    }
-
-    sai_object_id_t non_dup_list[lag_port_list->count];
-    memset(non_dup_list, 0, sizeof(non_dup_list));
-
-    do {
-        if(!sai_is_lag_created(lag_id)) {
-            SAI_LAG_LOG_WARN("lag id not found 0x%"PRIx64"",lag_id);
-            ret_val = SAI_STATUS_ITEM_NOT_FOUND;
-            break;
-        }
-        ret_val = sai_l2_remove_all_lag_ports(lag_id);
-        if(ret_val != SAI_STATUS_SUCCESS) {
-            break;
-        }
-        for(num_port = 0; num_port < lag_port_list->count; num_port++) {
-            if(sai_is_port_part_of_different_lag(lag_id, lag_port_list->list[num_port])) {
-                SAI_LAG_LOG_WARN("Invalid port 0x%"PRIx64" to lag 0x%"PRIx64"",
-                                lag_id, lag_port_list->list[num_port]);
-                ret_val = SAI_STATUS_INVALID_PORT_MEMBER;
-                break;
-            }
-            if(!sai_is_port_lag_member(lag_id, lag_port_list->list[num_port])) {
-                SAI_LAG_LOG_TRACE("Adding non duplicate port 0x%"PRIx64" on lag:0x%"PRIx64"",
-                                  lag_port_list->list[num_port], lag_id);
-                non_dup_list[num_nodes] = lag_port_list->list[num_port];
-                num_nodes++;
-
-                /*
-                 * sai_l2_lag_port_list_set() will be obsoleted. The member
-                 * addition API is changed, such that they can be added
-                 * one by one. Each member port will be assigned an
-                 * object id (member_id) by the NPU layer. However the old
-                 * implementation (port list addition) does not require
-                 * the member_id. Hence setting it to 0.
-                 */
-                member_id = 0;
-                ret_val = sai_lag_port_node_add (lag_id,
-                                                 lag_port_list->list[num_port],
-                                                 member_id);
-                if(ret_val != SAI_STATUS_SUCCESS) {
-                    break;
-                }
-            }
-        }
-    } while(0);
-    if(ret_val == SAI_STATUS_SUCCESS) {
-        sai_object_list_t member_id_list;
-        sai_object_id_t   member_ids [num_nodes];
-        sai_object_id_t   port_list[num_nodes];
-
-        memset(&non_dup_port_list, 0, sizeof(sai_object_list_t));
-        memset(port_list, 0, sizeof(port_list));
-        memset (&member_id_list, 0, sizeof (member_id_list));
-        memset (member_ids, 0, sizeof (member_ids));
-
-        non_dup_port_list.count = num_nodes;
-        non_dup_port_list.list  = port_list;
-        member_id_list.list     = member_ids;
-        member_id_list.count    = num_nodes;
-
-        ret_val = sai_lag_port_list_get(lag_id, &non_dup_port_list);
-        if(ret_val == SAI_STATUS_SUCCESS) {
-            ret_val = sai_lag_npu_api_get()->add_ports_to_lag(lag_id,
-                                          &non_dup_port_list,
-                                          &member_id_list);
-        }
-    }
-    if(ret_val != SAI_STATUS_SUCCESS) {
-        for(tmp_port = 0; tmp_port < num_nodes; tmp_port++) {
-           sai_lag_port_node_remove(lag_id, non_dup_list[tmp_port]);
-        }
-    }
-
-    return ret_val;
-}
-
-static sai_status_t sai_l2_create_lag(sai_object_id_t *lag_id,uint32_t attr_count,
+static sai_status_t sai_l2_create_lag(sai_object_id_t *lag_id, sai_object_id_t switch_id,
+                                      uint32_t attr_count,
                                       const sai_attribute_t *attr_list)
 {
     sai_status_t ret_val = SAI_STATUS_FAILURE;
@@ -270,10 +150,6 @@ static sai_status_t sai_l2_create_lag(sai_object_id_t *lag_id,uint32_t attr_coun
     }
     for(attr_idx = 0; attr_idx < attr_count; attr_idx++) {
         switch(attr_list[attr_idx].id) {
-            case SAI_LAG_ATTR_PORT_LIST:
-                SAI_LAG_LOG_TRACE("Setting list of ports for lag:0x%"PRIx64"", *lag_id);
-                ret_val = sai_l2_lag_port_list_set(*lag_id,&(attr_list[attr_idx].value.objlist));
-                break;
             default:
                 SAI_LAG_LOG_ERR("Unknown attr :%d for lag id 0x%"PRIx64"",
                                  attr_list[attr_idx].id, *lag_id);
@@ -291,13 +167,14 @@ static sai_status_t sai_l2_create_lag(sai_object_id_t *lag_id,uint32_t attr_coun
         sai_lag_node_remove(*lag_id);
     }
     sai_lag_unlock();
+    sai_lag_notify_modules (*lag_id, SAI_LAG_OPER_CREATE, NULL);
     return ret_val;
 }
 
 static sai_status_t sai_l2_remove_lag(sai_object_id_t lag_id)
 {
     sai_status_t ret_val = SAI_STATUS_FAILURE;
-    sai_object_id_t rif_id = 0;
+    unsigned int port_count = 0;
 
     sai_lag_lock();
 
@@ -307,15 +184,13 @@ static sai_status_t sai_l2_remove_lag(sai_object_id_t lag_id)
         return SAI_STATUS_ITEM_NOT_FOUND;
     }
 
-    rif_id = sai_lag_get_rif_id(lag_id);
-    if(sai_is_obj_id_rif(rif_id)) {
-        SAI_LAG_LOG_ERR("LAG id 0x%"PRIx64" is associated to rif 0x%"PRIx64"",
-                        lag_id, rif_id);
+    sai_lag_port_count_get(lag_id, &port_count);
+    if(port_count != 0 ) {
+        SAI_LAG_LOG_ERR("Error LAG id 0x%"PRIx64" has %d members", lag_id, port_count);
         sai_lag_unlock();
         return SAI_STATUS_OBJECT_IN_USE;
     }
 
-    sai_remove_all_lag_port_nodes(lag_id);
     ret_val = sai_lag_node_remove(lag_id);
     if(ret_val == SAI_STATUS_SUCCESS) {
         ret_val = sai_lag_npu_api_get()->lag_remove(lag_id);
@@ -325,6 +200,7 @@ static sai_status_t sai_l2_remove_lag(sai_object_id_t lag_id)
         }
     }
     sai_lag_unlock();
+    sai_lag_notify_modules (lag_id, SAI_LAG_OPER_DELETE, NULL);
     return ret_val;
 }
 
@@ -332,8 +208,6 @@ static sai_status_t sai_l2_set_lag_attribute(sai_object_id_t lag_id,
                                              const sai_attribute_t *attr)
 {
     sai_status_t ret_val = SAI_STATUS_FAILURE;
-    unsigned int port_count = 0;
-    sai_object_list_t old_lag_port_list;
 
     STD_ASSERT(attr != NULL);
     sai_lag_lock();
@@ -346,38 +220,17 @@ static sai_status_t sai_l2_set_lag_attribute(sai_object_id_t lag_id,
     {
         case SAI_LAG_ATTR_PORT_LIST:
             SAI_LAG_LOG_TRACE("Setting list of ports for lag:0x%"PRIx64"", lag_id);
-            sai_lag_port_count_get(lag_id, &port_count);
-            if(port_count != 0 ) {
-                old_lag_port_list.count = port_count;
-                sai_object_id_t old_port_list[port_count];
-
-                memset(old_port_list, 0, sizeof(old_port_list));
-                old_lag_port_list.list = old_port_list;
-                ret_val = sai_lag_port_list_get(lag_id, &old_lag_port_list);
-                if(ret_val != SAI_STATUS_SUCCESS) {
-                    SAI_LAG_LOG_ERR("Unable to obtain port list for lag :0x%"PRIx64"",lag_id);
-                    break;
-                }
-            }
-            ret_val = sai_l2_lag_port_list_set(lag_id,&(attr->value.objlist));
-            if(ret_val == SAI_STATUS_SUCCESS) {
-                ret_val = sai_lag_rif_notify (lag_id, SAI_LAG_OPER_DEL_PORTS,
-                                              (const sai_object_list_t *)&old_lag_port_list);
-                if(ret_val == SAI_STATUS_SUCCESS) {
-                    ret_val = sai_lag_rif_notify (lag_id, SAI_LAG_OPER_ADD_PORTS,
-                                                  &(attr->value.objlist));
-                }
-                if(ret_val != SAI_STATUS_SUCCESS) {
-                    sai_lag_rif_notify (lag_id, SAI_LAG_OPER_ADD_PORTS,
-                                                  (const sai_object_list_t *)&old_lag_port_list);
-                    sai_l2_lag_port_list_set(lag_id,(const sai_object_list_t *)&old_lag_port_list);
-                }
-            }
-            ret_val = sai_l2_lag_port_list_set(lag_id,&(attr->value.objlist));
+            ret_val = SAI_STATUS_INVALID_ATTRIBUTE_0;
             break;
+
+        case SAI_LAG_ATTR_INGRESS_ACL:
+        case SAI_LAG_ATTR_EGRESS_ACL:
+            ret_val = SAI_STATUS_SUCCESS;
+            break;
+
         default:
-            SAI_LAG_LOG_ERR("Unknown attr :%d for lag id 0x%"PRIx64"",
-                             attr->id, lag_id);
+            SAI_LAG_LOG_TRACE("Unknown attr :%d for lag id 0x%"PRIx64"",
+                               attr->id, lag_id);
             ret_val = SAI_STATUS_UNKNOWN_ATTRIBUTE_0;
             break;
 
@@ -407,8 +260,12 @@ static sai_status_t sai_l2_get_lag_attribute(sai_object_id_t lag_id, uint32_t at
                 SAI_LAG_LOG_TRACE("Getting list of ports for lag:0x%"PRIx64"", lag_id);
                 ret_val = sai_lag_port_list_get(lag_id,&(attr_list[attr_idx].value.objlist));
                 break;
+            case SAI_LAG_ATTR_INGRESS_ACL:
+            case SAI_LAG_ATTR_EGRESS_ACL:
+                ret_val = SAI_STATUS_ATTR_NOT_IMPLEMENTED_0 + attr_idx;
+                break;
             default:
-                SAI_LAG_LOG_ERR("Unknown attr :%d for lag id 0x%"PRIx64"",
+                SAI_LAG_LOG_TRACE("Unknown attr :%d for lag id 0x%"PRIx64"",
                                  attr_list[attr_idx].id, lag_id);
                 ret_val = sai_get_indexed_ret_val(SAI_STATUS_UNKNOWN_ATTRIBUTE_0,attr_idx);
                 break;
@@ -481,21 +338,17 @@ static sai_status_t sai_l2_validate_lag_port_add (sai_object_id_t lag_id,
         return SAI_STATUS_INVALID_PORT_MEMBER;
     }
 
-    if (sai_port_forward_mode_info (port_id, &fwd_mode, false)
-        != SAI_STATUS_SUCCESS) {
-        return SAI_STATUS_OBJECT_IN_USE;
-    }
+    sai_port_forward_mode_info (port_id, &fwd_mode, false);
 
     if (fwd_mode == SAI_PORT_FWD_MODE_ROUTING) {
-        SAI_LAG_LOG_ERR ("port 0x%"PRIx64" in routing mode. "
-                         "Cannot add to lag:0x%"PRIx64"", port_id, lag_id);
-        return SAI_STATUS_OBJECT_IN_USE;
+        SAI_LAG_LOG_WARN("Port 0x%"PRIx64" is in routing mode.", port_id);
     }
 
     return SAI_STATUS_SUCCESS;
 }
 
 static sai_status_t sai_l2_create_lag_member (sai_object_id_t *out_member_id,
+                                              sai_object_id_t  switch_id,
                                               uint32_t         attr_count,
                                               const sai_attribute_t *attr_list)
 {
@@ -581,6 +434,8 @@ static sai_status_t sai_l2_create_lag_member (sai_object_id_t *out_member_id,
             ret_val = sai_l2_add_lag_port (lag, port_id, out_member_id);
 
             if (ret_val != SAI_STATUS_SUCCESS) {
+                SAI_LAG_LOG_ERR ("Add port 0x%"PRIx64" to LAG 0x%"PRIx64" failed with err :%d",
+                                  port_id, lag, ret_val);
                 break;
             }
         }
@@ -595,6 +450,8 @@ static sai_status_t sai_l2_create_lag_member (sai_object_id_t *out_member_id,
                 = sai_l2_lag_port_flag_set (lag, port_id, true, ing_disable);
 
             if (ret_val != SAI_STATUS_SUCCESS) {
+                SAI_LAG_LOG_ERR ("Ingress disable set in LAG 0x%"PRIx64" port 0x%"PRIx64" failed with err :%d",
+                                 lag, port_id, ret_val);
                 break;
             }
         }
@@ -604,17 +461,15 @@ static sai_status_t sai_l2_create_lag_member (sai_object_id_t *out_member_id,
                 = sai_l2_lag_port_flag_set (lag, port_id, false, egr_disable);
 
             if (ret_val != SAI_STATUS_SUCCESS) {
+                SAI_LAG_LOG_ERR ("Egress disable set in LAG 0x%"PRIx64" port 0x%"PRIx64" failed with err :%d",
+                                 lag, port_id, ret_val);
                 break;
             }
         }
 
         port_list.count = 1;
         port_list.list  = &port_id;
-        ret_val = sai_lag_rif_notify (lag, SAI_LAG_OPER_ADD_PORTS, &port_list);
 
-        if (ret_val != SAI_STATUS_SUCCESS) {
-            break;
-        }
     } while (0);
 
     if ((ret_val != SAI_STATUS_SUCCESS) && (lag_port_added)) {
@@ -623,6 +478,9 @@ static sai_status_t sai_l2_create_lag_member (sai_object_id_t *out_member_id,
 
     sai_lag_unlock ();
 
+    if (ret_val == SAI_STATUS_SUCCESS) {
+        sai_lag_notify_modules (lag, SAI_LAG_OPER_ADD_PORTS, &port_list);
+    }
     return ret_val;
 }
 
@@ -666,12 +524,14 @@ static sai_status_t sai_l2_remove_lag_member (sai_object_id_t member_id)
 
         port_list.count = 1;
         port_list.list  = &port_id;
-        sai_lag_rif_notify (lag_id,
-                            SAI_LAG_OPER_DEL_PORTS, &port_list);
 
     } while (0);
 
     sai_lag_unlock ();
+    if(rc == SAI_STATUS_SUCCESS) {
+        sai_lag_notify_modules (lag_id,
+                                SAI_LAG_OPER_DEL_PORTS, &port_list);
+    }
 
     return rc;
 }
@@ -713,8 +573,8 @@ static sai_status_t sai_l2_set_lag_member_attribute(sai_object_id_t  member_id,
             break;
 
         default:
-            SAI_LAG_LOG_ERR ("Unknown attr :%d for lag member id 0x%"PRIx64"",
-                             attr->id, member_id);
+            SAI_LAG_LOG_TRACE ("Unknown attr :%d for lag member id 0x%"PRIx64"",
+                                attr->id, member_id);
             rc = SAI_STATUS_UNKNOWN_ATTRIBUTE_0;
             break;
     }
@@ -789,6 +649,24 @@ static sai_status_t sai_l2_get_lag_member_attribute(sai_object_id_t  member_id,
 
     return rc;
 }
+static sai_status_t sai_l2_bulk_lag_member_create(sai_object_id_t switch_id,
+                                                  uint32_t object_count,
+                                                  uint32_t *attr_count,
+                                                  sai_attribute_t **attrs,
+                                                  sai_bulk_op_type_t type,
+                                                  sai_object_id_t *object_id,
+                                                  sai_status_t *object_statuses)
+{
+    return SAI_STATUS_NOT_IMPLEMENTED;
+}
+
+static sai_status_t sai_l2_bulk_lag_member_remove(uint32_t object_count,
+                                                  sai_object_id_t *object_id,
+                                                  sai_bulk_op_type_t type,
+                                                  sai_status_t *object_statuses)
+{
+    return SAI_STATUS_NOT_IMPLEMENTED;
+}
 
 static sai_lag_api_t sai_lag_method_table =
 {
@@ -800,6 +678,8 @@ static sai_lag_api_t sai_lag_method_table =
     sai_l2_remove_lag_member,
     sai_l2_set_lag_member_attribute,
     sai_l2_get_lag_member_attribute,
+    sai_l2_bulk_lag_member_create,
+    sai_l2_bulk_lag_member_remove
 };
 
 sai_lag_api_t  *sai_lag_api_query (void)

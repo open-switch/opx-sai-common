@@ -39,7 +39,7 @@ extern "C" {
 }
 
 #define SAI_MAX_PORTS  256
-
+static sai_object_id_t switch_id =0;
 typedef enum _sai_test_acl_rule_attr_type {
     SAI_TEST_ACL_ENTRY_ATTR_BOOL,
     SAI_TEST_ACL_ENTRY_ATTR_ONE_BYTE,
@@ -140,35 +140,6 @@ static inline void sai_port_state_evt_callback (uint32_t count,
 {
 }
 
-static inline void sai_port_evt_callback (uint32_t count,
-                                          sai_port_event_notification_t *data)
-{
-    uint32_t port_idx = 0;
-    sai_object_id_t port_id = 0;
-    sai_port_event_t port_event;
-
-    for(port_idx = 0; port_idx < count; port_idx++) {
-        port_id = data[port_idx].port_id;
-        port_event = data[port_idx].port_event;
-
-        if(port_event == SAI_PORT_EVENT_ADD) {
-            if(port_count < SAI_MAX_PORTS) {
-                port_list[port_count] = port_id;
-                port_count++;
-            }
-
-            printf("PORT ADD EVENT FOR port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else if(port_event == SAI_PORT_EVENT_DELETE) {
-
-            printf("PORT DELETE EVENT for  port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else {
-            printf("Invalid PORT EVENT for port 0x%"PRIx64" \r\n", port_id);
-        }
-    }
-}
-
 static inline void sai_fdb_evt_callback(uint32_t count, sai_fdb_event_notification_data_t *data)
 {
 }
@@ -194,8 +165,10 @@ static inline void  sai_switch_shutdown_callback (void)
 /* SAI initialization */
 void saiACLTest ::SetUpTestCase (void)
 {
-    sai_switch_notification_t notification;
-    memset (&notification, 0, sizeof(sai_switch_notification_t));
+    sai_attribute_t sai_attr_set[7];
+    uint32_t attr_count = 7;
+
+    memset(sai_attr_set,0, sizeof(sai_attr_set));
 
     /*
      * Query and populate the SAI Switch API Method Table.
@@ -206,22 +179,32 @@ void saiACLTest ::SetUpTestCase (void)
 
     ASSERT_TRUE (p_sai_switch_api_tbl != NULL);
 
-    /*
-     * Switch Initialization.
-     * Fill in notification callback routines with stubs.
-     */
-    notification.on_switch_state_change = sai_switch_operstate_callback;
-    notification.on_fdb_event = sai_fdb_evt_callback;
-    notification.on_port_state_change = sai_port_state_evt_callback;
-    notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-    notification.on_port_event = sai_port_evt_callback;
-    notification.on_packet_event = sai_packet_event_callback;
+    sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+    sai_attr_set[0].value.booldata = 1;
 
-    ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
+    sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+    sai_attr_set[1].value.u32 = 0;
+
+    sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+    sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+    sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+    sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+    sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+    sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+    sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+    sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+    sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+    sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+    ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-               (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                         &notification)));
+               (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                         sai_attr_set)));
 
     /*
      * Query and populate the SAI ACL API Table
@@ -272,7 +255,24 @@ void saiACLTest ::SetUpTestCase (void)
                 (static_cast<void**>(static_cast<void*>(&p_sai_vlan_api_tbl)))));
 
     ASSERT_TRUE(p_sai_vlan_api_tbl != NULL);
+    sai_attribute_t sai_port_attr;
+    sai_status_t ret = SAI_STATUS_SUCCESS;
 
+    memset (&sai_port_attr, 0, sizeof (sai_port_attr));
+
+    sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+    sai_port_attr.value.objlist.count = SAI_MAX_PORTS;
+    sai_port_attr.value.objlist.list  = port_list;
+
+    p_sai_switch_api_tbl->get_switch_attribute(switch_id,1,&sai_port_attr);
+    port_count = sai_port_attr.value.objlist.count;
+    EXPECT_EQ(SAI_STATUS_SUCCESS,ret);
+
+}
+
+sai_object_id_t saiACLTest ::sai_acl_get_global_switch_id()
+{
+    return switch_id;
 }
 
 sai_switch_api_t* saiACLTest ::p_sai_switch_api_tbl = NULL;
@@ -291,7 +291,7 @@ sai_object_id_t saiACLTest ::sai_test_acl_get_cpu_port ()
     memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
     sai_attr_get.id = SAI_SWITCH_ATTR_CPU_PORT;
 
-    sai_rc = p_sai_switch_api_tbl->get_switch_attribute(1, &sai_attr_get);
+    sai_rc = p_sai_switch_api_tbl->get_switch_attribute(switch_id,1, &sai_attr_get);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -302,7 +302,7 @@ const char* sai_acl_test_table_attr_id_to_name_get (unsigned int attr_id) {
 
     if (sai_test_acl_udf_field_range(attr_id)) {
         return "UDF Group";
-    } else if (SAI_ACL_TABLE_ATTR_STAGE == attr_id) {
+    } else if (SAI_ACL_TABLE_ATTR_ACL_STAGE == attr_id) {
         return "ACL Table Stage";
     } else if (SAI_ACL_TABLE_ATTR_PRIORITY == attr_id) {
         return "ACL Table Priority";
@@ -364,9 +364,9 @@ const char* sai_acl_test_table_attr_id_to_name_get (unsigned int attr_id) {
         return "IP Flags Field";
     } else if (SAI_ACL_TABLE_ATTR_FIELD_TCP_FLAGS == attr_id) {
         return "TCP Flags Field";
-    } else if (SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE == attr_id) {
+    } else if (SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE == attr_id) {
         return "IP Type Field";
-    } else if (SAI_ACL_TABLE_ATTR_FIELD_IP_FRAG == attr_id) {
+    } else if (SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_FRAG == attr_id) {
         return "IP Frag Field";
     } else if (SAI_ACL_TABLE_ATTR_FIELD_IPv6_FLOW_LABEL == attr_id) {
         return "IPv6 Flow Label";
@@ -376,7 +376,7 @@ const char* sai_acl_test_table_attr_id_to_name_get (unsigned int attr_id) {
         return "ICMPType";
     } else if (SAI_ACL_TABLE_ATTR_FIELD_ICMP_CODE == attr_id) {
         return "ICMPCode";
-    } else if (SAI_ACL_TABLE_ATTR_FIELD_VLAN_TAGS == attr_id) {
+    } else if (SAI_ACL_TABLE_ATTR_FIELD_PACKET_VLAN == attr_id) {
         return "Vlan Tags";
     } else if (SAI_ACL_TABLE_ATTR_FIELD_ACL_USER_META == attr_id) {
         return "ACL Meta Data Field";
@@ -396,6 +396,10 @@ const char* sai_acl_test_table_attr_id_to_name_get (unsigned int attr_id) {
         return "L3 Neighbor NPU Meta Data Field";
     } else if (SAI_ACL_TABLE_ATTR_FIELD_ROUTE_NPU_META_DST_HIT == attr_id) {
         return "L3 route NPU Meta Data Field";
+    } else if (SAI_ACL_TABLE_ATTR_FIELD_ACL_RANGE_TYPE == attr_id){
+        return " ACL Range type";
+    } else if (SAI_ACL_TABLE_ATTR_FIELD_IPV6_NEXT_HEADER == attr_id){
+        return " Ipv6 Next Header";
     } else {
         return "INVALID/UNKNOWN";
     }
@@ -423,7 +427,7 @@ sai_status_t saiACLTest ::sai_test_acl_table_switch_get (
     }
 
     EXPECT_EQ(SAI_STATUS_SUCCESS, p_sai_switch_api_tbl->
-                            get_switch_attribute(attr_count, p_attr_list));
+                            get_switch_attribute(switch_id,attr_count, p_attr_list));
 
     va_end (ap);
     return SAI_STATUS_SUCCESS;
@@ -469,7 +473,7 @@ sai_status_t saiACLTest ::sai_test_acl_table_create (
                 attr_id);
 
         switch (attr_id) {
-            case SAI_ACL_TABLE_ATTR_STAGE:
+            case SAI_ACL_TABLE_ATTR_ACL_STAGE:
                 p_attr_list[ap_idx].value.s32 = va_arg (ap, unsigned int);
                 printf ("ACL Table Stage Value: %d\r\n",
                         p_attr_list [ap_idx].value.s32);
@@ -486,13 +490,13 @@ sai_status_t saiACLTest ::sai_test_acl_table_create (
                 break;
             case SAI_ACL_TABLE_ATTR_GROUP_ID:
                 p_attr_list[ap_idx].value.oid = va_arg (ap, sai_object_id_t);
-                printf ("ACL Table Group Object Id 0x%"PRIx64"\r\n",
+                printf ("ACL Table Group Object Id 0x%" PRIx64 "\r\n",
                         p_attr_list[ap_idx].value.oid);
                 break;
             default:
                 if (sai_test_acl_udf_field_range(attr_id)) {
                     p_attr_list[ap_idx].value.oid = va_arg (ap, sai_object_id_t);
-                    printf ("ACL Table UDF Group Object Id 0x%"PRIx64" \r\n",
+                    printf ("ACL Table UDF Group Object Id 0x%" PRIx64 " \r\n",
                              p_attr_list[ap_idx].value.oid);
                 } else if (!sai_test_acl_table_field_range(attr_id)) {
                     printf ("ACL Table Unknown attribute:\r\n");
@@ -501,13 +505,13 @@ sai_status_t saiACLTest ::sai_test_acl_table_create (
         }
     }
 
-    sai_rc = p_sai_acl_api_tbl->create_acl_table (acl_table_id, attr_count,
+    sai_rc = p_sai_acl_api_tbl->create_acl_table (acl_table_id, switch_id, attr_count,
                                                   p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Table Creation API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Table Creation API success, ACL Table ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Table Creation API success, ACL Table ID: 0x%" PRIx64 "\r\n",
                 *acl_table_id);
     }
 
@@ -534,7 +538,7 @@ sai_status_t saiACLTest ::sai_test_acl_table_remove (
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Table removal API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Table removal API success for ACL Table ID: 0x%"PRIx64"\r\n", acl_table_id);
+        printf ("ACL Table removal API success for ACL Table ID: 0x%" PRIx64 "\r\n", acl_table_id);
     }
 
     return sai_rc;
@@ -580,7 +584,7 @@ sai_status_t saiACLTest ::sai_test_acl_table_set (
                 attr_id);
 
         switch (attr_id) {
-            case SAI_ACL_TABLE_ATTR_STAGE:
+            case SAI_ACL_TABLE_ATTR_ACL_STAGE:
                 p_attr_list[ap_idx].value.s32 = va_arg (ap, unsigned int);
                 printf ("ACL Table Stage Value: %d\r\n",
                         p_attr_list [ap_idx].value.s32);
@@ -597,13 +601,13 @@ sai_status_t saiACLTest ::sai_test_acl_table_set (
                 break;
             case SAI_ACL_TABLE_ATTR_GROUP_ID:
                 p_attr_list[ap_idx].value.oid = va_arg (ap, sai_object_id_t);
-                printf ("ACL Table Group Object Id 0x%"PRIx64"\r\n",
+                printf ("ACL Table Group Object Id 0x%" PRIx64 "\r\n",
                         p_attr_list[ap_idx].value.oid);
                 break;
             default:
                 if (sai_test_acl_udf_field_range(attr_id)) {
                     p_attr_list[ap_idx].value.oid = va_arg (ap, sai_object_id_t);
-                    printf ("ACL Table UDF Group Object Id 0x%"PRIx64"",
+                    printf ("ACL Table UDF Group Object Id 0x%" PRIx64 "",
                             p_attr_list[ap_idx].value.oid);
                 } else if (!(sai_test_acl_table_field_range(attr_id))) {
                     printf ("ACL Table Unknown attribute:\r\n");
@@ -618,7 +622,7 @@ sai_status_t saiACLTest ::sai_test_acl_table_set (
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Table Set API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Table Set API success, ACL Table ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Table Set API success, ACL Table ID: 0x%" PRIx64 "\r\n",
                 acl_table_id);
     }
 
@@ -674,11 +678,11 @@ sai_status_t saiACLTest ::sai_test_acl_table_get (
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Table Get API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Table Get API success, ACL Table ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Table Get API success, ACL Table ID: 0x%" PRIx64 "\r\n",
                 acl_table_id);
         for (ap_idx = 0; ap_idx < attr_count; ap_idx++) {
             switch (p_attr_list [ap_idx].id) {
-            case SAI_ACL_TABLE_ATTR_STAGE:
+            case SAI_ACL_TABLE_ATTR_ACL_STAGE:
                 printf ("ACL Table Get Stage Value: %d\r\n",
                         p_attr_list [ap_idx].value.s32);
                 break;
@@ -691,12 +695,12 @@ sai_status_t saiACLTest ::sai_test_acl_table_get (
                         p_attr_list [ap_idx].value.u32);
                 break;
             case SAI_ACL_TABLE_ATTR_GROUP_ID:
-                printf ("ACL Table Get Table Group Id:  %"PRIx64"\r\n",
+                printf ("ACL Table Get Table Group Id:  %" PRIx64 "\r\n",
                         p_attr_list [ap_idx].value.oid);
                 break;
             default:
                 if (sai_test_acl_udf_field_range(p_attr_list [ap_idx].id)) {
-                    printf ("ACL Table Get UDF Group Id:  %"PRIx64"\r\n",
+                    printf ("ACL Table Get UDF Group Id:  %" PRIx64 "\r\n",
                             p_attr_list [ap_idx].value.oid);
                 } else {
                     printf ("ACL Table Nothing to Get \r\n");
@@ -771,9 +775,9 @@ static const char* sai_acl_test_rule_attr_id_to_name_get (unsigned int attr_id) 
         return "IP Flags Field";
     } else if (SAI_ACL_ENTRY_ATTR_FIELD_TCP_FLAGS == attr_id) {
         return "TCP Flags Field";
-    } else if (SAI_ACL_ENTRY_ATTR_FIELD_IP_TYPE == attr_id) {
+    } else if (SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_TYPE == attr_id) {
         return "IP Type Field";
-    } else if (SAI_ACL_ENTRY_ATTR_FIELD_IP_FRAG == attr_id) {
+    } else if (SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_FRAG == attr_id) {
         return "IP Frag Field";
     } else if (SAI_ACL_ENTRY_ATTR_FIELD_IPv6_FLOW_LABEL == attr_id) {
         return "IPv6 Flow Label";
@@ -783,7 +787,7 @@ static const char* sai_acl_test_rule_attr_id_to_name_get (unsigned int attr_id) 
         return "ICMPType";
     } else if (SAI_ACL_ENTRY_ATTR_FIELD_ICMP_CODE == attr_id) {
         return "ICMPCode";
-    } else if (SAI_ACL_ENTRY_ATTR_FIELD_VLAN_TAGS == attr_id) {
+    } else if (SAI_ACL_ENTRY_ATTR_FIELD_PACKET_VLAN == attr_id) {
         return "Vlan Tags";
     } else if (SAI_ACL_ENTRY_ATTR_FIELD_FDB_DST_USER_META == attr_id) {
         return "FDB MetaData";
@@ -803,6 +807,10 @@ static const char* sai_acl_test_rule_attr_id_to_name_get (unsigned int attr_id) 
         return "L3 Neighbor Dst Hit";
     } else if (SAI_ACL_ENTRY_ATTR_FIELD_ROUTE_NPU_META_DST_HIT == attr_id) {
         return "L3 Route Dst Hit";
+    } else if (SAI_ACL_ENTRY_ATTR_FIELD_ACL_RANGE_TYPE == attr_id) {
+        return "ACL Range Type";
+    } else if (SAI_ACL_ENTRY_ATTR_FIELD_IPV6_NEXT_HEADER == attr_id) {
+        return "Ipv6 next header";
     } else if (SAI_ACL_ENTRY_ATTR_ACTION_REDIRECT == attr_id) {
         return "Redirect Action";
     } else if (SAI_ACL_ENTRY_ATTR_ACTION_REDIRECT_LIST == attr_id) {
@@ -861,7 +869,7 @@ static const char* sai_acl_test_rule_attr_id_to_name_get (unsigned int attr_id) 
         return "UDF Group";
     } else if (SAI_ACL_ENTRY_ATTR_ACTION_SET_USER_TRAP_ID == attr_id) {
         return "ACL Trap Id";
-    } else {
+    }else {
         return "INVALID/UNKNOWN";
     }
 }
@@ -901,6 +909,7 @@ static sai_test_acl_rule_attr_type sai_test_acl_rule_get_attr_type (unsigned int
         case SAI_ACL_ENTRY_ATTR_ACTION_SET_ECN:
         case SAI_ACL_ENTRY_ATTR_FIELD_ICMP_TYPE:
         case SAI_ACL_ENTRY_ATTR_FIELD_ICMP_CODE:
+        case SAI_ACL_ENTRY_ATTR_FIELD_IPV6_NEXT_HEADER:
             return SAI_TEST_ACL_ENTRY_ATTR_ONE_BYTE;
         case SAI_ACL_ENTRY_ATTR_FIELD_OUTER_VLAN_ID:
         case SAI_ACL_ENTRY_ATTR_FIELD_INNER_VLAN_ID:
@@ -934,14 +943,15 @@ static sai_test_acl_rule_attr_type sai_test_acl_rule_get_attr_type (unsigned int
             return SAI_TEST_ACL_ENTRY_ATTR_OBJECT_ID;
         case SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS:
         case SAI_ACL_ENTRY_ATTR_FIELD_OUT_PORTS:
+        case SAI_ACL_ENTRY_ATTR_FIELD_ACL_RANGE_TYPE:
         case SAI_ACL_ENTRY_ATTR_ACTION_MIRROR_INGRESS:
         case SAI_ACL_ENTRY_ATTR_ACTION_MIRROR_EGRESS:
         case SAI_ACL_ENTRY_ATTR_ACTION_REDIRECT_LIST:
         case SAI_ACL_ENTRY_ATTR_ACTION_EGRESS_BLOCK_PORT_LIST:
             return SAI_TEST_ACL_ENTRY_ATTR_OBJECT_LIST;
-        case SAI_ACL_ENTRY_ATTR_FIELD_IP_TYPE:
-        case SAI_ACL_ENTRY_ATTR_FIELD_IP_FRAG:
-        case SAI_ACL_ENTRY_ATTR_FIELD_VLAN_TAGS:
+        case SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_TYPE:
+        case SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_FRAG:
+        case SAI_ACL_ENTRY_ATTR_FIELD_PACKET_VLAN:
         case SAI_ACL_ENTRY_ATTR_ACTION_PACKET_ACTION:
             return SAI_TEST_ACL_ENTRY_ATTR_ENUM;
 
@@ -964,7 +974,7 @@ static void sai_test_acl_rule_attr_value_fill(sai_attribute_t *p_attr,
     switch (p_attr->id) {
         case SAI_ACL_ENTRY_ATTR_TABLE_ID:
             p_attr->value.oid = attr_val;
-            printf ("ACL Rule Table ID Value: 0x%"PRIx64"\r\n", p_attr->value.oid);
+            printf ("ACL Rule Table ID Value: 0x%" PRIx64 "\r\n", p_attr->value.oid);
             break;
         case SAI_ACL_ENTRY_ATTR_PRIORITY:
             p_attr->value.u32 = attr_val;
@@ -992,7 +1002,7 @@ sai_object_id_t port_id, unsigned int *queue_count)
         printf("Failed to get queue count. Error code:%d\n", sai_rc);
     } else {
          *queue_count = attr.value.u32;
-         printf("Max queues on port 0x%"PRIx64": %d. \n", port_id, *queue_count);
+         printf("Max queues on port 0x%" PRIx64 ": %d. \n", port_id, *queue_count);
     }
     return sai_rc;
 }
@@ -1020,7 +1030,7 @@ sai_object_id_t *p_queue_id_list)
     sai_rc = p_sai_port_api_tbl->get_port_attribute (port_id, 1, &attr);
 
     if (sai_rc == SAI_STATUS_BUFFER_OVERFLOW) {
-        printf("Requested queue count %d, Max queues %d on port :0x%"PRIx64".\n",
+        printf("Requested queue count %d, Max queues %d on port :0x%" PRIx64 ".\n",
                queue_count, attr.value.objlist.count, port_id);
         return SAI_STATUS_FAILURE;
     }
@@ -1031,13 +1041,13 @@ sai_object_id_t *p_queue_id_list)
 
     } else {
 
-        printf ("SAI port Get queue id list success for Port Id: 0x%"PRIx64".\n",
+        printf ("SAI port Get queue id list success for Port Id: 0x%" PRIx64 ".\n",
                 port_id);
 
-        printf ("SAI Port 0x%"PRIx64" Queue List.\n", port_id);
+        printf ("SAI Port 0x%" PRIx64 " Queue List.\n", port_id);
 
         for (index = 0; index < attr.value.objlist.count; ++index) {
-            printf ("SAI Queue index %d QOID 0x%"PRIx64".\n",
+            printf ("SAI Queue index %d QOID 0x%" PRIx64 ".\n",
                     index , p_queue_id_list[index]);
         }
     }
@@ -1045,90 +1055,97 @@ sai_object_id_t *p_queue_id_list)
     return sai_rc;
 }
 
-sai_status_t saiACLTest ::sai_test_acl_rule_vlan_port_set(
-sai_vlan_id_t vlan_id, sai_vlan_port_t *vlan_port_info, bool add)
+sai_status_t saiACLTest ::sai_test_acl_rule_vlan_port_add(
+        sai_object_id_t *vlan_member_id, sai_object_id_t vlan_obj_id,
+        sai_object_id_t port_id, sai_vlan_tagging_mode_t tagging_mode)
+{
+    sai_status_t        sai_rc = SAI_STATUS_SUCCESS;
+    sai_attribute_t attr[3];
+    uint32_t attr_count = 0;
+
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = tagging_mode;
+    attr_count++;
+    sai_rc = p_sai_vlan_api_tbl->create_vlan_member(vlan_member_id, switch_id,
+            attr_count, attr);
+
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        printf ("VLAN Port:%lu add failed with error: %d\r\n",port_id,sai_rc);
+    }
+    return sai_rc;
+}
+
+sai_status_t saiACLTest ::sai_test_acl_rule_vlan_port_remove(
+        sai_object_id_t vlan_member_id)
 {
     sai_status_t        sai_rc = SAI_STATUS_SUCCESS;
 
-    printf ("Testing Adding/Removing ports in/from Vlan \r\n");
+    sai_rc = p_sai_vlan_api_tbl->remove_vlan_member(vlan_member_id);
 
-    if (add) {
-        sai_rc = p_sai_vlan_api_tbl->add_ports_to_vlan(vlan_id, 1,
-                                            (const sai_vlan_port_t*)vlan_port_info);
-
-        if (sai_rc != SAI_STATUS_SUCCESS) {
-            printf ("SAI VLAN Port Add API failed with error: %d\r\n", sai_rc);
-        } else {
-            printf ("SAI VLAN Port Add API success, vlan ID: %d\r\n", vlan_id);
-        }
-    } else {
-        sai_rc = p_sai_vlan_api_tbl->remove_ports_from_vlan(vlan_id, 1,
-                                            (const sai_vlan_port_t*)vlan_port_info);
-
-        if (sai_rc != SAI_STATUS_SUCCESS) {
-            printf ("SAI VLAN Port Remove API failed with error: %d\r\n", sai_rc);
-        } else {
-            printf ("SAI VLAN Port Remove API success, vlan ID: %d\r\n", vlan_id);
-        }
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        printf ("VLAN member:%lu remove failed with error: %d\r\n",vlan_member_id,sai_rc);
     }
 
     return sai_rc;
 }
 
 sai_status_t saiACLTest ::sai_test_acl_rule_vlan_set(
-sai_vlan_id_t vlan_id, sai_attribute_t *p_attr_list, bool isCreate)
+        sai_object_id_t *vlan_obj_id, sai_vlan_id_t vlan_id,
+        sai_attribute_t *p_attr_list, bool isCreate)
 {
     sai_status_t        sai_rc = SAI_STATUS_SUCCESS;
 
-    printf ("Testing VLAN Session Set API \r\n");
-
     if (isCreate) {
-        sai_rc = p_sai_vlan_api_tbl->create_vlan(vlan_id);
+        sai_attribute_t attr;
+
+        attr.id = SAI_VLAN_ATTR_VLAN_ID;
+        attr.value.u16 = vlan_id;
+        sai_rc = p_sai_vlan_api_tbl->create_vlan(vlan_obj_id,switch_id,1,&attr);
         EXPECT_EQ(SAI_STATUS_SUCCESS, sai_rc);
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            printf ("VLAN:%d create failed with error:%d\r\n",vlan_id,sai_rc);
+        }
     }
 
-    sai_rc = p_sai_vlan_api_tbl->set_vlan_attribute(vlan_id, p_attr_list);
+    sai_rc = p_sai_vlan_api_tbl->set_vlan_attribute(*vlan_obj_id, p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
-        printf ("SAI VLAN session Set API failed with error: %d\r\n", sai_rc);
-    } else {
-        printf ("SAI VLAN session Set API success, vlan ID: %d\r\n", vlan_id);
+        printf ("VLAN obj:%lu set attribute failed with error:%d\r\n",*vlan_obj_id,sai_rc);
     }
 
     return sai_rc;
 }
 
 sai_status_t saiACLTest ::sai_test_acl_rule_vlan_remove(
-sai_vlan_id_t vlan_id)
+        sai_object_id_t vlan_obj_id)
 {
     sai_status_t        sai_rc = SAI_STATUS_SUCCESS;
 
-    printf ("Testing VLAN Session Remove API \r\n");
-
-    sai_rc = p_sai_vlan_api_tbl->remove_vlan(vlan_id);
+    sai_rc = p_sai_vlan_api_tbl->remove_vlan(vlan_obj_id);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
-        printf ("SAI VLAN remove API failed with error: %d\r\n", sai_rc);
-    } else {
-        printf ("SAI VLAN remove API success, vlan ID: %d\r\n", vlan_id);
+        printf ("VLAN obj:%lu remove failed with error:%d\r\n",vlan_obj_id,sai_rc);
     }
 
     return sai_rc;
 }
 
 sai_status_t saiACLTest ::sai_test_acl_rule_vlan_get(
-sai_vlan_id_t vlan_id, sai_attribute_t *p_attr_list)
+        sai_object_id_t vlan_obj_id, sai_attribute_t *p_attr_list)
 {
     sai_status_t        sai_rc = SAI_STATUS_SUCCESS;
 
-    printf ("Testing Vlan Session Get API \r\n");
-
-    sai_rc = p_sai_vlan_api_tbl->get_vlan_attribute(vlan_id, 1, p_attr_list);
+    sai_rc = p_sai_vlan_api_tbl->get_vlan_attribute(vlan_obj_id, 1, p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
-        printf ("SAI Vlan session Get API failed with error: %d\r\n", sai_rc);
-    } else {
-        printf ("SAI Vlan session Get API success, vlan ID: 0x%d\r\n", vlan_id);
+        printf ("VLAN obj:%lu get attribute failed with error:%d\r\n",vlan_obj_id,sai_rc);
     }
 
     return sai_rc;
@@ -1146,7 +1163,7 @@ sai_object_id_t port_id, sai_attribute_t *p_attr_list)
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI Port session Set API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("SAI Port session Set API success, port ID: 0x%"PRIx64"\r\n", port_id);
+        printf ("SAI Port session Set API success, port ID: 0x%" PRIx64 "\r\n", port_id);
     }
 
     return sai_rc;
@@ -1164,7 +1181,7 @@ sai_object_id_t port_id, sai_attribute_t *p_attr_list)
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI Port session Get API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("SAI Port session Get API success, port ID: 0x%"PRIx64"\r\n", port_id);
+        printf ("SAI Port session Get API success, port ID: 0x%" PRIx64 "\r\n", port_id);
     }
 
     return sai_rc;
@@ -1178,13 +1195,13 @@ sai_attribute_t *p_attr_list)
 
     printf ("Testing Mirror Session Create API with attribute count: %d\r\n", attr_count);
 
-    sai_rc = p_sai_mirror_api_tbl->create_mirror_session (p_mirror_session_id,attr_count,
+    sai_rc = p_sai_mirror_api_tbl->create_mirror_session (p_mirror_session_id, switch_id, attr_count,
                                                           p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI Mirror session Creation API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("SAI Mirror session Creation API success, session ID: 0x%"PRIx64"\r\n", *p_mirror_session_id);
+        printf ("SAI Mirror session Creation API success, session ID: 0x%" PRIx64 "\r\n", *p_mirror_session_id);
     }
 
     return sai_rc;
@@ -1200,7 +1217,7 @@ sai_object_id_t mirror_session_id)
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("Mirror Session destroy API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("Mirror Session API success for session id: 0x%"PRIx64"\r\n", mirror_session_id);
+        printf ("Mirror Session API success for session id: 0x%" PRIx64 "\r\n", mirror_session_id);
     }
 
     return sai_rc;
@@ -1211,12 +1228,12 @@ sai_object_id_t *lag_id, sai_attribute_t *attr)
 {
     sai_status_t        sai_rc = SAI_STATUS_SUCCESS;
 
-    sai_rc = p_sai_lag_api_tbl->create_lag(lag_id, 1, attr);
+    sai_rc = p_sai_lag_api_tbl->create_lag(lag_id, switch_id, 1, attr);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("LAG Creation API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("LAG Creation API success, LAG ID: 0x%"PRIx64"\r\n",
+        printf ("LAG Creation API success, LAG ID: 0x%" PRIx64 "\r\n",
                 *lag_id);
     }
 
@@ -1233,7 +1250,7 @@ sai_object_id_t lag_id)
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("LAG Deletion API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("LAG Deletion API success, LAG ID: 0x%"PRIx64"\r\n",
+        printf ("LAG Deletion API success, LAG ID: 0x%" PRIx64 "\r\n",
                 lag_id);
     }
 
@@ -1410,9 +1427,9 @@ sai_object_id_t *acl_rule_id, unsigned int attr_count, ...)
                     mac_data = va_arg (ap, sai_mac_t *);
                     mac_mask = va_arg (ap, sai_mac_t *);
 
-                    memcpy((&p_attr_list[ap_idx].value.aclfield.data.mac),
+                    memcpy(p_attr_list[ap_idx].value.aclfield.data.mac,
                            mac_data, sizeof(sai_mac_t));
-                    memcpy((&p_attr_list[ap_idx].value.aclfield.mask.mac),
+                    memcpy(p_attr_list[ap_idx].value.aclfield.mask.mac,
                            mac_mask, sizeof(sai_mac_t));
                     break;
                 case SAI_TEST_ACL_ENTRY_ATTR_IPv4:
@@ -1536,7 +1553,7 @@ sai_object_id_t *acl_rule_id, unsigned int attr_count, ...)
                                                 va_arg (ap, unsigned int);
                     mac_data = va_arg (ap, sai_mac_t *);
 
-                    memcpy((&p_attr_list[ap_idx].value.aclaction.parameter.mac),
+                    memcpy(p_attr_list[ap_idx].value.aclaction.parameter.mac,
                            mac_data, sizeof(sai_mac_t));
                     break;
                 case SAI_TEST_ACL_ENTRY_ATTR_IPv4:
@@ -1591,12 +1608,12 @@ sai_object_id_t *acl_rule_id, unsigned int attr_count, ...)
         }
     }
 
-    sai_rc = p_sai_acl_api_tbl->create_acl_entry (acl_rule_id, attr_count,
+    sai_rc = p_sai_acl_api_tbl->create_acl_entry (acl_rule_id, switch_id, attr_count,
                                                   p_attr_list);
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Rule Creation API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Rule Creation API success, ACL Rule ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Rule Creation API success, ACL Rule ID: 0x%" PRIx64 "\r\n",
                 *acl_rule_id);
     }
 
@@ -1634,7 +1651,7 @@ sai_status_t saiACLTest ::sai_test_acl_rule_remove (
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Rule removal API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Rule removal API success for ACL Rule ID: 0x%"PRIx64"\r\n", acl_rule_id);
+        printf ("ACL Rule removal API success for ACL Rule ID: 0x%" PRIx64 "\r\n", acl_rule_id);
     }
 
     return sai_rc;
@@ -1733,9 +1750,9 @@ unsigned int attr_count, ...)
                     mac_data = va_arg (ap, sai_mac_t *);
                     mac_mask = va_arg (ap, sai_mac_t *);
 
-                    memcpy((&p_attr_list[ap_idx].value.aclfield.data.mac),
+                    memcpy(p_attr_list[ap_idx].value.aclfield.data.mac,
                            mac_data, sizeof(sai_mac_t));
-                    memcpy((&p_attr_list[ap_idx].value.aclfield.mask.mac),
+                    memcpy(p_attr_list[ap_idx].value.aclfield.mask.mac,
                            mac_mask, sizeof(sai_mac_t));
                     break;
                 case SAI_TEST_ACL_ENTRY_ATTR_IPv4:
@@ -1859,7 +1876,7 @@ unsigned int attr_count, ...)
                                                 va_arg (ap, unsigned int);
                     mac_data = va_arg (ap, sai_mac_t *);
 
-                    memcpy((&p_attr_list[ap_idx].value.aclaction.parameter.mac),
+                    memcpy(p_attr_list[ap_idx].value.aclaction.parameter.mac,
                            mac_data, sizeof(sai_mac_t));
                     break;
                 case SAI_TEST_ACL_ENTRY_ATTR_IPv4:
@@ -1920,7 +1937,7 @@ unsigned int attr_count, ...)
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Rule Set API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Rule Set API success, ACL Rule ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Rule Set API success, ACL Rule ID: 0x%" PRIx64 "\r\n",
                 acl_rule_id);
     }
 
@@ -1984,7 +2001,7 @@ unsigned int attr_count, ...)
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Rule Get API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Rule Get API success, ACL Rule ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Rule Get API success, ACL Rule ID: 0x%" PRIx64 "\r\n",
                 acl_rule_id);
     }
 
@@ -2048,7 +2065,7 @@ sai_object_id_t *acl_counter_id, unsigned int attr_count, ...)
         switch (attr_id) {
             case SAI_ACL_COUNTER_ATTR_TABLE_ID:
                 p_attr_list[ap_idx].value.oid = va_arg (ap, unsigned long);
-                printf ("ACL Counter Table ID Value: 0x%"PRIx64"\r\n",
+                printf ("ACL Counter Table ID Value: 0x%" PRIx64 "\r\n",
                         p_attr_list [ap_idx].value.oid);
                 break;
             case SAI_ACL_COUNTER_ATTR_ENABLE_PACKET_COUNT:
@@ -2064,13 +2081,13 @@ sai_object_id_t *acl_counter_id, unsigned int attr_count, ...)
         }
     }
 
-    sai_rc = p_sai_acl_api_tbl->create_acl_counter (acl_counter_id, attr_count,
+    sai_rc = p_sai_acl_api_tbl->create_acl_counter (acl_counter_id, switch_id, attr_count,
                                                     p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Counter Creation API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Counter Creation API success, ACL Counter ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Counter Creation API success, ACL Counter ID: 0x%" PRIx64 "\r\n",
                 *acl_counter_id);
     }
 
@@ -2097,7 +2114,7 @@ sai_status_t saiACLTest ::sai_test_acl_counter_remove (
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("ACL Counter removal API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("ACL Counter removal API success for ACL Counter ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Counter removal API success for ACL Counter ID: 0x%" PRIx64 "\r\n",
                 acl_counter_id);
     }
 
@@ -2145,7 +2162,7 @@ sai_object_id_t acl_counter_id, unsigned int attr_count, ...)
             case SAI_ACL_COUNTER_ATTR_PACKETS:
             case SAI_ACL_COUNTER_ATTR_BYTES:
                 p_attr_list[ap_idx].value.u64 = va_arg (ap, unsigned int);
-                printf ("ACL Counter Count Value: 0x%"PRIx64"\r\n",
+                printf ("ACL Counter Count Value: 0x%" PRIx64 "\r\n",
                         p_attr_list [ap_idx].value.u64);
                 break;
             default:
@@ -2158,10 +2175,10 @@ sai_object_id_t acl_counter_id, unsigned int attr_count, ...)
                                                            p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
-        printf ("ACL Counter Set API failed with error %d, ACL Counter ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Counter Set API failed with error %d, ACL Counter ID: 0x%" PRIx64 "\r\n",
                 sai_rc, acl_counter_id);
     } else {
-        printf ("ACL Counter Set API success, ACL Counter ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Counter Set API success, ACL Counter ID: 0x%" PRIx64 "\r\n",
                 acl_counter_id);
     }
 
@@ -2212,19 +2229,19 @@ unsigned int attr_count, ...)
                                                            p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
-        printf ("ACL Counter Get API failed with error %d, ACL Counter ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Counter Get API failed with error %d, ACL Counter ID: 0x%" PRIx64 "\r\n",
                 sai_rc, acl_counter_id);
     } else {
-        printf ("ACL Counter Get API success, ACL Counter ID: 0x%"PRIx64"\r\n",
+        printf ("ACL Counter Get API success, ACL Counter ID: 0x%" PRIx64 "\r\n",
                 acl_counter_id);
         for (ap_idx = 0; ap_idx < attr_count; ap_idx++) {
             switch (attr_id) {
                  case SAI_ACL_COUNTER_ATTR_PACKETS:
-                    printf ("ACL Counter Get Packet Count Value: 0x%"PRIx64"\r\n",
+                    printf ("ACL Counter Get Packet Count Value: 0x%" PRIx64 "\r\n",
                             p_attr_list [ap_idx].value.u64);
                     break;
                  case SAI_ACL_COUNTER_ATTR_BYTES:
-                    printf ("ACL Counter Get Byte Count Value: 0x%"PRIx64"\r\n",
+                    printf ("ACL Counter Get Byte Count Value: 0x%" PRIx64 "\r\n",
                             p_attr_list [ap_idx].value.u64);
                     break;
                  case SAI_ACL_COUNTER_ATTR_ENABLE_PACKET_COUNT:
@@ -2236,7 +2253,7 @@ unsigned int attr_count, ...)
                             p_attr_list [ap_idx].value.booldata);
                     break;
                  case SAI_ACL_COUNTER_ATTR_TABLE_ID:
-                    printf ("ACL Counter Get Table Id Value: 0x%"PRIx64"\r\n",
+                    printf ("ACL Counter Get Table Id Value: 0x%" PRIx64 "\r\n",
                             p_attr_list [ap_idx].value.oid);
                     break;
                  default:

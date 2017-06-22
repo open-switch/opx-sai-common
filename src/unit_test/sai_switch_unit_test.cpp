@@ -28,19 +28,97 @@
 
 extern "C" {
 #include "sai.h"
-#include "sai_infra_api.h"
-#include "event_log.h"
 #include <inttypes.h>
 }
 #define SAI_MAX_PORTS 256
 
-static uint32_t port_count = 0;
-static sai_object_id_t port_list[SAI_MAX_PORTS] = {0};
+
 static sai_object_id_t cpu_port = 0;
+static sai_object_id_t switch_id = 0;
 
 #define LOG_PRINT(msg, ...) \
     printf(msg, ##__VA_ARGS__)
 
+#include <iostream>
+#include <map>
+
+typedef std::map<std::string, std::string> sai_kv_pair_t;
+typedef std::map<std::string, std::string>::iterator kv_iter;
+static sai_kv_pair_t kvpair;
+
+const char* profile_get_value(sai_switch_profile_id_t profile_id,
+                                 const char* variable)
+{
+    kv_iter kviter;
+    std::string key;
+
+    if (variable ==  NULL)
+        return NULL;
+
+    key = variable;
+
+    kviter = kvpair.find(key);
+    if (kviter == kvpair.end()) {
+        return NULL;
+    }
+    return kviter->second.c_str();
+}
+
+int profile_get_next_value(sai_switch_profile_id_t profile_id,
+                           const char** variable,
+                           const char** value)
+{
+    kv_iter kviter;
+    std::string key;
+
+    if (variable == NULL || value == NULL) {
+        return -1;
+    }
+    if (*variable == NULL) {
+            if (kvpair.size() < 1) {
+            return -1;
+        }
+        kviter = kvpair.begin();
+    } else {
+        key = *variable;
+        kviter = kvpair.find(key);
+        if (kviter == kvpair.end()) {
+            return -1;
+        }
+        kviter++;
+        if (kviter == kvpair.end()) {
+            return -1;
+        }
+    }
+    *variable = (char *)kviter->first.c_str();
+    *value = (char *)kviter->second.c_str();
+    return 0;
+}
+
+
+void kv_populate(void)
+{
+    kvpair["SAI_FDB_TABLE_SIZE"] = "32768";
+    kvpair["SAI_L3_NEIGHBOR_TABLE_SIZE"] = "16384";
+    kvpair["SAI_L3_ROUTE_TABLE_SIZE"] = "131072";
+    kvpair["SAI_NUM_CPU_QUEUES"] = "43";
+    kvpair["SAI_INIT_CONFIG_FILE"] = "/etc/opt/dell/os10/sai/init.xml";
+    kvpair["SAI_NUM_ECMP_MEMBERS"] = "64";
+}
+
+/*
+ * Pass the service method table and do API intialize.
+ */
+TEST(sai_unit_test, api_init)
+{
+    service_method_table_t  sai_service_method_table;
+    kv_populate();
+
+    sai_service_method_table.profile_get_value = profile_get_value;
+    sai_service_method_table.profile_get_next_value = profile_get_next_value;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,sai_api_initialize(0, &sai_service_method_table));
+}
 /* Callback functions to be passed during SDK init.
 */
 
@@ -51,72 +129,8 @@ void sai_port_state_evt_callback(uint32_t count,
 {
     uint32_t port_idx = 0;
     for(port_idx = 0; port_idx < count; port_idx++) {
-        LOG_PRINT("port 0x%"PRIx64" State callback: Link state is %d\r\n",
+        LOG_PRINT("port 0x%" PRIx64 " State callback: Link state is %d\r\n",
                   data[port_idx].port_id, data[port_idx].port_state);
-    }
-}
-
-/*Port ADD/DELETE event callback.
-*/
-
-static void sai_switch_sort_port_list(sai_object_id_t *list, unsigned int count)
-{
-    uint32_t idx = 0;
-    uint32_t idx2 = 0;
-    sai_object_id_t port_obj;
-    for(idx = 0; idx < count -1; idx++) {
-        for(idx2 = 0; idx2 < (count -idx - 1); idx2++) {
-             if( list[idx2] > list[idx2 +1] ) {
-                 port_obj = list[idx2] ;
-                 list[idx2]  = list[idx2+1];
-                 list[idx2+1] = port_obj;
-             }
-        }
-    }
-}
-
-static uint32_t sai_switch_get_port_idx(sai_object_id_t port_id,
-                                        sai_object_id_t *list, unsigned int count)
-{
-    uint32_t idx = 0;
-    for(idx = 0; idx < count; idx++) {
-        if(list[idx] == port_id) {
-            break;
-        }
-    }
-    return idx;
-}
-
-void sai_port_evt_callback(uint32_t count,
-                           sai_port_event_notification_t *data)
-{
-    uint32_t port_idx = 0;
-    uint32_t del_idx = 0;
-    sai_object_id_t port_id = 0;
-    sai_port_event_t port_event;
-
-    for(port_idx = 0; port_idx < count; port_idx++) {
-        port_id = data[port_idx].port_id;
-        port_event = data[port_idx].port_event;
-        if(port_event == SAI_PORT_EVENT_ADD) {
-            if(port_count < SAI_MAX_PORTS) {
-                port_list[port_count] = port_id;
-                port_count++;
-            }
-
-            LOG_PRINT("PORT ADD EVENT FOR port 0x%"PRIx64" and total ports count is %d \r\n",
-                      port_id, port_count);
-        } else if(port_event == SAI_PORT_EVENT_DELETE) {
-            del_idx = sai_switch_get_port_idx(port_id, port_list, port_count);
-            port_list[del_idx] = port_list[port_count -1];
-            port_list[port_count -1] = 0;
-            port_count--;
-            LOG_PRINT("PORT DELETE EVENT for port 0x%"PRIx64" and total ports count is %d \r\n",
-                      port_id, port_count);
-        } else {
-            LOG_PRINT("Invalid PORT EVENT for port 0x%"PRIx64" \r\n", port_id);
-        }
-        sai_switch_sort_port_list(port_list, port_count);
     }
 }
 
@@ -147,19 +161,6 @@ static inline void sai_packet_event_callback (const void *buffer,
 void  sai_switch_shutdown_callback()
 {
 }
-/*
- * API to called as part of attribute get unit test.
- */
-int sai_attribute_set(sai_switch_attr_t id, uint64_t val)
-{
-    sai_attribute_t sai_attr_set;
-
-    sai_attr_set.id = id;
-    sai_attr_set.value.s32 = val;
-
-    sai_switch_set_attribute(&sai_attr_set);
-    return 0;
-}
 
 /*
  * NPU SDK init sequence.
@@ -167,27 +168,52 @@ int sai_attribute_set(sai_switch_attr_t id, uint64_t val)
 void sdkinit()
 {
     sai_switch_api_t* sai_switch_api = NULL;
-    sai_switch_notification_t notification;
-    sai_status_t rc = SAI_STATUS_SUCCESS;
+    service_method_table_t  sai_service_method_table;
+    kv_populate();
 
-    memset (&notification, 0, sizeof(sai_switch_notification_t));
+    sai_service_method_table.profile_get_value = profile_get_value;
+    sai_service_method_table.profile_get_next_value = profile_get_next_value;
 
-    notification.on_switch_state_change = sai_switch_operstate_callback;
-    notification.on_fdb_event = sai_fdb_evt_callback;
-    notification.on_port_state_change = sai_port_state_evt_callback;
-    notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-    notification.on_port_event = sai_port_evt_callback;
-    notification.on_packet_event = sai_packet_event_callback;
+    ASSERT_EQ(SAI_STATUS_SUCCESS,sai_api_initialize(0, &sai_service_method_table));
 
     sai_api_query(SAI_API_SWITCH,
                   (static_cast<void**>
                    (static_cast<void*>(&sai_switch_api))));
 
-    if (sai_switch_api && sai_switch_api->initialize_switch)
-    {
-        rc = sai_switch_api->initialize_switch(0,NULL,NULL,&notification);
-        ASSERT_EQ (rc, SAI_STATUS_SUCCESS);
-    }
+
+    sai_attribute_t sai_attr_set[7];
+    uint32_t attr_count = 7;
+
+    memset(sai_attr_set,0, sizeof(sai_attr_set));
+
+    sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+    sai_attr_set[0].value.booldata = 1;
+
+    sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+    sai_attr_set[1].value.u32 = 0;
+
+    sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+    sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+    sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+    sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+    sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+    sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+    sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+    sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+    sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+    sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+    ASSERT_TRUE(sai_switch_api != NULL);
+    ASSERT_TRUE(sai_switch_api->create_switch != NULL);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS,
+               (sai_switch_api->create_switch (&switch_id , attr_count,
+                                                         sai_attr_set)));
+
 }
 
 
@@ -211,10 +237,8 @@ class switchInit : public ::testing::Test
 
             ASSERT_TRUE(sai_switch_api_table != NULL);
 
-            EXPECT_TRUE(sai_switch_api_table->initialize_switch != NULL);
-            EXPECT_TRUE(sai_switch_api_table->shutdown_switch != NULL);
-            EXPECT_TRUE(sai_switch_api_table->connect_switch != NULL);
-            EXPECT_TRUE(sai_switch_api_table->disconnect_switch != NULL);
+            EXPECT_TRUE(sai_switch_api_table->create_switch != NULL);
+            EXPECT_TRUE(sai_switch_api_table->remove_switch != NULL);
             EXPECT_TRUE(sai_switch_api_table->set_switch_attribute != NULL);
             EXPECT_TRUE(sai_switch_api_table->get_switch_attribute != NULL);
 
@@ -235,7 +259,7 @@ class switchInit : public ::testing::Test
             get_attr.id = SAI_SWITCH_ATTR_CPU_PORT;
 
             EXPECT_EQ(SAI_STATUS_SUCCESS,
-                      sai_switch_api_table->get_switch_attribute(1, &get_attr));
+                      sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr));
 
             cpu_port = get_attr.value.oid;
         }
@@ -254,15 +278,19 @@ TEST_F(switchInit, attr_get)
 {
     sai_attribute_t sai_attr[3];
 
-    sai_attribute_set(SAI_SWITCH_ATTR_SWITCHING_MODE,
-                      SAI_SWITCHING_MODE_CUT_THROUGH);
+    sai_attr[0].id = SAI_SWITCH_ATTR_SWITCHING_MODE;
+    sai_attr[0].value.s32 = SAI_SWITCH_SWITCHING_MODE_CUT_THROUGH;
+
+    ASSERT_EQ(SAI_STATUS_SUCCESS,
+              sai_switch_api_table->set_switch_attribute(switch_id,
+                                    (const sai_attribute_t*)&sai_attr[0]));
 
     sai_attr[0].id = SAI_SWITCH_ATTR_SWITCHING_MODE;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,sai_switch_api_table->
-              get_switch_attribute(1,&sai_attr[0]));
+              get_switch_attribute(switch_id,1,&sai_attr[0]));
 
-    ASSERT_EQ(SAI_SWITCHING_MODE_CUT_THROUGH,sai_attr[0].value.s32);
+    ASSERT_EQ(SAI_SWITCH_SWITCHING_MODE_CUT_THROUGH,sai_attr[0].value.s32);
 }
 
 /*
@@ -275,7 +303,7 @@ TEST_F(switchInit, oper_status_get)
     get_attr.id = SAI_SWITCH_ATTR_OPER_STATUS;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr));
 
     ASSERT_EQ(SAI_SWITCH_OPER_STATUS_UP, get_attr.value.s32);
 }
@@ -291,7 +319,7 @@ TEST_F(switchInit, temp_get)
     get_attr.id = SAI_SWITCH_ATTR_MAX_TEMP;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr));
 
     LOG_PRINT("Switch current max temperature is %d \r\n", get_attr.value.s32);
 }
@@ -307,7 +335,7 @@ TEST_F(switchInit, max_port_get)
     get_attr.id = SAI_SWITCH_ATTR_PORT_NUMBER;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr));
 
     LOG_PRINT("Maximum port number in the switch is %d \r\n", get_attr.value.u32);
 }
@@ -323,10 +351,10 @@ TEST_F(switchInit, cpu_port_get)
     get_attr.id = SAI_SWITCH_ATTR_CPU_PORT;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr));
 
     cpu_port = get_attr.value.oid;
-    LOG_PRINT("CPU port obj id is 0x%"PRIx64" \r\n", get_attr.value.oid);
+    LOG_PRINT("CPU port obj id is 0x%" PRIx64 " \r\n", get_attr.value.oid);
 }
 
 /*
@@ -472,13 +500,13 @@ TEST_F(switchInit, cpu_fdb_learning_mode_set_get)
     memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
     memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
 
-    sai_attr_set.id = SAI_PORT_ATTR_FDB_LEARNING;
+    sai_attr_set.id = SAI_PORT_ATTR_FDB_LEARNING_MODE;
     sai_attr_set.value.s32 = SAI_PORT_FDB_LEARNING_MODE_DISABLE;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_port_api_table->set_port_attribute(cpu_port, &sai_attr_set));
 
-    sai_attr_get.id = SAI_PORT_ATTR_FDB_LEARNING;
+    sai_attr_get.id = SAI_PORT_ATTR_FDB_LEARNING_MODE;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_port_api_table->get_port_attribute(cpu_port, 1, &sai_attr_get));
@@ -494,7 +522,7 @@ bool switchInit::sai_switch_max_port_get(uint32_t *max_port)
     memset(&sai_get_attr, 0, sizeof(sai_attribute_t));
     sai_get_attr.id = SAI_SWITCH_ATTR_PORT_NUMBER;
 
-    if(sai_switch_api_table->get_switch_attribute(1, &sai_get_attr) != SAI_STATUS_SUCCESS) {
+    if(sai_switch_api_table->get_switch_attribute(switch_id,1, &sai_get_attr) != SAI_STATUS_SUCCESS) {
         return false;
     }
 
@@ -520,14 +548,14 @@ TEST_F(switchInit, attr_port_list_get)
                                                              sizeof(sai_object_id_t));
     ASSERT_TRUE(get_attr.value.objlist.list != NULL);
 
-    ret = sai_switch_api_table->get_switch_attribute(1, &get_attr);
+    ret = sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr);
 
     /* Handles buffer overflow case, by reallocating required memory */
     if(ret == SAI_STATUS_BUFFER_OVERFLOW ) {
         free(get_attr.value.objlist.list);
         get_attr.value.objlist.list = (sai_object_id_t *)calloc (get_attr.value.objlist.count,
                                                                  sizeof(sai_object_id_t));
-        ret = sai_switch_api_table->get_switch_attribute(1, &get_attr);
+        ret = sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr);
     }
 
     if(ret != SAI_STATUS_SUCCESS) {
@@ -546,116 +574,6 @@ TEST_F(switchInit, attr_port_list_get)
 }
 
 /*
- * Set the breakout mode to 4 lanes for a port and read back the current breakout mode.
- * Revert back to breakout mode to 1 lane mode and read back the current breakout mode.
- */
-TEST_F(switchInit, attr_breakout_mode_set_get)
-{
-    unsigned int port_idx = 0;
-    sai_status_t ret = SAI_STATUS_FAILURE;
-
-    /*set the breakout mode*/
-    for(port_idx = 0; port_idx < port_count; port_idx++) {
-        ret = sai_port_break_out_mode_set(sai_switch_api_table,
-                sai_port_api_table,
-                port_list[port_idx],
-                SAI_PORT_BREAKOUT_MODE_4_LANE);
-        if(ret != SAI_STATUS_SUCCESS) {
-            printf("Unable to set break out mode on port 0x%"PRIx64" ret_code - %d\r\n",
-                   port_list[port_idx], ret);
-            continue;
-        }
-
-        /*get the mode and check*/
-        ret = sai_port_break_out_mode_get(sai_port_api_table,
-                port_list[port_idx],
-                SAI_PORT_BREAKOUT_MODE_4_LANE);
-        if(ret != SAI_STATUS_SUCCESS) {
-            printf("Unable to get break out mode on port 0x%"PRIx64" ret_code - %d\r\n",
-            port_list[port_idx], ret);
-            continue;
-        }
-
-        /*set the breakin mode*/
-        ret = sai_port_break_in_mode_set(sai_switch_api_table,
-                sai_port_api_table,
-                4,
-                &port_list[port_idx],
-                SAI_PORT_BREAKOUT_MODE_1_LANE);
-        if(ret != SAI_STATUS_SUCCESS) {
-            printf("Unable to set break in mode on port 0x%"PRIx64" ret_code - %d\r\n",
-            port_list[port_idx], ret);
-            continue;
-        }
-
-        /*get the mode and check*/
-        ret = sai_port_break_out_mode_get(sai_port_api_table,
-                port_list[port_idx],
-                SAI_PORT_BREAKOUT_MODE_1_LANE);
-        if(ret != SAI_STATUS_SUCCESS) {
-            printf("Unable to get break in mode on port 0x%"PRIx64" ret_code - %d\r\n",
-            port_list[port_idx], ret);
-            continue;
-        }
-
-    }
-}
-
-/* Test breakout mode rollback when breakout set API fails. NPU expects the port link
- * Admin state to be set to false before applying breakout mode, otherwise breakout mode
- * set fails. On Set failure, it should get restored to its earlier breakout mode */
-TEST_F(switchInit, attr_breakout_mode_rollback_set_get)
-{
-    sai_attribute_t set_attr;
-    sai_attribute_t get_attr;
-    sai_status_t ret = SAI_STATUS_FAILURE;
-    sai_port_breakout_mode_type_t cur_breakmode = SAI_PORT_BREAKOUT_MODE_1_LANE;
-
-    memset(&set_attr, 0, sizeof(set_attr));
-    memset(&get_attr, 0, sizeof(get_attr));
-
-    get_attr.id = SAI_PORT_ATTR_CURRENT_BREAKOUT_MODE;
-
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_port_api_table->get_port_attribute(port_list[0],
-                                                                         1, &get_attr));
-    cur_breakmode = (sai_port_breakout_mode_type_t) get_attr.value.s32;
-
-    /* Enable port link admin state */
-    set_attr.id = SAI_PORT_ATTR_ADMIN_STATE;
-    set_attr.value.booldata = true;
-
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_port_api_table->set_port_attribute(port_list[0],
-                                                                         &set_attr));
-    set_attr.id = SAI_SWITCH_ATTR_PORT_BREAKOUT;
-    set_attr.value.portbreakout.breakout_mode = SAI_PORT_BREAKOUT_MODE_4_LANE;
-
-    set_attr.value.portbreakout.port_list.count = 1;
-    set_attr.value.portbreakout.port_list.list =
-        (sai_object_id_t *)calloc (1, sizeof(sai_object_id_t));
-
-    ASSERT_TRUE(set_attr.value.portbreakout.port_list.list != NULL);
-
-    set_attr.value.portbreakout.port_list.list[0] = port_list[0];
-
-    /* Switch set is expected to fail as port Admin state is UP */
-    ret = sai_switch_api_table->set_switch_attribute((const sai_attribute_t*)&set_attr);
-    free(set_attr.value.portbreakout.port_list.list);
-    if(ret == SAI_STATUS_SUCCESS) {
-        ASSERT_NE(SAI_STATUS_SUCCESS, ret);
-    }
-
-    get_attr.id = SAI_PORT_ATTR_CURRENT_BREAKOUT_MODE;
-
-    ret = sai_port_api_table->get_port_attribute(port_list[0], 1, &get_attr);
-    if(ret != SAI_STATUS_SUCCESS) {
-        ASSERT_EQ(SAI_STATUS_SUCCESS, ret);
-    }
-
-    /* Though breakout mode set fails, it should get restored to its earlier mode */
-    ASSERT_EQ(cur_breakmode, get_attr.value.s32);
-}
-
-/*
  * Test attribute counter thread refresh interval
  */
 TEST_F(switchInit, attr_counter_refresh_interval_get)
@@ -667,22 +585,22 @@ TEST_F(switchInit, attr_counter_refresh_interval_get)
     set_attr.id = SAI_SWITCH_ATTR_COUNTER_REFRESH_INTERVAL;
     set_attr.value.u32 = 100;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->set_switch_attribute((const sai_attribute_t*)&set_attr));
+              sai_switch_api_table->set_switch_attribute(switch_id,(const sai_attribute_t*)&set_attr));
 
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = SAI_SWITCH_ATTR_COUNTER_REFRESH_INTERVAL;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1,&get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1,&get_attr));
 
     ASSERT_EQ(get_attr.value.u32, set_attr.value.u32);
 
     /* HW based counter statistics read */
     set_attr.value.u32 = 0;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->set_switch_attribute((const sai_attribute_t*)&set_attr));
+              sai_switch_api_table->set_switch_attribute(switch_id,(const sai_attribute_t*)&set_attr));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1,&get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1,&get_attr));
 
     ASSERT_EQ(get_attr.value.u32, set_attr.value.u32);
 }
@@ -699,12 +617,12 @@ TEST_F(switchInit, attr_bcast_flood_enable)
     set_attr.id = SAI_SWITCH_ATTR_BCAST_CPU_FLOOD_ENABLE;
     set_attr.value.booldata = true;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->set_switch_attribute((const sai_attribute_t*)&set_attr));
+              sai_switch_api_table->set_switch_attribute(switch_id,(const sai_attribute_t*)&set_attr));
 
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = SAI_SWITCH_ATTR_BCAST_CPU_FLOOD_ENABLE;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1,&get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1,&get_attr));
 
     ASSERT_EQ(get_attr.value.booldata,set_attr.value.booldata);
 }
@@ -721,12 +639,12 @@ TEST_F(switchInit, attr_mcast_flood_enable)
     set_attr.id = SAI_SWITCH_ATTR_MCAST_CPU_FLOOD_ENABLE;
     set_attr.value.booldata = true;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->set_switch_attribute((const sai_attribute_t*)&set_attr));
+              sai_switch_api_table->set_switch_attribute(switch_id,(const sai_attribute_t*)&set_attr));
 
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = SAI_SWITCH_ATTR_MCAST_CPU_FLOOD_ENABLE;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1,&get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1,&get_attr));
 
     ASSERT_EQ(get_attr.value.booldata,set_attr.value.booldata);
 }
@@ -743,12 +661,12 @@ TEST_F(switchInit, attr_max_learned_addresses)
     set_attr.id = SAI_SWITCH_ATTR_MAX_LEARNED_ADDRESSES;
     set_attr.value.u32 = 100;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->set_switch_attribute((const sai_attribute_t*)&set_attr));
+              sai_switch_api_table->set_switch_attribute(switch_id,(const sai_attribute_t*)&set_attr));
 
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = SAI_SWITCH_ATTR_MAX_LEARNED_ADDRESSES;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1,&get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1,&get_attr));
 
     ASSERT_EQ(get_attr.value.u32, set_attr.value.u32);
 }
@@ -765,12 +683,12 @@ TEST_F(switchInit, attr_fdb_aging_time)
     set_attr.id = SAI_SWITCH_ATTR_FDB_AGING_TIME;
     set_attr.value.u32 = 10;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->set_switch_attribute((const sai_attribute_t*)&set_attr));
+              sai_switch_api_table->set_switch_attribute(switch_id,(const sai_attribute_t*)&set_attr));
 
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = SAI_SWITCH_ATTR_FDB_AGING_TIME;
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1,&get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1,&get_attr));
 
     ASSERT_EQ(get_attr.value.u32, set_attr.value.u32);
 }
@@ -783,7 +701,7 @@ bool switchInit::sai_miss_action_test(sai_switch_attr_t attr, sai_packet_action_
     memset(&set_attr, 0, sizeof(set_attr));
     set_attr.id = attr;
     set_attr.value.s32 = action;
-    if(sai_switch_api_table->set_switch_attribute(
+    if(sai_switch_api_table->set_switch_attribute(switch_id,
                                                   (const sai_attribute_t*)&set_attr) != SAI_STATUS_SUCCESS) {
         return false;
     }
@@ -791,7 +709,7 @@ bool switchInit::sai_miss_action_test(sai_switch_attr_t attr, sai_packet_action_
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = attr;
 
-    if(sai_switch_api_table->get_switch_attribute(1,&get_attr)!= SAI_STATUS_SUCCESS) {
+    if(sai_switch_api_table->get_switch_attribute(switch_id,1,&get_attr)!= SAI_STATUS_SUCCESS) {
         return false;
     }
 
@@ -805,29 +723,20 @@ bool switchInit::sai_miss_action_test(sai_switch_attr_t attr, sai_packet_action_
  */
 TEST_F(switchInit, attr_miss_action)
 {
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_UNICAST_MISS_ACTION,SAI_PACKET_ACTION_FORWARD));
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_UNICAST_MISS_ACTION,SAI_PACKET_ACTION_TRAP));
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_UNICAST_MISS_ACTION,SAI_PACKET_ACTION_LOG));
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_UNICAST_MISS_ACTION,SAI_PACKET_ACTION_DROP));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_FORWARD));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_TRAP));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_LOG));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_UNICAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_DROP));
 
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_ACTION,SAI_PACKET_ACTION_FORWARD));
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_ACTION,SAI_PACKET_ACTION_TRAP));
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_ACTION,SAI_PACKET_ACTION_LOG));
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_ACTION,SAI_PACKET_ACTION_DROP));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_FORWARD));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_TRAP));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_LOG));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_MULTICAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_DROP));
 
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_ACTION,SAI_PACKET_ACTION_FORWARD));
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_ACTION,SAI_PACKET_ACTION_TRAP));
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_ACTION,SAI_PACKET_ACTION_LOG));
-    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_ACTION,SAI_PACKET_ACTION_DROP));
-}
-/*
- * Connects different processes to the SAI process.
- */
-TEST_F(switchInit, connect_switch)
-{
-    sai_switch_notification_t notification;
-    ASSERT_EQ(SAI_STATUS_SUCCESS,sai_switch_api_table->
-              connect_switch(0,NULL,&notification));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_FORWARD));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_TRAP));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_LOG));
+    EXPECT_TRUE(sai_miss_action_test(SAI_SWITCH_ATTR_FDB_BROADCAST_MISS_PACKET_ACTION,SAI_PACKET_ACTION_DROP));
 }
 
 /*
@@ -841,10 +750,10 @@ TEST_F(switchInit, max_lag_attr)
     get_attr.id = SAI_SWITCH_ATTR_NUMBER_OF_LAGS;
 
     ASSERT_EQ(SAI_STATUS_INVALID_ATTRIBUTE_0,
-              sai_switch_api_table->set_switch_attribute((const sai_attribute_t*)&get_attr));
+              sai_switch_api_table->set_switch_attribute(switch_id,(const sai_attribute_t*)&get_attr));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr));
 
     EXPECT_NE(get_attr.value.u32, 0);
 
@@ -854,10 +763,10 @@ TEST_F(switchInit, max_lag_attr)
     get_attr.id = SAI_SWITCH_ATTR_LAG_MEMBERS;
 
     ASSERT_EQ(SAI_STATUS_INVALID_ATTRIBUTE_0,
-              sai_switch_api_table->set_switch_attribute((const sai_attribute_t*)&get_attr));
+              sai_switch_api_table->set_switch_attribute(switch_id,(const sai_attribute_t*)&get_attr));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &get_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr));
 
     EXPECT_NE(get_attr.value.u32, 0);
 
@@ -877,12 +786,12 @@ TEST_F(switchInit, default_tc_set_get)
     sai_attr_set.value.u32 = 7;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->set_switch_attribute(&sai_attr_set));
+              sai_switch_api_table->set_switch_attribute(switch_id,&sai_attr_set));
 
     sai_attr_get.id = SAI_SWITCH_ATTR_QOS_DEFAULT_TC;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &sai_attr_get));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &sai_attr_get));
 
     ASSERT_EQ(tc, sai_attr_get.value.u32);
 }
@@ -896,7 +805,7 @@ TEST_F(switchInit, max_port_mtu_get)
     sai_attr_get.id = SAI_SWITCH_ATTR_PORT_MAX_MTU;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &sai_attr_get));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &sai_attr_get));
 
     EXPECT_NE(sai_attr_get.value.u32, 0);
 

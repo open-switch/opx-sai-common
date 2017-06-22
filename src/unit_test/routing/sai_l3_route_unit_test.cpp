@@ -193,7 +193,7 @@ void saiL3RouteTest ::SetUpTestCase (void)
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        test_ecmp_count_1);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -206,7 +206,7 @@ void saiL3RouteTest ::SetUpTestCase (void)
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        test_ecmp_count_2);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -932,7 +932,6 @@ TEST_F (saiL3RouteTest, route_next_hop_on_lag_id)
     sai_ip_addr_family_t  family = SAI_IP_ADDR_FAMILY_IPV4;
     const unsigned int    member_count = 2;
     sai_object_id_t       port_arr[member_count];
-    sai_vlan_port_t       vlan_port[member_count];
     sai_object_id_t       member_arr[member_count];
     unsigned int          index;
     const unsigned int    attr_count = 2;
@@ -947,17 +946,16 @@ TEST_F (saiL3RouteTest, route_next_hop_on_lag_id)
     /* Remove the port members from default VLAN */
     port_arr[0] = sai_l3_port_id_get (2);
     port_arr[1] = sai_l3_port_id_get (3);
-    vlan_port[0].port_id = port_arr[0];
-    vlan_port[1].port_id = port_arr[1];
-    vlan_port[0].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-    vlan_port[1].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
 
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_vlan_api_table->remove_ports_from_vlan(
-               saiL3Test::SAI_TEST_DEFAULT_VLAN, 2,
-               (const sai_vlan_port_t*)vlan_port));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_remove_port_from_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                port_arr[0]));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_remove_port_from_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                port_arr[1]));
 
     /* Create the LAG object with port members */
-    sai_rc = sai_lag_api_table->create_lag (&lag_id, 0, attr_list);
+    sai_rc = sai_lag_api_table->create_lag (&lag_id, switch_id, 0, attr_list);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     for (index = 0; index < member_count; index++) {
@@ -968,6 +966,7 @@ TEST_F (saiL3RouteTest, route_next_hop_on_lag_id)
         attr_list [1].value.oid = port_arr [index];
 
         sai_rc = sai_lag_api_table->create_lag_member (&member_arr [index],
+                                                        switch_id,
                                                        attr_count, attr_list);
         EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
     }
@@ -1045,9 +1044,12 @@ TEST_F (saiL3RouteTest, route_next_hop_on_lag_id)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Add the port members back to default VLAN */
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_vlan_api_table->add_ports_to_vlan(
-               saiL3Test::SAI_TEST_DEFAULT_VLAN, member_count,
-               (const sai_vlan_port_t*)vlan_port));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_add_port_to_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                port_arr[0]));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_add_port_to_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                port_arr[1]));
 }
 
 /*

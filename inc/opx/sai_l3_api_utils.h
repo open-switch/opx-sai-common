@@ -102,6 +102,30 @@ static inline bool sai_fib_is_default_route_node (sai_fib_route_t *p_route)
             (p_route->prefix_len == 0));
 }
 
+static inline void sai_fib_incr_nh_ref_count (sai_fib_nh_t *p_nh_node)
+{
+    p_nh_node->ref_count++;
+}
+
+static inline void sai_fib_decr_nh_ref_count (sai_fib_nh_t *p_nh_node)
+{
+    if (p_nh_node->ref_count > 0) {
+        p_nh_node->ref_count--;
+    }
+}
+
+static inline void sai_fib_incr_nh_group_ref_count(sai_fib_nh_group_t *p_grp_node)
+{
+    p_grp_node->ref_count++;
+}
+
+static inline void sai_fib_decr_nh_group_ref_count(sai_fib_nh_group_t *p_grp_node)
+{
+    if (p_grp_node->ref_count > 0) {
+        p_grp_node->ref_count--;
+    }
+}
+
 sai_status_t sai_fib_next_hop_ip_address_validate (
                                             const sai_ip_address_t *p_ip_addr);
 
@@ -129,9 +153,9 @@ sai_status_t sai_fib_vrf_rif_list_update (
 
 sai_status_t sai_router_ecmp_max_paths_set (uint_t max_paths);
 
-sai_status_t sai_rif_lag_callback (sai_object_id_t lag_id, sai_object_id_t rif_id,
-                                   const sai_object_list_t *port_list,
-                                   sai_lag_operation_t lag_operation);
+sai_status_t sai_rif_lag_callback (sai_object_id_t lag_id,
+                                   sai_lag_operation_t lag_operation,
+                                   const sai_object_list_t *port_list);
 
 sai_status_t sai_neighbor_fdb_callback (uint_t num_upd,
                                         sai_fdb_notification_data_t *fdb_upd);
@@ -175,5 +199,14 @@ void sai_fib_nh_group_dep_encap_nh_update (sai_fib_nh_group_t *p_nh_group,
                                            sai_fib_nh_t *p_underlay_nh,
                                            bool is_add);
 sai_status_t sai_fib_encap_nh_dep_route_walker_create (void);
+
+sai_status_t sai_fib_lag_rif_mapping_insert (sai_object_id_t lag_id,
+                                             sai_object_id_t rif_id);
+
+sai_status_t sai_fib_lag_rif_mapping_remove (sai_object_id_t lag_id,
+                                             sai_object_id_t rif_id);
+
+sai_status_t sai_fib_get_rif_id_from_lag_id (sai_object_id_t lag_id,
+                                             sai_object_id_t *rif_id);
 
 #endif /* __SAI_L3_API_UTILS_H__ */

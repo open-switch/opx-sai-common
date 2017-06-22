@@ -440,6 +440,8 @@ sai_status_t sai_qos_init (void)
 
     SAI_QOS_LOG_TRACE ("Qos Init.");
 
+    sai_qos_lock();
+
     do {
         sai_rc = sai_qos_global_init ();
 
@@ -472,6 +474,10 @@ sai_status_t sai_qos_init (void)
 
         sai_rc = sai_port_event_internal_notif_register(SAI_MODULE_QOS_PORT,(sai_port_event_notification_fn)
                                                         sai_qos_port_notification_handler);
+       if (sai_rc != SAI_STATUS_SUCCESS) {
+           SAI_QOS_LOG_CRIT ("SAI QOS port event init failed.");
+           break;
+       }
 
         sai_rc = sai_qos_port_all_init ();
 
@@ -494,6 +500,8 @@ sai_status_t sai_qos_init (void)
         sai_qos_init_complete_set (true);
         SAI_QOS_LOG_INFO ("Qos Init complete.");
     }
+
+    sai_qos_unlock();
     return sai_rc;
 }
 

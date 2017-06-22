@@ -69,12 +69,14 @@ class saiL3NeighborTest : public saiL3Test
         static const sai_packet_action_t default_pkt_action = \
                                                      SAI_PACKET_ACTION_FORWARD;
 
+        static sai_object_id_t  vlan_obj_id;
         static sai_object_id_t  default_port_id;
         static sai_object_id_t  vrf_id;
         static sai_object_id_t  port_rif_id;
         static sai_object_id_t  vlan_rif_id;
 };
 
+sai_object_id_t saiL3NeighborTest::vlan_obj_id = 0;
 sai_object_id_t saiL3NeighborTest::default_port_id = 0;
 sai_object_id_t saiL3NeighborTest::vrf_id = 0;
 sai_object_id_t saiL3NeighborTest::port_rif_id = 0;
@@ -93,7 +95,7 @@ void saiL3NeighborTest::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Create Vlan */
-    status = sai_test_vlan_create (default_vlan);
+    status = sai_test_vlan_create (&vlan_obj_id, default_vlan);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -147,7 +149,7 @@ void saiL3NeighborTest::TearDownTestCase (void)
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Remove Vlan */
-    status = sai_test_vlan_remove (default_vlan);
+    status = sai_test_vlan_remove (vlan_obj_id);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 }
@@ -378,7 +380,7 @@ TEST_F (saiL3NeighborTest, create_and_remove_when_nexthop_exists)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id: 0x%"PRIx64".\n", nh_id);
+    printf ("SAI Next Hop Object Id: 0x%" PRIx64 ".\n", nh_id);
 
     status = sai_test_neighbor_create (port_rif_id, ip_af, p_ip_addr_str,
                                        default_neighbor_attr_count,
@@ -559,7 +561,7 @@ TEST_F (saiL3NeighborTest, duplicate_neighbor_ip_in_different_vrf)
 /*
  * Create Neighbor for a VLAN Router interface and Destination MAC attribute
  * set to a MAC address that does not have an entry in FDB table. Validate that
- * Neighbor creation fails with appropriate error status.
+ * Neighbor creation is success.
  */
 TEST_F (saiL3NeighborTest, create_on_vlan_rif_without_fdb_entry)
 {
@@ -573,7 +575,15 @@ TEST_F (saiL3NeighborTest, create_on_vlan_rif_without_fdb_entry)
                                        SAI_NEIGHBOR_ENTRY_ATTR_DST_MAC_ADDRESS,
                                        p_mac_str);
 
-    EXPECT_EQ (SAI_STATUS_ADDR_NOT_FOUND, status);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, status);
+
+
+    status = sai_test_neighbor_remove (vlan_rif_id, ip_af, p_ip_addr_str);
+
+    EXPECT_EQ (SAI_STATUS_SUCCESS, status);
+
+    sai_neighbor_verify_after_removal (vlan_rif_id, ip_af, p_ip_addr_str);
+
 }
 
 /*
@@ -845,7 +855,7 @@ TEST_F (saiL3NeighborTest, create_and_remove_with_no_host_route)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id: 0x%"PRIx64".\n", nh_id);
+    printf ("SAI Next Hop Object Id: 0x%" PRIx64 ".\n", nh_id);
 
     /* Cleanup the next hop object */
     status = saiL3Test::sai_test_nexthop_remove (nh_id);

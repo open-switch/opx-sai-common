@@ -48,34 +48,7 @@ sai_object_id_t lagInit ::port_id_1 = 0;
 sai_object_id_t lagInit ::port_id_2 = 0;
 sai_object_id_t lagInit ::port_id_l3 = 0;
 sai_object_id_t lagInit ::port_id_invalid = 0;
-
-void sai_port_evt_callback (uint32_t count, sai_port_event_notification_t *data)
-{
-    uint32_t port_idx = 0;
-    sai_object_id_t port_id = 0;
-    sai_port_event_t port_event;
-
-    for(port_idx = 0; port_idx < count; port_idx++) {
-        port_id = data[port_idx].port_id;
-        port_event = data[port_idx].port_event;
-
-        if(port_event == SAI_PORT_EVENT_ADD) {
-            if(port_count < SAI_MAX_PORTS) {
-                port_list[port_count] = port_id;
-                port_count++;
-            }
-
-            printf("PORT ADD EVENT FOR port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else if(port_event == SAI_PORT_EVENT_DELETE) {
-
-            printf("PORT DELETE EVENT for  port 0x%"PRIx64" and total ports count is %d \r\n",
-                   port_id, port_count);
-        } else {
-            printf("Invalid PORT EVENT for port 0x%"PRIx64" \r\n", port_id);
-        }
-    }
-}
+sai_object_id_t lagInit ::default_vlan_id = 0;
 
 sai_status_t sai_lag_ut_add_port_to_lag (sai_lag_api_t   *lag_api,
                                          sai_object_id_t *member_id,
@@ -111,7 +84,7 @@ sai_status_t sai_lag_ut_add_port_to_lag (sai_lag_api_t   *lag_api,
         count++;
     }
 
-    return lag_api->create_lag_member (member_id, count, attr_list);
+    return lag_api->create_lag_member (member_id, switch_id, count, attr_list);
 }
 
 sai_status_t sai_lag_ut_get_lag_attr (sai_lag_api_t   *lag_api,
@@ -186,23 +159,97 @@ sai_status_t sai_lag_ut_remove_port_from_lag (sai_lag_api_t   *lag_api,
 }
 
 sai_status_t
-sai_lag_ut_create_router_interface (sai_router_interface_api_t *router_intf_api_table,
+sai_lag_ut_create_router_interface (sai_lag_api_t              *lag_api,
+                                    sai_router_interface_api_t *router_intf_api_table,
                                     sai_vlan_api_t             *vlan_api_table,
                                     sai_object_id_t            *rif_id,
                                     sai_object_id_t             vrf_id,
+                                    sai_object_id_t             default_vlan_id,
                                     sai_object_id_t             port_id)
 {
     sai_status_t rc;
-    sai_vlan_port_t vlan_port;
     sai_attribute_t attr_list [4];
-    uint32_t        count = 0;
+    uint32_t count = 0;
+    int port_count = 0;
+    int it=0;
+    int cur_it=0;
+    sai_object_type_t obj_type;
+    sai_attribute_t get_attr;
 
-    vlan_port.port_id = port_id;
-    vlan_port.tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
+    attr_list[0].id = SAI_VLAN_ATTR_MEMBER_LIST;
+    attr_list[0].value.objlist.count = 0;
 
-    vlan_api_table->remove_ports_from_vlan (SAI_LAG_UT_DEFAULT_VLAN,
-                                            1, &vlan_port);
+    /* Getting the number of ports using count as 0 */
+    rc = vlan_api_table->get_vlan_attribute(default_vlan_id,1,&attr_list[0]);
+    if(SAI_STATUS_BUFFER_OVERFLOW != rc) {
+        printf("Unable to get the VLAN member list count for"
+                " VLAN obj id:%lu, rc:%d\r\n",default_vlan_id,rc);
+        return SAI_STATUS_FAILURE;
+    }
 
+    port_count = attr_list[0].value.objlist.count;
+    printf("VLAN member list count for VLAN obj id:%lu is %d\r\n",
+            default_vlan_id,attr_list[0].value.objlist.count);
+
+    obj_type = sai_object_type_query(port_id);
+
+    sai_object_id_t cur_list[10] = {0};
+    int cur_count = 1;
+    if(obj_type == SAI_OBJECT_TYPE_PORT) {
+        cur_count = 1;
+        cur_list[0] = port_id;
+    } else if(obj_type == SAI_OBJECT_TYPE_LAG) {
+        get_attr.id = SAI_LAG_ATTR_PORT_LIST;
+        get_attr.value.objlist.list = cur_list;
+        get_attr.value.objlist.count = 10;
+        lag_api->get_lag_attribute(port_id,1, &get_attr);
+        cur_count = get_attr.value.objlist.count;
+    }
+    {
+        sai_object_id_t list[port_count];
+
+        /* Getting the list of ports in default vlan */
+        attr_list[0].value.objlist.count = port_count;
+        attr_list[0].value.objlist.list = list;
+        rc = vlan_api_table->get_vlan_attribute(default_vlan_id,1,&attr_list[0]);
+        if(SAI_STATUS_SUCCESS != rc) {
+            printf("Unable to get the VLAN member list for"
+                    " VLAN obj id:%lu, rc:%d\r\n",default_vlan_id,rc);
+            return SAI_STATUS_FAILURE;
+        }
+
+        attr_list[0].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+        attr_list[0].value.oid = 0;
+        /* Finding the vlan member id of the port id */
+        for(cur_it = 0; cur_it < cur_count; cur_it++) {
+            printf("Port count %d, Cur idx %d Cur member %lu",cur_count, cur_it, cur_list[cur_it]);
+            for(it=0; it<port_count; it++) {
+
+                rc = vlan_api_table->get_vlan_member_attribute(list[it],1,&attr_list[0]);
+                if(SAI_STATUS_SUCCESS != rc) {
+                    printf("Unable to get the VLAN member port id for "
+                            "member:%lu in VLAN obj:%lu, rc:%d\r\n",
+                            list[it],default_vlan_id,rc);
+                }
+
+                if(attr_list[0].value.oid == cur_list[cur_it]) {
+                    rc = vlan_api_table->remove_vlan_member(list[it]);
+                    if(SAI_STATUS_SUCCESS != rc) {
+                        printf("Failed member remove for VLAN member:%lu "
+                                "in VLAN obj:%lu, rc:%d\r\n",
+                                list[it],default_vlan_id,rc);
+                        return SAI_STATUS_FAILURE;
+                    }
+                    break;
+                }
+            }
+            if(it == port_count) {
+                printf("Unable to find port:%lu as member in VLAN obj:%lu",
+                        cur_list[cur_it],default_vlan_id);
+                return SAI_STATUS_FAILURE;
+            }
+        }
+    }
     attr_list [count].id = SAI_ROUTER_INTERFACE_ATTR_VIRTUAL_ROUTER_ID;
     attr_list [count].value.oid = vrf_id;
     count++;
@@ -215,7 +262,7 @@ sai_lag_ut_create_router_interface (sai_router_interface_api_t *router_intf_api_
     attr_list [count].value.oid = port_id;
     count++;
 
-    rc = router_intf_api_table->create_router_interface (rif_id, count,
+    rc = router_intf_api_table->create_router_interface (rif_id, switch_id, count,
                                                          attr_list);
     return rc;
 }
@@ -236,7 +283,7 @@ sai_lag_ut_create_virtual_router (sai_virtual_router_api_t *vrf_api_table,
     attr.id = SAI_VIRTUAL_ROUTER_ATTR_SRC_MAC_ADDRESS;
     memset (attr.value.mac, 0x2, sizeof (sai_mac_t));
 
-    return (vrf_api_table->create_virtual_router (vrf_id, 1, &attr));
+    return (vrf_api_table->create_virtual_router (vrf_id, switch_id, 1, &attr));
 }
 
 sai_status_t
@@ -254,7 +301,7 @@ TEST_F(lagInit, create_remove_lag)
     sai_object_id_t lag_id = 0;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->create_lag(&lag_id, 0, NULL));
+              sai_lag_api_table->create_lag(&lag_id, switch_id,0, NULL));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_lag_api_table->remove_lag(lag_id));
@@ -262,36 +309,6 @@ TEST_F(lagInit, create_remove_lag)
     ASSERT_EQ(SAI_STATUS_ITEM_NOT_FOUND,
               sai_lag_api_table->remove_lag(lag_id));
 
-}
-
-TEST_F(lagInit, create_lag_ports)
-{
-    sai_object_id_t lag_id = 0;
-    sai_object_id_t port_arr[2];
-    sai_object_list_t lag_port_list;
-    sai_attribute_t attr;
-
-    lag_port_list.count = 2;
-    port_arr[0] = port_id_1;
-    port_arr[1] = port_id_2;
-    lag_port_list.list = port_arr;
-
-    attr.id = SAI_LAG_ATTR_PORT_LIST;
-    attr.value.objlist = lag_port_list;
-
-    ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->create_lag(&lag_id, 1, &attr));
-
-    ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->remove_lag(lag_id));
-
-    ASSERT_EQ(SAI_STATUS_ITEM_NOT_FOUND,
-              sai_lag_api_table->remove_lag(lag_id));
-
-    port_arr[1] = port_id_invalid;
-    lag_port_list.list = port_arr;
-    ASSERT_EQ(SAI_STATUS_INVALID_PARAMETER,
-              sai_lag_api_table->create_lag(&lag_id, 1, &attr));
 }
 
 TEST_F(lagInit, lag_member_new_api_test)
@@ -301,14 +318,12 @@ TEST_F(lagInit, lag_member_new_api_test)
     sai_object_id_t member_id_1 = 0;
     sai_object_id_t member_id_2 = 0;
     sai_object_id_t tmp_member_id = 0;
-    sai_object_id_t vrf_id = 0;
-    sai_object_id_t rif_id = 0;
     sai_attribute_t attr_list [4];
     uint32_t        count;
 
     /* Create Lag lag_id_1 and add port_id_1 and port_id_2 as members */
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->create_lag(&lag_id_1, 0, NULL));
+              sai_lag_api_table->create_lag(&lag_id_1, switch_id, 0, NULL));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_lag_ut_add_port_to_lag (sai_lag_api_table, &member_id_1,
@@ -322,7 +337,7 @@ TEST_F(lagInit, lag_member_new_api_test)
 
     /* Check if same port cannot be added to two lags */
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->create_lag (&lag_id_2, 0, NULL));
+              sai_lag_api_table->create_lag (&lag_id_2, switch_id, 0, NULL));
 
     ASSERT_EQ(SAI_STATUS_INVALID_PORT_MEMBER,
               sai_lag_ut_add_port_to_lag (sai_lag_api_table, &tmp_member_id,
@@ -376,7 +391,7 @@ TEST_F(lagInit, lag_member_new_api_test)
                                           false, false, false, false));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_lag_api_table->create_lag (&lag_id_1, 0, NULL));
+              sai_lag_api_table->create_lag (&lag_id_1, switch_id, 0, NULL));
 
     /* Check if member addition fails, if mandatory arguments are not present */
     memset (attr_list, 0, sizeof (attr_list));
@@ -387,7 +402,7 @@ TEST_F(lagInit, lag_member_new_api_test)
     count++;
 
     ASSERT_EQ (SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING,
-               sai_lag_api_table->create_lag_member (&tmp_member_id,
+               sai_lag_api_table->create_lag_member (&tmp_member_id, switch_id,
                                                      count, attr_list));
 
     count = 0;
@@ -396,7 +411,7 @@ TEST_F(lagInit, lag_member_new_api_test)
     count++;
 
     ASSERT_EQ (SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING,
-               sai_lag_api_table->create_lag_member (&tmp_member_id,
+               sai_lag_api_table->create_lag_member (&tmp_member_id, switch_id,
                                                      count, attr_list));
 
     count = 0;
@@ -414,29 +429,9 @@ TEST_F(lagInit, lag_member_new_api_test)
 
     /* Check if member addition fails if unknown attribute is present. */
     ASSERT_EQ (SAI_STATUS_UNKNOWN_ATTRIBUTE_0,
-               sai_lag_api_table->create_lag_member (&tmp_member_id,
+               sai_lag_api_table->create_lag_member (&tmp_member_id, switch_id,
                                                      count, attr_list));
 
-    /* Check if a L3 port addition to the Lag fails. */
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_ut_create_virtual_router (sai_vrf_api_table, &vrf_id));
-
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_ut_create_router_interface(sai_router_intf_api_table,
-                                                  sai_vlan_api_table,
-                                                  &rif_id, vrf_id, port_id_l3));
-
-    ASSERT_EQ (SAI_STATUS_OBJECT_IN_USE,
-               sai_lag_ut_add_port_to_lag (sai_lag_api_table, &member_id_1,
-                                           lag_id_1, port_id_l3,
-                                           false, false, false, false));
-
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_ut_remove_router_interface (sai_router_intf_api_table,
-                                                   rif_id));
-
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_ut_remove_virtual_router (sai_vrf_api_table, vrf_id));
 }
 
 TEST_F(lagInit, lag_member_attribute_new_api_test)
@@ -452,7 +447,7 @@ TEST_F(lagInit, lag_member_attribute_new_api_test)
      * attribute values.
      */
     ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_lag_api_table->create_lag (&lag_id_1, 0, NULL));
+               sai_lag_api_table->create_lag (&lag_id_1, switch_id, 0, NULL));
 
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_lag_ut_add_port_to_lag (sai_lag_api_table, &member_id_1,
@@ -510,6 +505,10 @@ TEST_F(lagInit, lag_member_attribute_new_api_test)
                                         &ing_disable, &egr_disable));
     ASSERT_FALSE (ing_disable);
     ASSERT_TRUE (egr_disable);
+
+    /* Check if LAG cannot be removed until lag members are removed*/
+    ASSERT_EQ (SAI_STATUS_OBJECT_IN_USE,
+               sai_lag_api_table->remove_lag (lag_id_1));
 
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_lag_ut_remove_port_from_lag(sai_lag_api_table, member_id_1));

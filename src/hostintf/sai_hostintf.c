@@ -30,6 +30,7 @@
 #include "sai_gen_utils.h"
 #include "sai_oid_utils.h"
 #include "sai_common_infra.h"
+#include "sai_switch_utils.h"
 
 #include "std_type_defs.h"
 #include "std_assert.h"
@@ -43,10 +44,10 @@
 #include <inttypes.h>
 
 static const dn_sai_hostif_pkt_attr_property_t packet_attrs[] = {
-    { SAI_HOSTIF_PACKET_ATTR_USER_TRAP_ID, false, false},
+    { SAI_HOSTIF_PACKET_ATTR_HOSTIF_TRAP_ID, false, false},
     { SAI_HOSTIF_PACKET_ATTR_INGRESS_PORT, false, false},
     { SAI_HOSTIF_PACKET_ATTR_INGRESS_LAG, false, false},
-    { SAI_HOSTIF_PACKET_ATTR_TX_TYPE, true, true},
+    { SAI_HOSTIF_PACKET_ATTR_HOSTIF_TX_TYPE, true, true},
     { SAI_HOSTIF_PACKET_ATTR_EGRESS_PORT_OR_LAG, true, false}
 };
 
@@ -59,17 +60,19 @@ static const dn_sai_hostif_trap_group_attr_property_t trap_group_attrs[] = {
 static const dn_sai_hostif_trap_attr_property_t trap_attrs[] = {
     {SAI_HOSTIF_TRAP_ATTR_PACKET_ACTION, dn_sai_hostif_validate_action},
     {SAI_HOSTIF_TRAP_ATTR_TRAP_PRIORITY, NULL},
-    {SAI_HOSTIF_TRAP_ATTR_TRAP_CHANNEL, NULL},
-    {SAI_HOSTIF_TRAP_ATTR_FD, NULL},
-    {SAI_HOSTIF_TRAP_ATTR_PORT_LIST, dn_sai_hostif_validate_portlist},
+    {SAI_HOSTIF_TRAP_ATTR_EXCLUDE_PORT_LIST, dn_sai_hostif_validate_portlist},
     {SAI_HOSTIF_TRAP_ATTR_TRAP_GROUP, dn_sai_hostif_validate_trapgroup_oid}
 };
 
+#define DN_SAI_HOSTIF_SFLOW_QUEUE   (1)
 static sai_status_t sai_create_hostif_trap_group(sai_object_id_t *trap_group_id,
+                                                 _In_ sai_object_id_t switch_id,
                                                  uint_t attr_count,
                                                  const sai_attribute_t *attr_list);
 
+static sai_status_t sai_hostif_create_sflow_trap();
 static dn_sai_hostintf_info_t g_hostif_info = {0};
+
 dn_sai_hostintf_info_t * dn_sai_hostintf_get_info()
 {
     return &g_hostif_info;
@@ -150,8 +153,6 @@ sai_status_t sai_hostintf_init(void)
         }
     } else {
 
-        g_hostif_info.default_trap_channel =  SAI_HOSTIF_TRAP_CHANNEL_CB;
-
         /*Creating default read only trap group*/
         attr_list[attr_count].id = SAI_HOSTIF_TRAP_GROUP_ATTR_ADMIN_STATE;
         attr_list[attr_count].value.booldata = true;
@@ -161,13 +162,26 @@ sai_status_t sai_hostintf_init(void)
         attr_list[attr_count].value.u32 = DN_SAI_HOSTIF_DEFAULT_QUEUE;
         attr_count++;
 
-        rc = sai_create_hostif_trap_group(&default_trap_group, attr_count, attr_list);
+        rc = sai_create_hostif_trap_group(&default_trap_group, sai_switch_id_get(),
+                                          attr_count, attr_list);
         if (rc != SAI_STATUS_SUCCESS) {
             SAI_HOSTIF_LOG_CRIT("Hostif default trap group cration failed");
             return SAI_STATUS_UNINITIALIZED;
         }
 
         g_hostif_info.default_trap_group_id =  default_trap_group;
+
+        /**
+         * Temporary code to take sflow packets in Q1 to CPU.
+         * Will be removed once new hostintf implementation is done.
+         */
+        rc = sai_hostif_create_sflow_trap();
+
+        if (rc != SAI_STATUS_SUCCESS) {
+            SAI_HOSTIF_LOG_CRIT("Hostif default trap group creation for sflow failed");
+            return SAI_STATUS_UNINITIALIZED;
+        }
+
         SAI_HOSTIF_LOG_INFO("Successful hostif initialization");
     }
 
@@ -175,6 +189,7 @@ sai_status_t sai_hostintf_init(void)
 }
 
 static sai_status_t sai_create_hostif(sai_object_id_t * hif_id,
+                                      _In_ sai_object_id_t switch_id,
                                       uint_t attr_count,
                                       const sai_attribute_t *attr_list)
 {
@@ -352,6 +367,7 @@ static void dn_sai_hostif_dealloc_trapgroup(
 }
 
 static sai_status_t sai_create_hostif_trap_group(sai_object_id_t *trap_group_id,
+                                                 _In_ sai_object_id_t switch_id,
                                                  uint_t attr_count,
                                                  const sai_attribute_t *attr_list)
 {
@@ -770,7 +786,7 @@ static sai_status_t dn_sai_hostif_update_trap_node(
         SAI_HOSTIF_LOG_TRACE("New trap group %"PRIu64".",attr->value.oid);
         trap_node->trap_group = attr->value.oid;
 
-    } else if (SAI_HOSTIF_TRAP_ATTR_PORT_LIST == attr->id ) {
+    } else if (SAI_HOSTIF_TRAP_ATTR_EXCLUDE_PORT_LIST == attr->id ) {
          list = calloc(attr->value.objlist.count, sizeof(sai_object_id_t));
          if (NULL == list) {
              SAI_HOSTIF_LOG_ERR("No memory for port object list count %u",
@@ -930,7 +946,7 @@ static sai_status_t sai_get_hostif_trap(sai_object_id_t trapid,
                 attr_list[attr_idx].value.u32 = trap_node->trap_prio;
             } else if (SAI_HOSTIF_TRAP_ATTR_TRAP_GROUP == attr_list[attr_idx].id) {
                 attr_list[attr_idx].value.oid = trap_node->trap_group;
-            } else if (SAI_HOSTIF_TRAP_ATTR_PORT_LIST == attr_list[attr_idx].id) {
+            } else if (SAI_HOSTIF_TRAP_ATTR_EXCLUDE_PORT_LIST == attr_list[attr_idx].id) {
                 if (attr_list[attr_idx].value.objlist.count <
                     trap_node->port_list.count) {
                     attr_list[attr_idx].value.objlist.count =
@@ -955,14 +971,14 @@ static sai_status_t sai_get_hostif_trap(sai_object_id_t trapid,
 }
 
 static sai_status_t sai_set_hostif_user_defined_trap(
-                            sai_hostif_user_defined_trap_id_t trapid,
+                            sai_object_id_t hostif_user_defined_trap_id,
                             const sai_attribute_t *attr)
 {
     return SAI_STATUS_NOT_SUPPORTED;
 }
 
 static sai_status_t sai_get_hostif_user_defined_trap(
-                            sai_hostif_user_defined_trap_id_t trapid,
+                            sai_object_id_t hostif_user_defined_trap_id,
                             uint_t attr_count, sai_attribute_t *attr_list)
 {
     return SAI_STATUS_NOT_SUPPORTED;
@@ -1074,18 +1090,64 @@ void sai_hostif_rx_register_callback(sai_packet_event_notification_fn rx_registe
     sai_hostif_unlock();
 }
 
+static sai_status_t sai_hostif_create_sflow_trap()
+{
+    uint_t attr_count = 0;
+    sai_status_t rc = SAI_STATUS_SUCCESS;
+    sai_object_id_t sflow_trap_group = SAI_NULL_OBJECT_ID;
+    sai_attribute_t attr_list[DN_HOSTIF_DEFAULT_TRAP_GROUP_ATTRS];
+    sai_attribute_t set_attr;
+
+    memset(&attr_list, 0, sizeof(attr_list));
+
+    attr_list[attr_count].id = SAI_HOSTIF_TRAP_GROUP_ATTR_ADMIN_STATE;
+    attr_list[attr_count].value.booldata = true;
+    attr_count++;
+
+    attr_list[attr_count].id = SAI_HOSTIF_TRAP_GROUP_ATTR_QUEUE;
+    attr_list[attr_count].value.u32 = DN_SAI_HOSTIF_SFLOW_QUEUE;
+    attr_count++;
+
+    rc = sai_create_hostif_trap_group(&sflow_trap_group, sai_switch_id_get(),
+                                      attr_count, attr_list);
+    if (rc != SAI_STATUS_SUCCESS) {
+        SAI_HOSTIF_LOG_CRIT("Hostif default trap group cration failed");
+        return SAI_STATUS_UNINITIALIZED;
+    }
+
+    set_attr.id = SAI_HOSTIF_TRAP_ATTR_TRAP_GROUP;
+    set_attr.value.oid = sflow_trap_group;
+
+    rc = sai_set_hostif_trap(SAI_HOSTIF_TRAP_TYPE_SAMPLEPACKET, &set_attr);
+
+    if(rc != SAI_STATUS_SUCCESS) {
+        SAI_HOSTIF_LOG_CRIT("Hostif samplepacket trap setting failed");
+        return SAI_STATUS_UNINITIALIZED;
+    }
+
+    return rc;
+}
+
 static sai_hostif_api_t sai_hostintf_method_table =
 {
     sai_create_hostif,
     sai_remove_hostif,
     sai_set_hostif,
     sai_get_hostif,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
     sai_create_hostif_trap_group,
     sai_remove_hostif_trap_group,
     sai_set_hostif_trap_group,
     sai_get_hostif_trap_group,
+    NULL,
+    NULL,
     sai_set_hostif_trap,
     sai_get_hostif_trap,
+    NULL,
+    NULL,
     sai_set_hostif_user_defined_trap,
     sai_get_hostif_user_defined_trap,
     sai_recv_hostif_packet,

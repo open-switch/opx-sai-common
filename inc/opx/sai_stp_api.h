@@ -25,6 +25,7 @@
 #define __SAI_STP_API_H__
 
 #include "sai_stp_defs.h"
+#include "saistp.h"
 
 /*
  * Allocate memory for stp info node
@@ -90,5 +91,48 @@ sai_status_t sai_l2_stp_default_instance_id_get (sai_attribute_t *attr);
  * Software cache dump
  */
 void sai_stp_dump(void);
+
+/*
+ * Read the stp state of port and instance id
+ */
+sai_status_t sai_npu_stp_port_state_get (sai_object_id_t stp_inst_id,
+                                         sai_object_id_t port_id,
+                                         sai_stp_port_state_t *port_state);
+
+
+/*
+ * Read STP instance from VLAN ID
+ */
+sai_object_id_t sai_stp_get_instance_from_vlan_map(sai_vlan_id_t vlan_id);
+
+/*
+ * Check if MAC learning is allowed based on STP state
+ */
+bool sai_stp_can_port_learn_mac (sai_vlan_id_t vlan_id, sai_object_id_t port_id);
+
+/*
+ * Allocate memory for stp info node
+ */
+dn_sai_stp_port_info_t *sai_stp_port_node_alloc (void);
+
+/*
+ * Free memory for stp info node
+ */
+void sai_stp_port_node_free (dn_sai_stp_port_info_t *p_stp_port_node);
+
+/*
+ * Check if SAI STP port state valid
+ */
+bool sai_stp_port_state_valid(sai_stp_port_state_t port_state);
+
+/*
+ * Returns SAI STP global RB tree handle
+ */
+rbtree_handle sai_stp_global_info_tree_get(void);
+
+/*
+ * Returns SAI STP port RB tree handle
+ */
+rbtree_handle sai_stp_port_tree_get(void);
 
 #endif /* __SAI_STP_API_H__ */

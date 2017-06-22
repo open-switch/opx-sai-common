@@ -103,6 +103,8 @@ sai_hash_api_t* sai_hash_api_query(void);
 
 sai_tunnel_api_t* sai_tunnel_api_query(void);
 
+sai_status_t sai_extn_module_api_query (sai_api_t sai_api_id, void** api_method_table);
+
 sai_status_t sai_npu_api_initialize (const char *lib_name);
 
 sai_npu_api_t* sai_npu_api_table_get (void);

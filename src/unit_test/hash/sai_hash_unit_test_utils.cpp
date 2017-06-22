@@ -37,11 +37,14 @@ extern "C" {
 #include <stdarg.h>
 }
 
+
 /* Definition for the data members */
 sai_switch_api_t* saiHashTest::p_sai_switch_api_tbl = NULL;
 sai_hash_api_t* saiHashTest::p_sai_hash_api_tbl = NULL;
 sai_object_id_t saiHashTest::default_lag_hash_obj = SAI_NULL_OBJECT_ID;
 sai_object_id_t saiHashTest::default_ecmp_hash_obj = SAI_NULL_OBJECT_ID;
+
+static sai_object_id_t switch_id = 0;
 
 int32_t saiHashTest::default_native_fields[default_native_fld_count] = {
     SAI_NATIVE_HASH_FIELD_SRC_MAC, SAI_NATIVE_HASH_FIELD_DST_MAC,
@@ -84,13 +87,6 @@ static inline void sai_port_state_evt_callback (
     UNREFERENCED_PARAMETER(data);
 }
 
-static inline void sai_port_evt_callback (uint32_t count,
-                                          sai_port_event_notification_t *data)
-{
-    UNREFERENCED_PARAMETER(count);
-    UNREFERENCED_PARAMETER(data);
-}
-
 static inline void sai_fdb_evt_callback (uint32_t count,
                                          sai_fdb_event_notification_data_t *data)
 {
@@ -122,10 +118,12 @@ static inline void sai_switch_shutdown_callback (void)
 /* SAI switch initialization */
 void saiHashTest::SetUpTestCase (void)
 {
-    sai_switch_notification_t notification;
     sai_attribute_t           get_attr;
 
-    memset (&notification, 0, sizeof(sai_switch_notification_t));
+    sai_attribute_t sai_attr_set[7];
+    uint32_t attr_count = 7;
+
+    memset(sai_attr_set,0, sizeof(sai_attr_set));
 
     /*
      * Query and populate the SAI Switch API Table.
@@ -136,22 +134,32 @@ void saiHashTest::SetUpTestCase (void)
 
     ASSERT_TRUE (p_sai_switch_api_tbl != NULL);
 
-    /*
-     * Switch Initialization.
-     * Fill in notification callback routines with stubs.
-     */
-    notification.on_switch_state_change = sai_switch_operstate_callback;
-    notification.on_fdb_event = sai_fdb_evt_callback;
-    notification.on_port_state_change = sai_port_state_evt_callback;
-    notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-    notification.on_port_event = sai_port_evt_callback;
-    notification.on_packet_event = sai_packet_event_callback;
+    sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+    sai_attr_set[0].value.booldata = 1;
 
-    ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
+    sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+    sai_attr_set[1].value.u32 = 0;
+
+    sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+    sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+    sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+    sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+    sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+    sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+    sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+    sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+    sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+    sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+    ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-               (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                         &notification)));
+               (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                         sai_attr_set)));
 
     /* Query the Hash API method tables */
     sai_test_hash_api_table_query ();
@@ -163,7 +171,7 @@ void saiHashTest::SetUpTestCase (void)
     get_attr.id = SAI_SWITCH_ATTR_ECMP_HASH;
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-               p_sai_switch_api_tbl->get_switch_attribute(1, &get_attr));
+               p_sai_switch_api_tbl->get_switch_attribute(switch_id,1, &get_attr));
 
     default_ecmp_hash_obj = get_attr.value.oid;
 
@@ -172,7 +180,7 @@ void saiHashTest::SetUpTestCase (void)
     get_attr.id = SAI_SWITCH_ATTR_LAG_HASH;
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-               p_sai_switch_api_tbl->get_switch_attribute(1, &get_attr));
+               p_sai_switch_api_tbl->get_switch_attribute(switch_id,1, &get_attr));
 
     default_lag_hash_obj = get_attr.value.oid;
 }
@@ -202,7 +210,7 @@ void saiHashTest::sai_test_hash_attr_value_fill (
 
     switch (p_attr->id)
     {
-        case SAI_HASH_ATTR_NATIVE_FIELD_LIST:
+        case SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST:
             if (p_native_fld_list == NULL) {
 
                 HASH_PRINT ("%s(): Invalid native field list pointer: %p, "
@@ -272,13 +280,13 @@ sai_status_t saiHashTest::sai_test_hash_create (sai_object_id_t *hash_id,
 
     va_end (ap);
 
-    status = p_sai_hash_api_tbl->create_hash (hash_id, attr_count, attr_list);
+    status = p_sai_hash_api_tbl->create_hash (hash_id, switch_id, attr_count, attr_list);
 
     if (status != SAI_STATUS_SUCCESS) {
         HASH_PRINT ("SAI Hash Creation API failed with error: %d.", status);
     } else {
         HASH_PRINT ("SAI Hash Creation API success, Hash Obj Id: "
-                    "0x%"PRIx64".", *hash_id);
+                    "0x%" PRIx64 ".", *hash_id);
     }
 
     return status;
@@ -288,7 +296,7 @@ sai_status_t saiHashTest::sai_test_hash_remove (sai_object_id_t hash_id)
 {
     sai_status_t  status;
 
-    HASH_PRINT ("Testing Hash Id: 0x%"PRIx64" remove.", hash_id);
+    HASH_PRINT ("Testing Hash Id: 0x%" PRIx64 " remove.", hash_id);
 
     status = p_sai_hash_api_tbl->remove_hash (hash_id);
 
@@ -320,7 +328,7 @@ sai_status_t saiHashTest::sai_test_hash_attr_set (sai_object_id_t hash_id,
     if (status != SAI_STATUS_SUCCESS) {
         HASH_PRINT ("SAI Hash Set Attr API failed with error: %d.", status);
     } else {
-        HASH_PRINT ("SAI Hash Id: 0x%"PRIx64" Set Attr API success.", hash_id);
+        HASH_PRINT ("SAI Hash Id: 0x%" PRIx64 " Set Attr API success.", hash_id);
     }
 
     return status;
@@ -337,7 +345,7 @@ void saiHashTest::sai_test_hash_attr_value_print (sai_attribute_t *p_attr)
 
     switch (p_attr->id)
     {
-        case SAI_HASH_ATTR_NATIVE_FIELD_LIST:
+        case SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST:
             HASH_PRINT ("Native Field List count: %u.",
                         p_attr->value.s32list.count);
             for (index = 0; index < p_attr->value.s32list.count; index++) {
@@ -353,7 +361,7 @@ void saiHashTest::sai_test_hash_attr_value_print (sai_attribute_t *p_attr)
             HASH_PRINT ("UDF Group List count: %u.",
                         p_attr->value.objlist.count);
             for (index = 0; index < p_attr->value.objlist.count; index++) {
-                HASH_PRINT ("UDF Group Id[%u]: 0x%"PRIx64".", index,
+                HASH_PRINT ("UDF Group Id[%u]: 0x%" PRIx64 ".", index,
                             p_attr->value.objlist.list[index]);
             }
             break;
@@ -473,7 +481,7 @@ void saiHashTest::sai_test_hash_verify (sai_object_id_t hash_id,
     attr_list[1].value.objlist.list  = obj_list;
 
     status = sai_test_hash_attr_get (hash_id, attr_list, max_hash_attr_count,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST,
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST,
                                      SAI_HASH_ATTR_UDF_GROUP_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);

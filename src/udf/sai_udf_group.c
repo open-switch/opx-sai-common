@@ -241,6 +241,7 @@ static sai_status_t dn_sai_udf_group_attr_set (dn_sai_udf_group_t *p_udf_group,
 }
 
 static sai_status_t dn_sai_udf_group_create (sai_object_id_t *udf_group_id,
+                                             _In_ sai_object_id_t switch_id,
                                              uint32_t attr_count,
                                              const sai_attribute_t *attr_list)
 {

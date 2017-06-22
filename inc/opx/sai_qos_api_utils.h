@@ -43,7 +43,6 @@
 #define SAI_QOS_WRED_MAX_ATTR_COUNT               (14)
 #define SAI_WRED_INVALID_COLOR                    (-1)
 #define SAI_MAX_WRED_DROP_PROBABILITY             (100)
-#define SAI_SCHED_GROUP_MANDATORY_ATTR_COUNT      (3)
 
 sai_status_t sai_qos_port_all_init (void);
 
@@ -56,7 +55,21 @@ sai_status_t sai_qos_port_queue_all_deinit (sai_object_id_t port_id);
 sai_status_t sai_qos_port_queue_list_update (dn_sai_qos_queue_t *p_queue_node,
                                              bool is_add);
 
-sai_status_t sai_qos_port_sched_groups_init (sai_object_id_t port_id);
+sai_status_t sai_qos_port_queue_create(sai_object_id_t port_id,
+                                       sai_queue_type_t queue_type,
+                                       uint8_t queue_index,
+                                       sai_object_id_t parent_sg_id,
+                                       sai_object_id_t *queue_id);
+
+sai_status_t sai_qos_port_queue_remove(sai_object_id_t queue_id);
+
+sai_status_t sai_qos_port_sched_group_create (sai_object_id_t port_id,
+                                              sai_object_id_t parent_id,
+                                              uint_t level,
+                                              uint_t max_childs,
+                                              sai_object_id_t *sg_id);
+
+sai_status_t sai_qos_port_sched_group_remove(sai_object_id_t sg_id);
 
 sai_status_t sai_qos_port_sched_groups_deinit (sai_object_id_t port_id);
 
@@ -88,20 +101,16 @@ sai_status_t sai_qos_indexed_sched_group_id_get(sai_object_id_t port_id,
 uint_t sai_qos_dlft_sched_groups_per_level_get (sai_object_id_t port_id,
                                                 uint_t level);
 
-sai_status_t sai_add_child_object_to_group (sai_object_id_t sg_id,
-                                             uint32_t child_count,
-                                             const sai_object_id_t* child_objects);
-
-sai_status_t sai_remove_child_object_from_group (sai_object_id_t sg_id,
-                                                  uint32_t child_count,
-                                                  const sai_object_id_t* child_objects);
-
 sai_status_t sai_qos_map_type_attr_set(dn_sai_qos_map_t *p_map_node,
                                        sai_qos_map_type_t map_type);
 
 void sai_qos_map_free_resources(dn_sai_qos_map_t *p_map_node);
 
 sai_status_t sai_qos_map_on_port_set(sai_object_id_t port_id,
+                                     const sai_attribute_t *attr,
+                                     sai_qos_map_type_t map_type);
+
+sai_status_t sai_qos_map_on_port_set_internal(sai_object_id_t port_id,
                                      const sai_attribute_t *attr,
                                      sai_qos_map_type_t map_type);
 
@@ -129,10 +138,16 @@ sai_status_t sai_policer_acl_entries_update(dn_sai_qos_policer_t *p_policer,
 sai_status_t sai_port_attr_storm_control_policer_set(sai_object_id_t port_id,
                                                      const sai_attribute_t *attr);
 
+sai_status_t sai_port_attr_storm_control_policer_set_internal(sai_object_id_t port_id,
+                                                     const sai_attribute_t *attr);
+
 sai_status_t sai_qos_wred_set_on_queue(sai_object_id_t queue_id,
                                        const sai_attribute_t *attr);
 
 sai_status_t sai_port_attr_wred_profile_set(sai_object_id_t port_id,
+                                            const sai_attribute_t *attr);
+
+sai_status_t sai_port_attr_wred_profile_set_internal(sai_object_id_t port_id,
                                             const sai_attribute_t *attr);
 
 sai_status_t sai_switch_set_qos_default_tc(uint_t default_tc);
@@ -163,9 +178,8 @@ sai_status_t sai_qos_pg_stats_get (sai_object_id_t pg_id, const
                                    sai_ingress_priority_group_stat_t *counter_ids,
                                    uint32_t number_of_counters, uint64_t* counters);
 
-sai_status_t sai_qos_pg_stats_clear (sai_object_id_t pg_id, const
-                                     sai_ingress_priority_group_stat_t *counter_ids,
-                                     uint32_t number_of_counters);
+sai_status_t sai_qos_pg_stats_clear (sai_object_id_t pg_id, uint32_t number_of_counters,
+                                     const sai_ingress_priority_group_stat_t *counter_ids);
 
 sai_status_t sai_qos_pg_node_insert_to_tree (dn_sai_qos_pg_t *p_pg_node);
 

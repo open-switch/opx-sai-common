@@ -35,6 +35,7 @@ extern "C" {
 #include <stdio.h>
 }
 
+
 class saiL3VrfTest : public saiL3Test
 {
     public:
@@ -48,6 +49,7 @@ class saiL3VrfTest : public saiL3Test
                                               sai_packet_action_t ttl_action);
         static sai_status_t sai_test_vrf_switch_mac_set_and_verify (void);
 
+        static sai_object_id_t test_vlan_obj_id;
         static sai_object_id_t test_port_id;
         static sai_object_id_t test_vr_id;
         static sai_object_id_t test_vlan_rif_id;
@@ -62,6 +64,7 @@ class saiL3VrfTest : public saiL3Test
                                                = SAI_PACKET_ACTION_TRAP;
 };
 
+sai_object_id_t saiL3VrfTest ::test_vlan_obj_id = 0;
 sai_object_id_t saiL3VrfTest ::test_port_id = 0;
 sai_object_id_t saiL3VrfTest ::test_vr_id = 0;
 sai_object_id_t saiL3VrfTest ::test_vlan_rif_id = 0;
@@ -94,7 +97,7 @@ void saiL3VrfTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Create a vlan RIF on test_vr_id */
-    sai_rc = sai_test_vlan_create (test_vlan_id);
+    sai_rc = sai_test_vlan_create (&test_vlan_obj_id, test_vlan_id);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -132,7 +135,7 @@ void saiL3VrfTest ::TearDownTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Remove Vlan */
-    sai_rc = sai_test_vlan_remove (test_vlan_id);
+    sai_rc = sai_test_vlan_remove (test_vlan_obj_id);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -160,7 +163,7 @@ sai_packet_action_t ip_opt_action, sai_packet_action_t ttl_action)
                                SAI_VIRTUAL_ROUTER_ATTR_SRC_MAC_ADDRESS,
                                SAI_VIRTUAL_ROUTER_ATTR_ADMIN_V4_STATE,
                                SAI_VIRTUAL_ROUTER_ATTR_ADMIN_V6_STATE,
-                               SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS);
+                               SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -173,7 +176,7 @@ sai_packet_action_t ip_opt_action, sai_packet_action_t ttl_action)
 
     sai_rc =
         sai_test_vrf_attr_get (vr_id, &attr_list [0], attr_count,
-                               SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION);
+                               SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION);
 
     if (sai_rc != SAI_STATUS_ATTR_NOT_SUPPORTED_0) {
         EXPECT_EQ (ttl_action, attr_list [0].value.s32);
@@ -246,7 +249,7 @@ TEST_F(saiL3VrfTest, vrf_create_and_remove)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("VRF created with ID 0x%"PRIx64"\r\n", vr_id);
+        printf ("VRF created with ID 0x%" PRIx64 "\r\n", vr_id);
     }
 
     sai_rc = sai_test_router_mac_get (&switch_mac);
@@ -265,7 +268,7 @@ TEST_F(saiL3VrfTest, vrf_create_and_remove)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("VRF ID 0x%"PRIx64" removed.\r\n", vr_id);
+        printf ("VRF ID 0x%" PRIx64 " removed.\r\n", vr_id);
     }
 
     /* Getting VRF attributes must fail */
@@ -296,7 +299,7 @@ TEST_F(saiL3VrfTest, vrf_multiple_create_and_remove)
         EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
         if (sai_rc == SAI_STATUS_SUCCESS) {
-            printf ("VRF created with ID 0x%"PRIx64"\r\n", vr_id [num_vr]);
+            printf ("VRF created with ID 0x%" PRIx64 "\r\n", vr_id [num_vr]);
         }
 
         /* Getting VRF attributes must be successful */
@@ -313,7 +316,7 @@ TEST_F(saiL3VrfTest, vrf_multiple_create_and_remove)
         EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
         if (sai_rc == SAI_STATUS_SUCCESS) {
-            printf ("VRF ID 0x%"PRIx64" removed.\r\n", vr_id [num_vr]);
+            printf ("VRF ID 0x%" PRIx64 " removed.\r\n", vr_id [num_vr]);
         }
 
         /* Getting VRF attributes must fail */
@@ -369,7 +372,7 @@ TEST_F(saiL3VrfTest, vrf_create_with_invalid_attr_id)
 }
 
 /*
- * Validates VRF creation with SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION
+ * Validates VRF creation with SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION
  * attribute.
  */
 TEST_F(saiL3VrfTest, vrf_create_with_attr_ttl1_pkt_action)
@@ -380,19 +383,19 @@ TEST_F(saiL3VrfTest, vrf_create_with_attr_ttl1_pkt_action)
 
     /* Creating VRF with invalid TTL violation packet action */
     sai_rc = sai_test_vrf_create (&vr_id, 1,
-                                  SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION,
+                                  SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION,
                                   invalid_pkt_action);
 
     EXPECT_EQ (SAI_STATUS_INVALID_ATTR_VALUE_0, sai_rc);
 
     sai_rc = sai_test_vrf_create (&vr_id, 1,
-                                  SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION,
+                                  SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION,
                                   SAI_PACKET_ACTION_DROP);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 }
 /*
- * Validates VRF creation with SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS
+ * Validates VRF creation with SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION
  * attribute.
  */
 TEST_F(saiL3VrfTest, vrf_create_with_attr_ip_options_pkt_action)
@@ -403,7 +406,7 @@ TEST_F(saiL3VrfTest, vrf_create_with_attr_ip_options_pkt_action)
     sai_packet_action_t     pkt_action = SAI_PACKET_ACTION_DROP;
 
     sai_rc = sai_test_vrf_create (&vr_id, 1,
-                                  SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS,
+                                  SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION,
                                   pkt_action);
 
     sai_rc = sai_test_router_mac_get (&switch_mac);
@@ -597,7 +600,7 @@ TEST_F(saiL3VrfTest, vrf_create_with_attr_admin_v4_and_v6)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("VRF created with ID 0x%"PRIx64".\r\n", vr_id);
+        printf ("VRF created with ID 0x%" PRIx64 ".\r\n", vr_id);
     }
 
     sai_rc = sai_test_router_mac_get (&switch_mac);
@@ -666,7 +669,7 @@ TEST_F(saiL3VrfTest, vrf_create_with_attr_admin_v6_and_mac)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("VRF created with ID 0x%"PRIx64".\r\n", vr_id);
+        printf ("VRF created with ID 0x%" PRIx64 ".\r\n", vr_id);
     }
 
     sai_test_router_mac_str_to_bytes_get (mac_str, sai_mac);
@@ -805,7 +808,7 @@ TEST_F(saiL3VrfTest, vrf_attr_set_src_mac)
 }
 
 /*
- * Validate VRF attribute set with SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS
+ * Validate VRF attribute set with SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION
  * attribute.
  */
 TEST_F(saiL3VrfTest, vrf_attr_set_ip_options_pkt_action)
@@ -830,7 +833,7 @@ TEST_F(saiL3VrfTest, vrf_attr_set_ip_options_pkt_action)
     for (trial_id = 0; trial_id < num_trials; trial_id++) {
         sai_rc =
             sai_test_vrf_attr_set (test_vr_id,
-                                   SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS,
+                                   SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION,
                                    pkt_action [trial_id], NULL /* MAC */);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -845,14 +848,14 @@ TEST_F(saiL3VrfTest, vrf_attr_set_ip_options_pkt_action)
     /* Set an invalid packet action attribute value */
     sai_rc =
         sai_test_vrf_attr_set (test_vr_id,
-                               SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS,
+                               SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION,
                                invalid_pkt_action, NULL /* MAC */);
 
     EXPECT_EQ (SAI_STATUS_INVALID_ATTR_VALUE_0, sai_rc);
 }
 
 /*
- * Validate VRF attribute set with SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION
+ * Validate VRF attribute set with SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION
  * attribute.
  */
 TEST_F(saiL3VrfTest, vrf_attr_set_ttl_violation_pkt_action)
@@ -876,7 +879,7 @@ TEST_F(saiL3VrfTest, vrf_attr_set_ttl_violation_pkt_action)
 
     for (trial_id = 0; trial_id < num_trials; trial_id++) {
         sai_rc = sai_test_vrf_attr_set (test_vr_id,
-                                 SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION,
+                                 SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION,
                                  pkt_action [trial_id], NULL /* MAC */);
 
         if (sai_rc != SAI_STATUS_ATTR_NOT_SUPPORTED_0) {
@@ -891,7 +894,7 @@ TEST_F(saiL3VrfTest, vrf_attr_set_ttl_violation_pkt_action)
     /* Set an invalid packet action attribute value */
     sai_rc =
         sai_test_vrf_attr_set (test_vr_id,
-                               SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION,
+                               SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION,
                                invalid_pkt_action, NULL /* MAC */);
 
     EXPECT_EQ (SAI_STATUS_INVALID_ATTR_VALUE_0, sai_rc);
@@ -913,14 +916,14 @@ TEST_F(saiL3VrfTest, max_ecmp_paths_switch_attr_set)
     attr.id        = SAI_SWITCH_ATTR_ECMP_MEMBERS;
     attr.value.u32 = max_paths;
 
-    status  = saiL3Test::switch_api_tbl_get()->set_switch_attribute (
+    status  = saiL3Test::switch_api_tbl_get()->set_switch_attribute (switch_id,
                                                (const sai_attribute_t *)&attr);
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Verify the Max ECMP Paths attribute */
     memset (&attr, 0, sizeof (sai_attribute_t));
 
-    status  = saiL3Test::switch_api_tbl_get()->get_switch_attribute (1, &attr);
+    status  = saiL3Test::switch_api_tbl_get()->get_switch_attribute (switch_id,1, &attr);
 
     ASSERT_NE (attr.value.u32, max_paths);
 }

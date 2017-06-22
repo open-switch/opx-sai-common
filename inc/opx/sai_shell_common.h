@@ -45,4 +45,6 @@ typedef struct {
     sai_shell_function fun;
 }cmd_simple_entry_t;
 
+void sai_shell_add_debug_commands(void);
+
 #endif

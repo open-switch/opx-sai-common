@@ -274,8 +274,10 @@ sai_fib_router_interface_t *p_rif_node, sai_object_id_t port_id)
  * function.
  */
 static sai_status_t sai_fib_rif_vlan_id_set (
-sai_fib_router_interface_t *p_rif_node, uint_t vlan_id)
+sai_fib_router_interface_t *p_rif_node, sai_object_id_t vlan_obj_id)
 {
+    sai_vlan_id_t vlan_id = sai_vlan_obj_id_to_vlan_id(vlan_obj_id);
+
     if (!(sai_is_valid_vlan_id (vlan_id))) {
         SAI_RIF_LOG_ERR ("%d is not a valid VLAN ID.", vlan_id);
 
@@ -288,7 +290,7 @@ sai_fib_router_interface_t *p_rif_node, uint_t vlan_id)
         return SAI_STATUS_INVALID_ATTR_VALUE_0;
     }
 
-    p_rif_node->attachment.vlan_id = vlan_id;
+    p_rif_node->attachment.vlan_id = vlan_obj_id;
 
     SAI_RIF_LOG_TRACE ("Router Interface VLAN ID set to %d.", vlan_id);
 
@@ -380,7 +382,7 @@ sai_fib_router_interface_t *p_rif_node, const sai_attribute_t *p_attr)
             break;
 
         case SAI_ROUTER_INTERFACE_ATTR_VLAN_ID:
-            sai_rc = sai_fib_rif_vlan_id_set (p_rif_node, p_attr->value.u16);
+            sai_rc = sai_fib_rif_vlan_id_set (p_rif_node, p_attr->value.oid);
 
             break;
 
@@ -438,6 +440,16 @@ uint_t *p_flags)
             sai_rc = sai_fib_rif_mtu_attr_set (p_rif_node, p_attr->value.u32);
 
             *p_flags |= SAI_FIB_MTU_ATTR_FLAG;
+            break;
+
+        case SAI_ROUTER_INTERFACE_ATTR_INGRESS_ACL:
+        case SAI_ROUTER_INTERFACE_ATTR_EGRESS_ACL:
+            sai_rc = SAI_STATUS_SUCCESS;
+            break;
+
+        case SAI_ROUTER_INTERFACE_ATTR_V4_MCAST_ENABLE:
+        case SAI_ROUTER_INTERFACE_ATTR_V6_MCAST_ENABLE:
+            sai_rc = SAI_STATUS_ATTR_NOT_IMPLEMENTED_0;
             break;
 
         default:
@@ -533,13 +545,21 @@ static bool sai_fib_rif_is_duplicate (sai_fib_router_interface_t *p_rif_node)
 
         if ((p_rif_node->type == p_db_rif_node->type) &&
             (sai_fib_rif_port_or_vlan_id_get (p_rif_node) ==
-            (sai_fib_rif_port_or_vlan_id_get (p_db_rif_node))) &&
-            (!(memcmp (p_rif_node->src_mac, p_db_rif_node->src_mac,
-             sizeof (sai_mac_t)))))
-        {
-            sai_fib_rif_log_trace (p_db_rif_node, "Duplicate RIF object info.");
+            (sai_fib_rif_port_or_vlan_id_get (p_db_rif_node)))) {
 
-            return true;
+            if (p_rif_node->vrf_id != p_db_rif_node->vrf_id) {
+                sai_fib_rif_log_trace (p_db_rif_node, "Another RIF exists "
+                             "for the same Port or VLAN on different VRF.");
+
+                return true;
+            }
+
+            if ((!(memcmp (p_rif_node->src_mac, p_db_rif_node->src_mac,
+                sizeof (sai_mac_t))))) {
+                sai_fib_rif_log_trace (p_db_rif_node, "Duplicate RIF object info.");
+
+                return true;
+            }
         }
 
         p_db_rif_node = std_rbtree_getnext (rif_tree, p_db_rif_node);
@@ -866,8 +886,22 @@ static void sai_fib_rif_free_resources (sai_fib_router_interface_t *p_rif_node,
     return;
 }
 
+static sai_object_id_t sai_fib_get_lag_id_from_attr(uint_t attr_count, const sai_attribute_t *attr_list)
+{
+    uint_t attr_idx;
+
+    for(attr_idx = 0; attr_idx < attr_count; attr_idx++) {
+        if(attr_list[attr_idx].id == SAI_ROUTER_INTERFACE_ATTR_PORT_ID) {
+            if(sai_is_obj_id_lag(attr_list[attr_idx].value.oid)) {
+                return attr_list[attr_idx].value.oid;
+            }
+            break;
+        }
+    }
+    return SAI_NULL_OBJECT_ID;
+}
 static sai_status_t sai_fib_router_interface_create (
-sai_object_id_t *rif_obj_id, uint32_t attr_count,
+sai_object_id_t *rif_obj_id, sai_object_id_t switch_id, uint32_t attr_count,
 const sai_attribute_t *attr_list)
 {
     sai_status_t                sai_rc = SAI_STATUS_SUCCESS;
@@ -878,6 +912,7 @@ const sai_attribute_t *attr_list)
     sai_fib_router_interface_t *p_rif_node = NULL;
     sai_npu_object_id_t         rif_hw_id;
     sai_object_id_t             lag_attach_id = SAI_NULL_OBJECT_ID;
+    sai_status_t                tmp_sai_rc = SAI_STATUS_SUCCESS;
 
     SAI_RIF_LOG_TRACE ("Creating Router interface, attr_count: %d.",
                        attr_count);
@@ -899,8 +934,15 @@ const sai_attribute_t *attr_list)
 
     sai_fib_rif_attributes_init (p_rif_node);
 
+    lag_attach_id = sai_fib_get_lag_id_from_attr(attr_count, attr_list);
     sai_fib_lock ();
-
+    /*
+     * Take LAG Lock to prevent LAG from being modified while RIF operates on
+     * LAG Members
+     */
+    if(lag_attach_id != SAI_NULL_OBJECT_ID) {
+        sai_lag_lock();
+    }
     do {
         sai_rc = sai_fib_rif_attributes_parse (p_rif_node, attr_count,
                                                attr_list);
@@ -957,8 +999,6 @@ const sai_attribute_t *attr_list)
     if (sai_rc == SAI_STATUS_SUCCESS) {
         sai_fib_rif_log_trace (p_rif_node, "Router interface creation success");
 
-        lag_attach_id = sai_fib_rif_is_attachment_lag (p_rif_node) ?
-                        p_rif_node->attachment.port_id : SAI_NULL_OBJECT_ID;
 
         SAI_RIF_LOG_INFO ("Router Interface: 0x%"PRIx64" created.", *rif_obj_id);
     } else {
@@ -968,13 +1008,17 @@ const sai_attribute_t *attr_list)
                                     is_rif_set_in_vrf_list, is_routing_cfg_set);
     }
 
-    sai_fib_unlock ();
 
     if (lag_attach_id != SAI_NULL_OBJECT_ID) {
-        /* Update the RIF Id in LAG object if RIF created on a LAG */
-        sai_lag_update_rif_id (lag_attach_id, *rif_obj_id);
+        sai_lag_unlock();
+        tmp_sai_rc = sai_fib_lag_rif_mapping_insert(lag_attach_id, *rif_obj_id);
+        if (tmp_sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_RIF_LOG_TRACE ("Create map between lag id 0x%"PRIx64" and rif id 0x%"PRIx64" "
+                               "failed with error code %d", lag_attach_id, *rif_obj_id, tmp_sai_rc);
+        }
     }
 
+    sai_fib_unlock ();
     return sai_rc;
 }
 
@@ -985,6 +1029,7 @@ sai_object_id_t rif_id)
     rbtree_handle               rif_tree = NULL;
     sai_fib_router_interface_t *p_rif_node = NULL;
     sai_object_id_t             lag_attach_id;
+    sai_status_t                tmp_sai_rc = SAI_STATUS_SUCCESS;
 
     SAI_RIF_LOG_TRACE ("Deleting Router Interface: 0x%"PRIx64".", rif_id);
 
@@ -995,16 +1040,24 @@ sai_object_id_t rif_id)
     }
 
     sai_fib_lock ();
+    p_rif_node = sai_fib_router_interface_node_get (rif_id);
 
+    if (!p_rif_node) {
+        SAI_RIF_LOG_ERR ("RIF Id: 0x%"PRIx64" does not exist.", rif_id);
+        sai_fib_unlock ();
+        return SAI_STATUS_INVALID_OBJECT_ID;
+    }
+    lag_attach_id = sai_fib_rif_is_attachment_lag (p_rif_node) ?
+        p_rif_node->attachment.port_id : SAI_NULL_OBJECT_ID;
+
+    /*
+     * Take LAG Lock to prevent LAG from being modified while RIF operates on
+     * LAG Members
+     */
+    if(lag_attach_id != SAI_NULL_OBJECT_ID) {
+        sai_lag_lock();
+    }
     do {
-        p_rif_node = sai_fib_router_interface_node_get (rif_id);
-
-        if (!p_rif_node) {
-            SAI_RIF_LOG_ERR ("RIF Id: 0x%"PRIx64" does not exist.", rif_id);
-
-            sai_rc = SAI_STATUS_INVALID_OBJECT_ID;
-            break;
-        }
 
         sai_fib_rif_log_trace (p_rif_node, "Router Interface Info");
 
@@ -1027,8 +1080,6 @@ sai_object_id_t rif_id)
             break;
         }
 
-        lag_attach_id = sai_fib_rif_is_attachment_lag (p_rif_node) ?
-                        p_rif_node->attachment.port_id : SAI_NULL_OBJECT_ID;
 
         /* Delete from the VRF's Router interface list */
         sai_fib_vrf_rif_list_update (p_rif_node, false);
@@ -1042,19 +1093,26 @@ sai_object_id_t rif_id)
         sai_fib_rif_node_free (p_rif_node);
     } while (0);
 
-    sai_fib_unlock ();
 
+    if (lag_attach_id != SAI_NULL_OBJECT_ID) {
+        sai_lag_unlock();
+        if (sai_rc == SAI_STATUS_SUCCESS) {
+            tmp_sai_rc = sai_fib_lag_rif_mapping_remove (lag_attach_id, rif_id);
+
+            if (tmp_sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_RIF_LOG_TRACE ("Delete map between lag id 0x%"PRIx64" and rif id 0x%"PRIx64" "
+                                   "failed with error code %d", lag_attach_id, rif_id, tmp_sai_rc);
+            }
+        }
+    }
     if (sai_rc == SAI_STATUS_SUCCESS) {
         SAI_RIF_LOG_INFO ("Removed Router Interface: 0x%"PRIx64".", rif_id);
 
-        if (lag_attach_id != SAI_NULL_OBJECT_ID) {
-            /* Reset the RIF Id in LAG object if RIF was on a LAG */
-            sai_lag_update_rif_id (lag_attach_id, SAI_NULL_OBJECT_ID);
-        }
     } else {
         SAI_RIF_LOG_ERR ("Failed to remove Router Interface: %d.", rif_id);
     }
 
+    sai_fib_unlock ();
     return sai_rc;
 }
 
@@ -1105,7 +1163,7 @@ sai_object_id_t rif_id, const sai_attribute_t *p_attr)
                                                            p_attr);
 
         if (sai_rc != SAI_STATUS_SUCCESS) {
-            SAI_RIF_LOG_ERR ("NPU validation failed for RIF attribute ID: %d, "
+            SAI_RIF_LOG_TRACE ("NPU validation failed for RIF attribute ID: %d, "
                              "Type: %s.", p_attr->id,
                              sai_fib_rif_type_to_str (p_rif_node->type));
 
@@ -1148,7 +1206,7 @@ sai_object_id_t rif_id, const sai_attribute_t *p_attr)
     if (sai_rc == SAI_STATUS_SUCCESS) {
         sai_fib_rif_log_trace (p_rif_node, "Router Interface updated Info");
     } else {
-        SAI_RIF_LOG_ERR ("Failed to set/update Route Interface attributes.");
+        SAI_RIF_LOG_TRACE ("Failed to set/update Route Interface attributes.");
     }
 
     sai_fib_unlock ();
@@ -1282,10 +1340,12 @@ sai_object_id_t lag_id, const sai_object_list_t *port_id_list, bool is_add)
     return sai_rc;
 }
 
-sai_status_t sai_rif_lag_callback (sai_object_id_t lag_id, sai_object_id_t rif_id,
-                                   const sai_object_list_t *port_list,
-                                   sai_lag_operation_t lag_opcode)
+sai_status_t sai_rif_lag_callback (sai_object_id_t lag_id,
+                                   sai_lag_operation_t lag_opcode,
+                                   const sai_object_list_t *port_list)
 {
+    sai_object_id_t rif_id = SAI_NULL_OBJECT_ID;
+
     SAI_RIF_LOG_TRACE ("RIF LAG callback for RIF Id: 0x%"PRIx64", LAG Id: "
                        "0x%"PRIx64", op_code: %d", rif_id, lag_id, lag_opcode);
 
@@ -1296,6 +1356,12 @@ sai_status_t sai_rif_lag_callback (sai_object_id_t lag_id, sai_object_id_t rif_i
         SAI_RIF_LOG_TRACE ("LAG Id: 0x%"PRIx64" op_code: %d is not handled.",
                            lag_id, lag_opcode);
 
+        return SAI_STATUS_SUCCESS;
+    }
+
+    sai_fib_get_rif_id_from_lag_id (lag_id, &rif_id);
+    if(rif_id == SAI_NULL_OBJECT_ID) {
+        SAI_RIF_LOG_TRACE ("LAG Id: 0x%"PRIx64" has no RIF mapping", lag_id);
         return SAI_STATUS_SUCCESS;
     }
 

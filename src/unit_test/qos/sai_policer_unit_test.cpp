@@ -29,6 +29,7 @@
 extern "C" {
 #include "sai_qos_unit_test_utils.h"
 #include "sai.h"
+#include "saiacl.h"
 #include "saitypes.h"
 #include "saistatus.h"
 #include "saiswitch.h"
@@ -38,6 +39,7 @@ extern "C" {
 #define LOG_PRINT(msg, ...) \
     printf(msg, ##__VA_ARGS__)
 
+static sai_object_id_t switch_id = 0;
 /*
  * API query is done while running the first test case and
  * the method table is stored in sai_switch_api_table so
@@ -49,36 +51,51 @@ class policer : public ::testing::Test
     protected:
         static void SetUpTestCase()
         {
-            sai_status_t rc;
+
+            sai_attribute_t sai_attr_set[7];
+            uint32_t attr_count = 7;
+
+            memset(sai_attr_set,0, sizeof(sai_attr_set));
 
             ASSERT_EQ(SAI_STATUS_SUCCESS,sai_api_query(SAI_API_SWITCH,
-                                         (static_cast<void**>(static_cast<void*>(&sai_switch_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_switch_api_table)))));
 
             ASSERT_TRUE(sai_switch_api_table != NULL);
 
-            EXPECT_TRUE(sai_switch_api_table->initialize_switch != NULL);
-            EXPECT_TRUE(sai_switch_api_table->shutdown_switch != NULL);
-            EXPECT_TRUE(sai_switch_api_table->connect_switch != NULL);
-            EXPECT_TRUE(sai_switch_api_table->disconnect_switch != NULL);
+            EXPECT_TRUE(sai_switch_api_table->create_switch != NULL);
+            EXPECT_TRUE(sai_switch_api_table->remove_switch != NULL);
             EXPECT_TRUE(sai_switch_api_table->set_switch_attribute != NULL);
             EXPECT_TRUE(sai_switch_api_table->get_switch_attribute != NULL);
 
-            sai_switch_notification_t notification;
+            sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+            sai_attr_set[0].value.booldata = 1;
 
-            notification.on_switch_state_change = sai_switch_operstate_callback;
-            notification.on_fdb_event = sai_fdb_evt_callback;
-            notification.on_port_state_change = sai_port_state_evt_callback;
-            notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-            notification.on_port_event = sai_port_evt_callback;
-            notification.on_packet_event = sai_packet_event_callback;
+            sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+            sai_attr_set[1].value.u32 = 0;
 
-            if(sai_switch_api_table->initialize_switch) {
-                rc = sai_switch_api_table->initialize_switch(0,NULL,NULL,&notification);
-                ASSERT_EQ (rc, SAI_STATUS_SUCCESS);
-            }
+            sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+            sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+            sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+            sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+            sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+            sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+            sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+            sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+            sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+            sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+
+            EXPECT_EQ (SAI_STATUS_SUCCESS,
+                    (sai_switch_api_table->create_switch (&switch_id , attr_count,
+                                                          sai_attr_set)));
+
 
             ASSERT_EQ(SAI_STATUS_SUCCESS,sai_api_query(SAI_API_POLICER,
-                                         (static_cast<void**>(static_cast<void*>(&sai_policer_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_policer_api_table)))));
 
             ASSERT_TRUE(sai_policer_api_table != NULL);
 
@@ -88,7 +105,7 @@ class policer : public ::testing::Test
             EXPECT_TRUE(sai_policer_api_table->get_policer_attribute != NULL);
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_PORT,
-                                         (static_cast<void**>(static_cast<void*>(&sai_port_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_port_api_table)))));
 
             ASSERT_TRUE(sai_port_api_table != NULL);
 
@@ -97,8 +114,7 @@ class policer : public ::testing::Test
             EXPECT_TRUE(sai_port_api_table->get_port_stats != NULL);
 
             EXPECT_EQ (SAI_STATUS_SUCCESS, sai_api_query (SAI_API_ACL,
-                                                          (static_cast<void**>(static_cast<void*>(&sai_acl_api_table)))));
-
+                        (static_cast<void**>(static_cast<void*>(&sai_acl_api_table)))));
 
         }
 
@@ -143,7 +159,7 @@ TEST_F(policer, storm_control)
 
     attr_count ++;
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_policer_api_table->create_policer
-              (&policer_id, attr_count, (const sai_attribute_t *)new_attr_list));
+              (&policer_id, switch_id, attr_count, (const sai_attribute_t *)new_attr_list));
 
 
 
@@ -184,7 +200,7 @@ TEST_F(policer, storm_control)
               get_policer_attribute(policer_id, attr_count,
                                     get_attr));
 
-    printf("PIR value is 0x%"PRIx64" mode %d type %d\r\n",get_attr[0].value.u64,
+    printf("PIR value is 0x%" PRIx64 " mode %d type %d\r\n",get_attr[0].value.u64,
            get_attr[1].value.s32, get_attr[2].value.s32);
     ASSERT_EQ(SAI_STATUS_OBJECT_IN_USE,sai_policer_api_table->remove_policer(policer_id));
 
@@ -240,7 +256,7 @@ TEST_F(policer, storm_control_invalid_attr)
 
     attr_count ++;
     ASSERT_EQ(SAI_STATUS_INVALID_PARAMETER, sai_policer_api_table->create_policer
-              (&policer_id1, attr_count, (const sai_attribute_t *)new_attr_list));
+              (&policer_id1, switch_id, attr_count, (const sai_attribute_t *)new_attr_list));
 }
 
 /*
@@ -258,7 +274,7 @@ TEST_F(policer, mandatory_attr_missing)
     attr_count ++;
 
     new_attr_list[attr_count].id = SAI_POLICER_ATTR_MODE;
-    new_attr_list[attr_count].value.s32 = SAI_POLICER_MODE_Tr_TCM;
+    new_attr_list[attr_count].value.s32 = SAI_POLICER_MODE_TR_TCM;
     attr_count ++;
 
     new_attr_list[attr_count].id = SAI_POLICER_ATTR_PBS;
@@ -266,7 +282,7 @@ TEST_F(policer, mandatory_attr_missing)
 
     attr_count ++;
     ASSERT_EQ(SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING, sai_policer_api_table->create_policer
-              (&policer_id1, attr_count, (const sai_attribute_t *)new_attr_list));
+              (&policer_id1, switch_id, attr_count, (const sai_attribute_t *)new_attr_list));
 }
 
 /*
@@ -301,7 +317,7 @@ TEST_F(policer, acl)
     attr_count ++;
 
     attr_list[attr_count].id = SAI_POLICER_ATTR_MODE;
-    attr_list[attr_count].value.s32 = SAI_POLICER_MODE_Tr_TCM;
+    attr_list[attr_count].value.s32 = SAI_POLICER_MODE_TR_TCM;
 
     attr_count ++;
 
@@ -310,7 +326,7 @@ TEST_F(policer, acl)
 
     attr_count ++;
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_policer_api_table->create_policer
-              (&policer_id, attr_count, (const sai_attribute_t *)attr_list));
+              (&policer_id, switch_id, attr_count, (const sai_attribute_t *)attr_list));
 
     attr_count  = 0;
     attr_list[attr_count].id = SAI_POLICER_ATTR_METER_TYPE;
@@ -324,7 +340,7 @@ TEST_F(policer, acl)
     attr_count ++;
 
     attr_list[attr_count].id = SAI_POLICER_ATTR_MODE;
-    attr_list[attr_count].value.s32 = SAI_POLICER_MODE_Tr_TCM;
+    attr_list[attr_count].value.s32 = SAI_POLICER_MODE_TR_TCM;
 
     attr_count ++;
 
@@ -333,23 +349,23 @@ TEST_F(policer, acl)
 
     attr_count ++;
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_policer_api_table->create_policer
-              (&policer_id1, attr_count, (const sai_attribute_t *)attr_list));
+              (&policer_id1, switch_id, attr_count, (const sai_attribute_t *)attr_list));
 
-    table_attr[0].id = SAI_ACL_TABLE_ATTR_STAGE;
+    table_attr[0].id = SAI_ACL_TABLE_ATTR_ACL_STAGE;
     table_attr[0].value.s32= 0;
     table_attr[1].id =  SAI_ACL_TABLE_ATTR_PRIORITY;
     table_attr[1].value.u32 = 1;
     table_attr[2].id = SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC;
     table_attr[3].id = SAI_ACL_TABLE_ATTR_FIELD_DST_MAC;
     table_attr[4].id = SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE;
-    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE;
+    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE;
     table_attr[6].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID;
     table_attr[7].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI;
     table_attr[8].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI;
     table_attr[9].id = SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL;
     table_attr[10].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORT;
     table_attr[11].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS;
-    sai_rc = sai_acl_api_table->create_acl_table (&acl_table_id, 12,
+    sai_rc = sai_acl_api_table->create_acl_table (&acl_table_id, switch_id, 12,
                                                   table_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -367,7 +383,7 @@ TEST_F(policer, acl)
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_SET_POLICER;
     rule_attr[4].value.aclaction.enable = false;
     rule_attr[4].value.aclaction.parameter.oid = policer_id;
-    sai_rc = sai_acl_api_table->create_acl_entry (&acl_rule_id, 5, rule_attr);
+    sai_rc = sai_acl_api_table->create_acl_entry (&acl_rule_id, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
 
@@ -533,7 +549,7 @@ TEST_F(policer, trtcm_acl)
     attr_count ++;
 
     attr_list[attr_count].id = SAI_POLICER_ATTR_MODE;
-    attr_list[attr_count].value.s32 = SAI_POLICER_MODE_Tr_TCM;
+    attr_list[attr_count].value.s32 = SAI_POLICER_MODE_TR_TCM;
 
     attr_count ++;
 
@@ -547,23 +563,23 @@ TEST_F(policer, trtcm_acl)
 
     attr_count ++;
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_policer_api_table->create_policer
-              (&policer_id, attr_count, (const sai_attribute_t *)attr_list));
+              (&policer_id, switch_id, attr_count, (const sai_attribute_t *)attr_list));
 
-    table_attr[0].id = SAI_ACL_TABLE_ATTR_STAGE;
+    table_attr[0].id = SAI_ACL_TABLE_ATTR_ACL_STAGE;
     table_attr[0].value.s32= 0;
     table_attr[1].id =  SAI_ACL_TABLE_ATTR_PRIORITY;
     table_attr[1].value.u32 = 1;
     table_attr[2].id = SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC;
     table_attr[3].id = SAI_ACL_TABLE_ATTR_FIELD_DST_MAC;
     table_attr[4].id = SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE;
-    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE;
+    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE;
     table_attr[6].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID;
     table_attr[7].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI;
     table_attr[8].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI;
     table_attr[9].id = SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL;
     table_attr[10].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORT;
     table_attr[11].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS;
-    sai_rc = sai_acl_api_table->create_acl_table (&acl_table_id, 12,
+    sai_rc = sai_acl_api_table->create_acl_table (&acl_table_id, switch_id, 12,
                                                   table_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -581,7 +597,7 @@ TEST_F(policer, trtcm_acl)
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_SET_POLICER;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = policer_id;
-    sai_rc = sai_acl_api_table->create_acl_entry (&acl_rule_id, 5, rule_attr);
+    sai_rc = sai_acl_api_table->create_acl_entry (&acl_rule_id, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     attr_count = 0;
@@ -673,7 +689,7 @@ TEST_F(policer, srtcm_acl)
     attr_count ++;
 
     attr_list[attr_count].id = SAI_POLICER_ATTR_MODE;
-    attr_list[attr_count].value.s32 = SAI_POLICER_MODE_Sr_TCM;
+    attr_list[attr_count].value.s32 = SAI_POLICER_MODE_SR_TCM;
 
     attr_count ++;
 
@@ -692,23 +708,23 @@ TEST_F(policer, srtcm_acl)
 
     attr_count ++;
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_policer_api_table->create_policer
-              (&policer_id, attr_count, (const sai_attribute_t *)attr_list));
+              (&policer_id, switch_id, attr_count, (const sai_attribute_t *)attr_list));
 
-    table_attr[0].id = SAI_ACL_TABLE_ATTR_STAGE;
+    table_attr[0].id = SAI_ACL_TABLE_ATTR_ACL_STAGE;
     table_attr[0].value.s32= 0;
     table_attr[1].id =  SAI_ACL_TABLE_ATTR_PRIORITY;
     table_attr[1].value.u32 = 1;
     table_attr[2].id = SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC;
     table_attr[3].id = SAI_ACL_TABLE_ATTR_FIELD_DST_MAC;
     table_attr[4].id = SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE;
-    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE;
+    table_attr[5].id = SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE;
     table_attr[6].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID;
     table_attr[7].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI;
     table_attr[8].id = SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI;
     table_attr[9].id = SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL;
     table_attr[10].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORT;
     table_attr[11].id = SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS;
-    sai_rc = sai_acl_api_table->create_acl_table (&acl_table_id, 12,
+    sai_rc = sai_acl_api_table->create_acl_table (&acl_table_id, switch_id, 12,
                                                   table_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -726,7 +742,7 @@ TEST_F(policer, srtcm_acl)
     rule_attr[4].id = SAI_ACL_ENTRY_ATTR_ACTION_SET_POLICER;
     rule_attr[4].value.aclaction.enable = true;
     rule_attr[4].value.aclaction.parameter.oid = policer_id;
-    sai_rc = sai_acl_api_table->create_acl_entry (&acl_rule_id, 5, rule_attr);
+    sai_rc = sai_acl_api_table->create_acl_entry (&acl_rule_id, switch_id, 5, rule_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     attr_count = 0;

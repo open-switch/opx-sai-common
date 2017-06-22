@@ -54,6 +54,9 @@ class mirrorTest : public ::testing::Test
         static sai_object_id_t           sai_monitor_port;
         static sai_object_id_t           sai_second_monitor_port;
         static sai_object_id_t           sai_invalid_port;
+        static sai_object_id_t           sai_mirror_vlan_2;
+        static sai_object_id_t           sai_mirror_vlan_3;
+        static sai_object_id_t           switch_id;
 
         static sai_object_id_t          sai_mirror_port_id_get (uint32_t port_index);
         static sai_object_id_t          sai_mirror_invalid_port_id_get ();

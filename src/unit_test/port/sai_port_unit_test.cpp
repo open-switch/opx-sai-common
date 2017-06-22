@@ -57,18 +57,37 @@ extern "C" {
 #include <inttypes.h>
 }
 
+static sai_object_id_t switch_id =0;
+
+typedef struct sai_hw_port_info_t {
+    uint32_t hw_lane;
+    sai_object_id_t port_id;
+    bool port_valid;
+}sai_hw_port_info;
+
 #define SAI_MAX_PORTS  256
 #define SAI_EEE_DEFAULT_IDLE_TIME 2560
 #define SAI_EEE_DEFAULT_WAKE_TIME 5
 #define SAI_EEE_COPPER_PORT_MAX 48
+#define SAI_PORT_FOUR_LANES 4
+#define SAI_PORT_TWO_LANES 2
+#define SAI_PORT_ONE_LANE 1
+#define SAI_PORT_OUI_CODE_1 0x123456
+#define SAI_PORT_OUI_CODE_2 0x654321
+#define SAI_PORT_SPEED_HUNDRED_GIG 100000
+#define SAI_PORT_SPEED_FIFTY_GIG 50000
+#define SAI_PORT_SPEED_FORTY_GIG 40000
+#define SAI_PORT_SPEED_TWENTY_FIVE_GIG 25000
+#define SAI_PORT_SPEED_TEN_GIG 10000
 
 static uint32_t port_count = 0;
-static sai_object_id_t port_list[SAI_MAX_PORTS] = {0};
+static sai_hw_port_info port_info[SAI_MAX_PORTS] = {0};
 
 /* global port id used for UT*/
 static sai_object_id_t gport_id = 0;
 
 #define SAI_PORT_CAP_SPEED_MAX 1
+#define SAI_PORT_MAX_ARRAY_INDEX 252
 
 #define LOG_PRINT(msg, ...) \
     printf(msg, ##__VA_ARGS__)
@@ -84,39 +103,8 @@ static inline void sai_port_state_evt_callback(uint32_t count,
 {
     uint32_t port_idx = 0;
     for(port_idx = 0; port_idx < count; port_idx++) {
-        LOG_PRINT("port 0x%"PRIx64" State callback: Link state is %d\r\n",
+        LOG_PRINT("port 0x%" PRIx64 " State callback: Link state is %d\r\n",
                   data[port_idx].port_id, data[port_idx].port_state);
-    }
-}
-
-/*Port ADD/DELETE event callback.
-*/
-static inline void sai_port_evt_callback(uint32_t count,
-                                         sai_port_event_notification_t *data)
-{
-    uint32_t port_idx = 0;
-    sai_object_id_t port_id = 0;
-    sai_port_event_t port_event;
-
-    for(port_idx = 0; port_idx < count; port_idx++) {
-        port_id = data[port_idx].port_id;
-        port_event = data[port_idx].port_event;
-
-        if(port_event == SAI_PORT_EVENT_ADD) {
-            if(port_count < SAI_MAX_PORTS) {
-                port_list[port_count] = port_id;
-                port_count++;
-            }
-
-            LOG_PRINT("PORT ADD EVENT FOR port 0x%"PRIx64" and total ports count is %d \r\n",
-                      port_id, port_count);
-        } else if(port_event == SAI_PORT_EVENT_DELETE) {
-
-            LOG_PRINT("PORT DELETE EVENT for port 0x%"PRIx64" and total ports count is %d \r\n",
-                      port_id, port_count);
-        } else {
-            LOG_PRINT("Invalid PORT EVENT for port 0x%"PRIx64" \r\n", port_id);
-        }
     }
 }
 
@@ -208,42 +196,61 @@ class portTest : public ::testing::Test
         bool sai_internal_loopback_set_get(sai_object_id_t port_id,
                                            sai_port_internal_loopback_mode_t lb_mode);
         void sai_test_fdb_learn_mode(sai_port_fdb_learning_mode_t mode);
+        void sai_port_create_speed_set(uint32_t speed);
+        static void sai_get_port_hw_lane_map_table();
+        void sai_check_breakout_mode_supported(sai_object_id_t port_id,
+                    sai_port_breakout_mode_type_t mode, bool * supported);
+        sai_status_t sai_set_flex_port_configuration(unsigned int port,
+                                         sai_port_breakout_mode_type_t breakout_mode,
+                                         uint32_t speed);
 
     protected:
         static void SetUpTestCase(void)
         {
-            sai_switch_notification_t notification;
-            memset (&notification, 0, sizeof(sai_switch_notification_t));
+            sai_attribute_t sai_attr_set[7];
+            uint32_t attr_count = 7;
 
+            memset(sai_attr_set,0, sizeof(sai_attr_set));
             /*
              * Query and populate the SAI Switch API Table.
              */
             EXPECT_EQ(SAI_STATUS_SUCCESS, sai_api_query
-                      (SAI_API_SWITCH, (static_cast<void**>
-                                        (static_cast<void*>(&sai_switch_api_table)))));
+                    (SAI_API_SWITCH, (static_cast<void**>
+                                      (static_cast<void*>(&sai_switch_api_table)))));
 
             ASSERT_TRUE(sai_switch_api_table != NULL);
 
-            /*
-             * Switch Initialization.
-             * Fill in notification callback routines with stubs.
-             */
-            notification.on_switch_state_change = sai_switch_operstate_callback;
-            notification.on_fdb_event = sai_fdb_evt_callback;
-            notification.on_port_state_change = sai_port_state_evt_callback;
-            notification.on_port_event = sai_port_evt_callback;
-            notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-            notification.on_packet_event = sai_packet_event_callback;
-
-            ASSERT_TRUE(sai_switch_api_table->initialize_switch != NULL);
             EXPECT_TRUE(sai_switch_api_table->get_switch_attribute != NULL);
 
-            ASSERT_EQ (SAI_STATUS_SUCCESS,
-                       (sai_switch_api_table->initialize_switch (0, NULL, NULL,
-                                                               &notification)));
+            sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+            sai_attr_set[0].value.booldata = 1;
+
+            sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+            sai_attr_set[1].value.u32 = 0;
+
+            sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+            sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+            sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+            sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+            sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+            sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+            sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+            sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+            sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+            sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+            ASSERT_TRUE(sai_switch_api_table->create_switch != NULL);
+
+            EXPECT_EQ (SAI_STATUS_SUCCESS,
+                    (sai_switch_api_table->create_switch (&switch_id , attr_count,
+                                                          sai_attr_set)));
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_PORT,
-                                         (static_cast<void**>(static_cast<void*>(&sai_port_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_port_api_table)))));
 
             ASSERT_TRUE(sai_port_api_table != NULL);
 
@@ -251,7 +258,17 @@ class portTest : public ::testing::Test
             EXPECT_TRUE(sai_port_api_table->get_port_attribute != NULL);
             EXPECT_TRUE(sai_port_api_table->get_port_stats != NULL);
 
-            gport_id = port_list[0];
+            portTest::sai_get_port_hw_lane_map_table();
+            gport_id = port_info[0].port_id;
+            unsigned int port_idx = 0;
+
+            /*print port dump*/
+            LOG_PRINT("Port dump list :\n");
+            for(port_idx = 0; port_idx < port_count; port_idx++) {
+                printf("port_idx:%d port_id:0x%" PRIx64 " hw_lane:%d isvalid:%s \n",
+                    port_idx,port_info[port_idx].port_id,port_info[port_idx].hw_lane,
+                                    (port_info[port_idx].port_valid==true)?"True":"False");
+            }
         }
 
         static sai_switch_api_t *sai_switch_api_table;
@@ -282,7 +299,7 @@ void portTest::sai_port_supported_speed_check(sai_object_id_t port_id, uint32_t 
         /* Handles buffer overflow case, by reallocating required memory */
         if(ret == SAI_STATUS_BUFFER_OVERFLOW ) {
             free(sai_attr_get.value.s32list.list);
-            LOG_PRINT("port 0x%"PRIx64" count of supported speeds is %d \r\n", port_id, sai_attr_get.value.s32list.count);
+            LOG_PRINT("port 0x%" PRIx64 " count of supported speeds is %d \r\n", port_id, sai_attr_get.value.s32list.count);
             sai_attr_get.value.s32list.list = (int32_t *)calloc (sai_attr_get.value.s32list.count,
                                                                  sizeof(int32_t));
             ASSERT_TRUE(sai_attr_get.value.s32list.list != NULL);
@@ -291,7 +308,7 @@ void portTest::sai_port_supported_speed_check(sai_object_id_t port_id, uint32_t 
 
         if(ret != SAI_STATUS_SUCCESS) {
             *supported = false;
-            LOG_PRINT("port 0x%"PRIx64" supported speed get failed\n", port_id);
+            LOG_PRINT("port 0x%" PRIx64 " supported speed get failed\n", port_id);
             break;
         }
 
@@ -317,7 +334,10 @@ TEST_F(portTest, logical_port_type_get)
     unsigned int port_idx = 0;
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
-        EXPECT_TRUE(sai_port_type_logical(port_list[port_idx],
+        if(port_info[port_idx].port_valid != true) {
+            continue;
+        }
+        EXPECT_TRUE(sai_port_type_logical(port_info[port_idx].port_id,
                                           sai_port_api_table));
     }
 }
@@ -334,7 +354,7 @@ TEST_F(portTest, cpu_port_type_get)
     sai_attr_get.id = SAI_SWITCH_ATTR_CPU_PORT;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &sai_attr_get));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &sai_attr_get));
 
     sai_object_id_t cpu_port = sai_attr_get.value.oid;
 
@@ -368,31 +388,31 @@ TEST_F(portTest, oper_status_get)
 
     /* Check port Oper state as UP by enabling the internal Loopback */
     for(port_idx = 0; port_idx < port_count; port_idx++) {
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
         /* Enable link admin state */
         sai_attr_set.id = SAI_PORT_ATTR_ADMIN_STATE;
         sai_attr_set.value.booldata = true;
 
-        ret = sai_port_api_table->set_port_attribute(port_list[port_idx], &sai_attr_set);
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
         }
 
         /* Loopback set to PHY */
-        sai_attr_set.id = SAI_PORT_ATTR_INTERNAL_LOOPBACK;
+        sai_attr_set.id = SAI_PORT_ATTR_INTERNAL_LOOPBACK_MODE;
         sai_attr_set.value.s32 = SAI_PORT_INTERNAL_LOOPBACK_MODE_PHY;
 
-        ret = sai_port_api_table->set_port_attribute(port_list[port_idx], &sai_attr_set);
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
         }
 
         sai_attr_get.id = SAI_PORT_ATTR_OPER_STATUS;
-        ret = sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get);
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
@@ -464,12 +484,12 @@ TEST_F(portTest, speed_40g_set_get)
     bool supported = false;
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
-        sai_port_supported_speed_check(port_list[port_idx], speed, &supported);
+        sai_port_supported_speed_check(port_info[port_idx].port_id, speed, &supported);
         if (supported == true) {
-            EXPECT_TRUE(sai_port_speed_set_get(port_list[port_idx], speed));
+            EXPECT_TRUE(sai_port_speed_set_get(port_info[port_idx].port_id, speed));
         }
     }
 }
@@ -485,13 +505,13 @@ TEST_F(portTest, speed_10g_set_get)
     bool supported = false;
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
-        sai_port_supported_speed_check(port_list[port_idx], speed, &supported);
+        sai_port_supported_speed_check(port_info[port_idx].port_id, speed, &supported);
         if (supported == true) {
-            EXPECT_TRUE(sai_port_speed_set_get(port_list[port_idx], speed));
+            EXPECT_TRUE(sai_port_speed_set_get(port_info[port_idx].port_id, speed));
         }
     }
 }
@@ -508,13 +528,13 @@ TEST_F(portTest, speed_1g_set_get)
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
-        sai_port_supported_speed_check(port_list[port_idx], speed, &supported);
+        sai_port_supported_speed_check(port_info[port_idx].port_id, speed, &supported);
         if (supported == true) {
-            EXPECT_TRUE(sai_port_speed_set_get(port_list[port_idx], speed));
+            EXPECT_TRUE(sai_port_speed_set_get(port_info[port_idx].port_id, speed));
         }
     }
 }
@@ -531,13 +551,13 @@ TEST_F(portTest, speed_100m_set_get)
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
-        sai_port_supported_speed_check(port_list[port_idx], speed, &supported);
+        sai_port_supported_speed_check(port_info[port_idx].port_id, speed, &supported);
         if (supported == true) {
-            EXPECT_TRUE(sai_port_speed_set_get(port_list[port_idx], speed));
+            EXPECT_TRUE(sai_port_speed_set_get(port_info[port_idx].port_id, speed));
         }
     }
 }
@@ -558,21 +578,21 @@ TEST_F(portTest, admin_state_set_get)
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
         sai_attr_set.id = SAI_PORT_ATTR_ADMIN_STATE;
         sai_attr_set.value.booldata = true;
 
-        ret = sai_port_api_table->set_port_attribute(port_list[port_idx], &sai_attr_set);
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
         }
 
         sai_attr_get.id = SAI_PORT_ATTR_ADMIN_STATE;
-        ret = sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get);
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
@@ -597,19 +617,19 @@ TEST_F(portTest, eee_state_set_get)
 
     for(port_idx = 0; port_idx < SAI_EEE_COPPER_PORT_MAX; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
         sai_attr_set.id = SAI_PORT_ATTR_EEE_ENABLE;
         sai_attr_set.value.booldata = true;
-        ret = sai_port_api_table->set_port_attribute(port_list[port_idx], &sai_attr_set);
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
         }
 
         sai_attr_get.id =  SAI_PORT_ATTR_EEE_ENABLE;
-        ret = sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get);
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
@@ -637,20 +657,20 @@ TEST_F(portTest, eee_timer_set_get)
 
     for(port_idx = 0; port_idx < SAI_EEE_COPPER_PORT_MAX; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
         sai_attr_set.id = SAI_PORT_ATTR_EEE_IDLE_TIME;
         sai_attr_set.value.u16 = SAI_EEE_DEFAULT_IDLE_TIME;
-        ret = sai_port_api_table->set_port_attribute(port_list[port_idx], &sai_attr_set);
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
         }
 
         sai_attr_get.id = SAI_PORT_ATTR_EEE_IDLE_TIME;
-        ret = sai_port_api_table->get_port_attribute(port_list[port_idx],1, &sai_attr_get);
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id,1, &sai_attr_get);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
@@ -661,13 +681,13 @@ TEST_F(portTest, eee_timer_set_get)
 
         sai_attr_set.id =  SAI_PORT_ATTR_EEE_WAKE_TIME;
         sai_attr_set.value.u16 = SAI_EEE_DEFAULT_WAKE_TIME;
-        ret = sai_port_api_table->set_port_attribute(port_list[port_idx], &sai_attr_set);
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
         }
         sai_attr_get.id =  SAI_PORT_ATTR_EEE_WAKE_TIME;
-        ret = sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get);
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
@@ -675,6 +695,47 @@ TEST_F(portTest, eee_timer_set_get)
 
 
         EXPECT_EQ(SAI_EEE_DEFAULT_WAKE_TIME, sai_attr_get.value.u16);
+
+    }
+}
+
+/*
+ * Validates if port location LED can be enabled for all the valid ports in the switch
+ * UT PASS case: port location LED set/get
+ */
+TEST_F(portTest, location_led_set_get)
+{
+    sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_attribute_t sai_attr_set;
+    sai_attribute_t sai_attr_get;
+    unsigned int port_idx = 0;
+
+    memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
+    memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+
+    for(port_idx = 0; port_idx < port_count; port_idx++) {
+
+        if(port_info[port_idx].port_valid != true) {
+            continue;
+        }
+
+        sai_attr_set.id = SAI_PORT_ATTR_LOCATION_LED;
+        sai_attr_set.value.booldata = true;
+
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
+        if(ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_get.id = SAI_PORT_ATTR_LOCATION_LED;
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
+        if(ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        EXPECT_TRUE(sai_attr_get.value.booldata);
 
     }
 }
@@ -900,14 +961,14 @@ bool portTest::sai_internal_loopback_set_get(sai_object_id_t port_id,
     memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
     memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
 
-    sai_attr_set.id = SAI_PORT_ATTR_INTERNAL_LOOPBACK;
+    sai_attr_set.id = SAI_PORT_ATTR_INTERNAL_LOOPBACK_MODE;
     sai_attr_set.value.s32 = lb_mode;
 
     if(sai_port_api_table->set_port_attribute(port_id, &sai_attr_set) != SAI_STATUS_SUCCESS) {
         return false;
     }
 
-    sai_attr_get.id = SAI_PORT_ATTR_INTERNAL_LOOPBACK;
+    sai_attr_get.id = SAI_PORT_ATTR_INTERNAL_LOOPBACK_MODE;
 
     if(sai_port_api_table->get_port_attribute(port_id, 1, &sai_attr_get) != SAI_STATUS_SUCCESS) {
         return false;
@@ -929,13 +990,13 @@ TEST_F(portTest, internal_loopback_set_get)
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
-        EXPECT_TRUE(sai_internal_loopback_set_get(port_list[port_idx], SAI_PORT_INTERNAL_LOOPBACK_MODE_PHY));
-        EXPECT_TRUE(sai_internal_loopback_set_get(port_list[port_idx], SAI_PORT_INTERNAL_LOOPBACK_MODE_MAC));
-        EXPECT_TRUE(sai_internal_loopback_set_get(port_list[port_idx], SAI_PORT_INTERNAL_LOOPBACK_MODE_NONE));
+        EXPECT_TRUE(sai_internal_loopback_set_get(port_info[port_idx].port_id, SAI_PORT_INTERNAL_LOOPBACK_MODE_PHY));
+        EXPECT_TRUE(sai_internal_loopback_set_get(port_info[port_idx].port_id, SAI_PORT_INTERNAL_LOOPBACK_MODE_MAC));
+        EXPECT_TRUE(sai_internal_loopback_set_get(port_info[port_idx].port_id, SAI_PORT_INTERNAL_LOOPBACK_MODE_NONE));
     }
 }
 
@@ -952,22 +1013,22 @@ TEST_F(portTest, autoneg_state_set_get)
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
-        EXPECT_TRUE(sai_internal_loopback_set_get(port_list[port_idx], SAI_PORT_INTERNAL_LOOPBACK_MODE_NONE));
+        EXPECT_TRUE(sai_internal_loopback_set_get(port_info[port_idx].port_id, SAI_PORT_INTERNAL_LOOPBACK_MODE_NONE));
 
         sai_attr.id = SAI_PORT_ATTR_AUTO_NEG_MODE;
 
         /* Enable auto-neg and check */
         sai_attr.value.booldata = true;
-        EXPECT_TRUE(sai_port_attr_set_get(port_list[port_idx], &sai_attr));
+        EXPECT_TRUE(sai_port_attr_set_get(port_info[port_idx].port_id, &sai_attr));
         EXPECT_TRUE(sai_attr.value.booldata);
 
         /* Disable auto-neg and check */
         sai_attr.value.booldata = false;
-        EXPECT_TRUE(sai_port_attr_set_get(port_list[port_idx], &sai_attr));
+        EXPECT_TRUE(sai_port_attr_set_get(port_info[port_idx].port_id, &sai_attr));
         EXPECT_FALSE(sai_attr.value.booldata);
     }
 }
@@ -985,7 +1046,7 @@ TEST_F(portTest, fullduplex_state_set_get)
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
@@ -993,12 +1054,12 @@ TEST_F(portTest, fullduplex_state_set_get)
 
         /* Enable full duplex and check */
         sai_attr.value.booldata = true;
-        EXPECT_TRUE(sai_port_attr_set_get(port_list[port_idx], &sai_attr));
+        EXPECT_TRUE(sai_port_attr_set_get(port_info[port_idx].port_id, &sai_attr));
         EXPECT_TRUE(sai_attr.value.booldata);
 
         /* Disable full duplex and check */
         sai_attr.value.booldata = false;
-        EXPECT_TRUE(sai_port_attr_set_get(port_list[port_idx], &sai_attr));
+        EXPECT_TRUE(sai_port_attr_set_get(port_info[port_idx].port_id, &sai_attr));
         EXPECT_FALSE(sai_attr.value.booldata);
     }
 }
@@ -1023,18 +1084,18 @@ TEST_F(portTest, hw_lane_list_get)
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
-        ret = sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get);
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
 
         /* Handles buffer overflow case, by reallocating required memory */
         if(ret == SAI_STATUS_BUFFER_OVERFLOW ) {
             free(sai_attr_get.value.u32list.list);
             sai_attr_get.value.u32list.list = (uint32_t *)calloc (sai_attr_get.value.u32list.count,
                                                                   sizeof(uint32_t));
-            ret = sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get);
+            ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
         }
 
         if(ret != SAI_STATUS_SUCCESS) {
@@ -1044,7 +1105,7 @@ TEST_F(portTest, hw_lane_list_get)
         }
 
         for(lane = 0; lane < sai_attr_get.value.u32list.count; lane++ ) {
-            LOG_PRINT("port 0x%"PRIx64" lane %d is %d \r\n", port_list[port_idx], lane,
+            LOG_PRINT("port 0x%" PRIx64 " lane %d is %d \r\n", port_info[port_idx].port_id, lane,
                       sai_attr_get.value.u32list.list[lane]);
         }
     }
@@ -1064,27 +1125,27 @@ TEST_F(portTest, supported_breakout_mode_get)
 
     sai_attribute_t sai_attr_get;
     memset(&sai_attr_get, 0, sizeof(sai_attr_get));
-    sai_attr_get.id = SAI_PORT_ATTR_SUPPORTED_BREAKOUT_MODE;
+    sai_attr_get.id = SAI_PORT_ATTR_SUPPORTED_BREAKOUT_MODE_TYPE;
 
-    sai_attr_get.value.s32list.count = SAI_PORT_BREAKOUT_MODE_MAX;
-    sai_attr_get.value.s32list.list = (int32_t *)calloc (SAI_PORT_BREAKOUT_MODE_MAX,
+    sai_attr_get.value.s32list.count = SAI_PORT_BREAKOUT_MODE_TYPE_MAX;
+    sai_attr_get.value.s32list.list = (int32_t *)calloc (SAI_PORT_BREAKOUT_MODE_TYPE_MAX,
                                                          sizeof(int32_t));
     ASSERT_TRUE(sai_attr_get.value.s32list.list != NULL);
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
-        ret = sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get);
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
 
         /* Handles buffer overflow case, by reallocating required memory */
         if(ret == SAI_STATUS_BUFFER_OVERFLOW ) {
             free(sai_attr_get.value.s32list.list);
             sai_attr_get.value.s32list.list = (int32_t *)calloc (sai_attr_get.value.s32list.count,
                                                                  sizeof(int32_t));
-            ret = sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get);
+            ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
         }
 
         if(ret != SAI_STATUS_SUCCESS) {
@@ -1094,7 +1155,7 @@ TEST_F(portTest, supported_breakout_mode_get)
         }
 
         for(count = 0; count < sai_attr_get.value.s32list.count; count++ ) {
-            LOG_PRINT("port 0x%"PRIx64" mode %d is %d \r\n", port_list[port_idx], count,
+            LOG_PRINT("port 0x%" PRIx64 " mode %d is %d \r\n", port_info[port_idx].port_id, count,
                       sai_attr_get.value.s32list.list[count]);
         }
     }
@@ -1112,18 +1173,18 @@ TEST_F(portTest, current_breakout_mode_get)
 
     sai_attribute_t sai_attr_get;
     memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
-    sai_attr_get.id = SAI_PORT_ATTR_CURRENT_BREAKOUT_MODE;
+    sai_attr_get.id = SAI_PORT_ATTR_CURRENT_BREAKOUT_MODE_TYPE;
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
         ASSERT_EQ(SAI_STATUS_SUCCESS,
-                  sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get));
+                  sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get));
 
-        LOG_PRINT("port 0x%"PRIx64" current breakout mode %d \r\n", port_list[port_idx], sai_attr_get.value.s32);
+        LOG_PRINT("port 0x%" PRIx64 " current breakout mode %d \r\n", port_info[port_idx].port_id, sai_attr_get.value.s32);
     }
 }
 
@@ -1136,8 +1197,8 @@ void portTest::sai_test_fdb_learn_mode(sai_port_fdb_learning_mode_t mode)
     memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
     memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
 
-    sai_attr_set.id = SAI_PORT_ATTR_FDB_LEARNING;
-    sai_attr_get.id = SAI_PORT_ATTR_FDB_LEARNING;
+    sai_attr_set.id = SAI_PORT_ATTR_FDB_LEARNING_MODE;
+    sai_attr_get.id = SAI_PORT_ATTR_FDB_LEARNING_MODE;
 
     /*Test set and get various possible port learn modes*/
 
@@ -1164,6 +1225,7 @@ TEST_F(portTest, fdb_learning_mode_set_get)
     sai_test_fdb_learn_mode(SAI_PORT_FDB_LEARNING_MODE_CPU_TRAP);
     sai_test_fdb_learn_mode(SAI_PORT_FDB_LEARNING_MODE_CPU_LOG);
     sai_test_fdb_learn_mode(SAI_PORT_FDB_LEARNING_MODE_HW);
+    sai_test_fdb_learn_mode(SAI_PORT_FDB_LEARNING_MODE_FDB_NOTIFICATION);
 }
 
 /*
@@ -1287,20 +1349,20 @@ TEST_F(portTest, mtu_set_get)
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
         sai_attr_set.id = SAI_PORT_ATTR_MTU;
         sai_attr_set.value.u32 = mtu;
-        ret = sai_port_api_table->set_port_attribute(port_list[port_idx], &sai_attr_set);
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
         }
 
         sai_attr_get.id = SAI_PORT_ATTR_MTU;
-        ret = sai_port_api_table->get_port_attribute(port_list[port_idx], 1, &sai_attr_get);
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
         if(ret != SAI_STATUS_SUCCESS) {
             EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
             continue;
@@ -1322,7 +1384,7 @@ TEST_F(portTest, max_port_mtu_set_get)
     sai_attr.id = SAI_SWITCH_ATTR_PORT_MAX_MTU;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_switch_api_table->get_switch_attribute(1, &sai_attr));
+              sai_switch_api_table->get_switch_attribute(switch_id,1, &sai_attr));
 
     EXPECT_NE(sai_attr.value.u32, 0);
     max_mtu = sai_attr.value.u32;
@@ -1333,13 +1395,13 @@ TEST_F(portTest, max_port_mtu_set_get)
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
 
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
         sai_attr.id = SAI_PORT_ATTR_MTU;
         sai_attr.value.u32 = max_mtu;
-        EXPECT_TRUE(sai_port_attr_set_get(port_list[port_idx], &sai_attr));
+        EXPECT_TRUE(sai_port_attr_set_get(port_info[port_idx].port_id, &sai_attr));
 
         LOG_PRINT("PORT %d mtu is %d \r\n", port_idx, sai_attr.value.u32);
 
@@ -1382,13 +1444,13 @@ TEST_F(portTest, fdb_learn_limit_violation_set_get)
     memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
     memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
 
-    sai_attr_set.id = SAI_PORT_ATTR_FDB_LEARNING_LIMIT_VIOLATION;
+    sai_attr_set.id = SAI_PORT_ATTR_FDB_LEARNING_LIMIT_VIOLATION_PACKET_ACTION;
     sai_attr_set.value.s32 = SAI_PACKET_ACTION_DROP;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_port_api_table->set_port_attribute(gport_id, &sai_attr_set));
 
-    sai_attr_get.id = SAI_PORT_ATTR_FDB_LEARNING_LIMIT_VIOLATION;
+    sai_attr_get.id = SAI_PORT_ATTR_FDB_LEARNING_LIMIT_VIOLATION_PACKET_ACTION;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_port_api_table->get_port_attribute(gport_id, 1, &sai_attr_get));
@@ -1408,7 +1470,7 @@ TEST_F(portTest, media_type_set_get)
     sai_attribute_t sai_attr_get;
 
     for(media_type = SAI_PORT_MEDIA_TYPE_NOT_PRESENT;
-        media_type <= SAI_PORT_MEDIA_TYPE_SFP_COPPER; media_type++) {
+        media_type <= SAI_PORT_MEDIA_TYPE_COPPER; media_type++) {
         memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
         memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
 
@@ -1446,9 +1508,9 @@ TEST_F(portTest, all_stats_get)
         status = sai_port_api_table->get_port_stats(gport_id, counter_ids, 1, counters);
 
         if(status == SAI_STATUS_SUCCESS) {
-            LOG_PRINT("port 0x%"PRIx64" stat id %d value is %ld \r\n", gport_id, counter_ids[0], counters[0]);
+            LOG_PRINT("port 0x%" PRIx64 " stat id %d value is %ld \r\n", gport_id, counter_ids[0], counters[0]);
         } else if (status == (SAI_STATUS_ATTR_NOT_SUPPORTED_0 + counter)) {
-            LOG_PRINT("port 0x%"PRIx64" stat id %d not implemented \r\n", gport_id, counter_ids[0]);
+            LOG_PRINT("port 0x%" PRIx64 " stat id %d not implemented \r\n", gport_id, counter_ids[0]);
         }
 
         EXPECT_EQ(SAI_STATUS_SUCCESS, status);
@@ -1468,7 +1530,7 @@ TEST_F(portTest, eee_stats_get)
     sai_status_t status = SAI_STATUS_FAILURE;
 
     for(port_idx = 0; port_idx < SAI_EEE_COPPER_PORT_MAX; port_idx++) {
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
@@ -1476,12 +1538,12 @@ TEST_F(portTest, eee_stats_get)
                 counter <= SAI_PORT_STAT_EEE_RX_DURATION; counter++)
         {
             counter_ids[0] = (sai_port_stat_t)counter;
-            status = sai_port_api_table->get_port_stats(port_list[port_idx], counter_ids, 1, counters);
+            status = sai_port_api_table->get_port_stats(port_info[port_idx].port_id, counter_ids, 1, counters);
 
             if(status == SAI_STATUS_SUCCESS) {
-                LOG_PRINT("port 0x%"PRIx64"EEE stat id %d value is %ld \r\n", port_list[port_idx], counter_ids[0], counters[0]);
+                LOG_PRINT("port 0x%" PRIx64 " EEE stat id %d value is %ld \r\n", port_info[port_idx].port_id, counter_ids[0], counters[0]);
             } else if (status == (SAI_STATUS_ATTR_NOT_SUPPORTED_0 + counter)) {
-                LOG_PRINT("port 0x%"PRIx64"EEE stat id %d not implemented \r\n", port_list[port_idx], counter_ids[0]);
+                LOG_PRINT("port 0x%" PRIx64 "EEE stat id %d not implemented \r\n", port_info[port_idx].port_id, counter_ids[0]);
             }
 
             EXPECT_EQ(SAI_STATUS_SUCCESS, status);
@@ -1500,7 +1562,7 @@ TEST_F(portTest, eee_stat_clear)
     sai_status_t status = SAI_STATUS_FAILURE;
 
     for(port_idx = 0; port_idx < SAI_EEE_COPPER_PORT_MAX; port_idx++) {
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
@@ -1508,12 +1570,12 @@ TEST_F(portTest, eee_stat_clear)
                 counter <= SAI_PORT_STAT_EEE_RX_DURATION; counter++)
         {
             counter_ids[0] = (sai_port_stat_t)counter;
-            status = sai_port_api_table->clear_port_stats(port_list[port_idx], counter_ids, 1);
+            status = sai_port_api_table->clear_port_stats(port_info[port_idx].port_id, counter_ids, 1);
 
             if(status == SAI_STATUS_SUCCESS) {
-                LOG_PRINT("port 0x%"PRIx64" EEE stat id %d \r\n", port_list[port_idx], counter_ids[0]);
+                LOG_PRINT("port 0x%" PRIx64 " EEE stat id %d \r\n", port_info[port_idx].port_id, counter_ids[0]);
             } else if (status == (SAI_STATUS_ATTR_NOT_SUPPORTED_0 + counter)) {
-                LOG_PRINT("port 0x%"PRIx64" EEE stat id %d not implemented \r\n", port_list[port_idx], counter_ids[0]);
+                LOG_PRINT("port 0x%" PRIx64 " EEE stat id %d not implemented \r\n", port_info[port_idx].port_id, counter_ids[0]);
             }
 
             EXPECT_EQ(SAI_STATUS_SUCCESS, status);
@@ -1537,9 +1599,9 @@ TEST_F(portTest, port_stat_clear)
         status = sai_port_api_table->clear_port_stats(gport_id, counter_ids, 1);
 
         if(status == SAI_STATUS_SUCCESS) {
-            LOG_PRINT("port 0x%"PRIx64" stat id %d \r\n", gport_id, counter_ids[0]);
+            LOG_PRINT("port 0x%" PRIx64 " stat id %d \r\n", gport_id, counter_ids[0]);
         } else if (status == (SAI_STATUS_ATTR_NOT_SUPPORTED_0 + counter)) {
-            LOG_PRINT("port 0x%"PRIx64" stat id %d not implemented \r\n", gport_id, counter_ids[0]);
+            LOG_PRINT("port 0x%" PRIx64 " stat id %d not implemented \r\n", gport_id, counter_ids[0]);
         }
 
         EXPECT_EQ(SAI_STATUS_SUCCESS, status);
@@ -1555,15 +1617,15 @@ TEST_F(portTest, port_all_stat_clear)
     unsigned int port_idx = 0;
 
     for(port_idx = 0; port_idx < port_count; port_idx++) {
-        if(sai_port_type_logical(port_list[port_idx], sai_port_api_table) != true) {
+        if(port_info[port_idx].port_valid != true) {
             continue;
         }
 
         status = sai_port_api_table->clear_port_all_stats(gport_id);
         if (status == SAI_STATUS_SUCCESS) {
-            LOG_PRINT("port 0x%"PRIx64" stat cleared\r\n", gport_id);
+            LOG_PRINT("port 0x%" PRIx64 " stat cleared\r\n", gport_id);
         } else {
-            LOG_PRINT("port 0x%"PRIx64" stat clear failed %d\r\n", gport_id, status);
+            LOG_PRINT("port 0x%" PRIx64 " stat clear failed %d\r\n", gport_id, status);
         }
         EXPECT_EQ(SAI_STATUS_SUCCESS, status);
     }
@@ -1585,7 +1647,7 @@ int port_egress_block_port_list_count_get(sai_object_id_t port_id,
 
     ret = sai_port_api_table->get_port_attribute(port_id, 1, &attr);
     if (ret != SAI_STATUS_SUCCESS) {
-        LOG_PRINT("Port 0x%"PRIx64" get egress block port list failed with err: %d\r\n",
+        LOG_PRINT("Port 0x%" PRIx64 " get egress block port list failed with err: %d\r\n",
                   port_id, ret);
         return -1;
     }
@@ -1600,7 +1662,7 @@ TEST_F(portTest, port_egress_block_port_list_set)
     sai_attribute_t attr;
     int egress_block_port_count = 0;
 
-    port_arr[0] = port_list[1];
+    port_arr[0] = port_info[1].port_id;
 
     egress_block_port_list.list = port_arr;
     egress_block_port_list.count = 1;
@@ -1635,7 +1697,7 @@ TEST_F(portTest, port_egress_block_port_list_get)
               sai_port_api_table->get_port_attribute(gport_id, 1, &attr));
 
     for(port_idx = 0; port_idx < attr.value.objlist.count; port_idx++) {
-        LOG_PRINT("Port 0x%"PRIx64" \r\n", attr.value.objlist.list[port_idx]);
+        LOG_PRINT("Port 0x%" PRIx64 " \r\n", attr.value.objlist.list[port_idx]);
     }
 }
 
@@ -1670,20 +1732,20 @@ TEST_F(portTest, flow_control_test)
     memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
     memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
 
-    sai_attr_get.id = SAI_PORT_ATTR_GLOBAL_FLOW_CONTROL;
+    sai_attr_get.id = SAI_PORT_ATTR_GLOBAL_FLOW_CONTROL_MODE;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_port_api_table->get_port_attribute(gport_id, 1, &sai_attr_get));
 
     ASSERT_EQ(SAI_PORT_FLOW_CONTROL_MODE_DISABLE, sai_attr_get.value.s32);
 
-    sai_attr_set.id = SAI_PORT_ATTR_GLOBAL_FLOW_CONTROL;
+    sai_attr_set.id = SAI_PORT_ATTR_GLOBAL_FLOW_CONTROL_MODE;
     sai_attr_set.value.s32 = SAI_PORT_FLOW_CONTROL_MODE_BOTH_ENABLE;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_port_api_table->set_port_attribute(gport_id, &sai_attr_set));
 
-    sai_attr_get.id = SAI_PORT_ATTR_GLOBAL_FLOW_CONTROL;
+    sai_attr_get.id = SAI_PORT_ATTR_GLOBAL_FLOW_CONTROL_MODE;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_port_api_table->get_port_attribute(gport_id, 1, &sai_attr_get));
@@ -1730,4 +1792,628 @@ TEST_F(portTest, pfc_bitmap_test)
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_port_api_table->set_port_attribute(gport_id, &sai_attr_set));
 
+}
+
+void  portTest::sai_get_port_hw_lane_map_table()
+{
+    sai_attribute_t sai_port_attr,sai_lane_attr;
+    uint8_t count = 0, lane = 0;
+    sai_status_t ret = SAI_STATUS_SUCCESS;
+    sai_object_id_t port_list[SAI_MAX_PORTS] = {0};
+    uint8_t lane_count = 0;
+
+    memset (&sai_port_attr, 0, sizeof (sai_port_attr));
+    memset (&sai_lane_attr, 0, sizeof (sai_lane_attr));
+
+    sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+    sai_port_attr.value.objlist.count = SAI_MAX_PORTS;
+    sai_port_attr.value.objlist.list  = port_list;
+
+    sai_switch_api_table->get_switch_attribute(switch_id,1,&sai_port_attr);
+    port_count = sai_port_attr.value.objlist.count;
+
+    sai_lane_attr.id = SAI_PORT_ATTR_HW_LANE_LIST;
+
+    sai_lane_attr.value.u32list.count = 1;
+    sai_lane_attr.value.u32list.list = (uint32_t *)calloc (1, sizeof(uint32_t));
+
+    ASSERT_TRUE(sai_lane_attr.value.u32list.list != NULL);
+
+    for (count = 0;count < port_count;count ++) {
+        ret = sai_port_api_table->get_port_attribute(port_list[count], 1, &sai_lane_attr);
+
+        /* Handles buffer overflow case, by reallocating required memory */
+        if(ret == SAI_STATUS_BUFFER_OVERFLOW ) {
+            free(sai_lane_attr.value.u32list.list);
+            sai_lane_attr.value.u32list.list = (uint32_t *)calloc (sai_lane_attr.value.u32list.count,
+                    sizeof(uint32_t));
+            ret = sai_port_api_table->get_port_attribute(port_list[count], 1, &sai_lane_attr);
+        }
+
+        if(ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        for(lane = 0; lane < sai_lane_attr.value.u32list.count; lane++ ) {
+            port_info[lane_count].hw_lane = sai_lane_attr.value.u32list.list[lane];
+            port_info[lane_count].port_id = port_list[count];
+            if(lane == 0) {
+                port_info[lane_count].port_valid = true;
+            }
+            lane_count ++;
+            LOG_PRINT("port 0x%" PRIx64 " lane %d is %d \r\n", port_list[count], lane,
+                    sai_lane_attr.value.u32list.list[lane]);
+        }
+    }
+    free(sai_lane_attr.value.u32list.list);
+}
+
+void portTest::sai_check_breakout_mode_supported(sai_object_id_t port,
+                                                sai_port_breakout_mode_type_t mode,
+                                                bool *supported)
+{
+    sai_attribute_t sai_attr_get;
+    sai_status_t ret = SAI_STATUS_FAILURE;
+    uint8_t count;
+    *supported = false;
+
+    memset(&sai_attr_get, 0, sizeof(sai_attr_get));
+    sai_attr_get.id = SAI_PORT_ATTR_SUPPORTED_BREAKOUT_MODE_TYPE;
+
+    sai_attr_get.value.s32list.count = SAI_PORT_BREAKOUT_MODE_TYPE_MAX;
+    sai_attr_get.value.s32list.list = (int32_t *)calloc (SAI_PORT_BREAKOUT_MODE_TYPE_MAX,
+            sizeof(int32_t));
+    ASSERT_TRUE(sai_attr_get.value.s32list.list != NULL);
+
+
+    ret = sai_port_api_table->get_port_attribute(port, 1, &sai_attr_get);
+
+    /* Handles buffer overflow case, by reallocating required memory */
+    if(ret == SAI_STATUS_BUFFER_OVERFLOW ) {
+        free(sai_attr_get.value.s32list.list);
+        sai_attr_get.value.s32list.list = (int32_t *)calloc (sai_attr_get.value.s32list.count,
+                sizeof(int32_t));
+        ret = sai_port_api_table->get_port_attribute(port, 1, &sai_attr_get);
+    }
+    if(ret != SAI_STATUS_SUCCESS) {
+        EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+        *supported = false;
+        return;
+    }
+    for(count = 0; count < sai_attr_get.value.s32list.count; count++ ) {
+        if(sai_attr_get.value.s32list.list[count] == mode) {
+            *supported = true;
+        }
+    }
+
+    free(sai_attr_get.value.u32list.list);
+}
+
+sai_status_t portTest::sai_set_flex_port_configuration(unsigned int port,
+                                         sai_port_breakout_mode_type_t breakout_mode,
+                                         uint32_t speed)
+{
+    sai_attribute_t sai_attr_set[2];
+    sai_attribute_t sai_attr_get;
+    sai_status_t ret = SAI_STATUS_SUCCESS;
+    int32_t current_mode = 0;
+    uint32_t current_speed = 0;
+    unsigned int count = 0;
+    uint32_t port_lane_list[SAI_PORT_FOUR_LANES] = {0};
+
+    memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+    memset(sai_attr_set, 0, sizeof(sai_attr_set));
+
+    sai_attr_get.id = SAI_PORT_ATTR_CURRENT_BREAKOUT_MODE_TYPE;
+    ret = sai_port_api_table->get_port_attribute(port_info[port].port_id, 1, &sai_attr_get);
+    EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+
+    current_mode = sai_attr_get.value.s32;
+    if (current_mode == breakout_mode){
+        memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+        sai_attr_get.id = SAI_PORT_ATTR_SPEED;
+        ret = sai_port_api_table->get_port_attribute(port_info[port].port_id, 1, &sai_attr_get);
+        EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+        current_speed = sai_attr_get.value.u32;
+        if (current_speed == speed) {
+            return SAI_STATUS_SUCCESS;
+        }
+    }
+
+    if(current_mode == SAI_PORT_BREAKOUT_MODE_TYPE_1_LANE) {
+        ret = sai_port_api_table->remove_port(port_info[port].port_id);
+    } else if (current_mode == SAI_PORT_BREAKOUT_MODE_TYPE_2_LANE) {
+        for (count = 0; count < SAI_PORT_TWO_LANES; count ++) {
+            ret = sai_port_api_table->remove_port(port_info[port+(count*SAI_PORT_FOUR_LANES)].port_id);
+            if (ret != SAI_STATUS_SUCCESS){
+                break;
+            }
+        }
+    } else {
+        for (count = 0; count < SAI_PORT_FOUR_LANES; count++) {
+            ret = sai_port_api_table->remove_port(port_info[port+count].port_id);
+            if (ret != SAI_STATUS_SUCCESS){
+                break;
+            }
+        }
+    }
+    EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+
+    if (SAI_PORT_BREAKOUT_MODE_TYPE_4_LANE == breakout_mode) {
+        for (count = 0; count < SAI_PORT_FOUR_LANES; count++) {
+            sai_attr_set[0].id = SAI_PORT_ATTR_HW_LANE_LIST;
+            sai_attr_set[0].value.u32list.count = 1;
+            sai_attr_set[0].value.u32list.list = &port_info[port+count].hw_lane;
+
+            sai_attr_set[1].id = SAI_PORT_ATTR_SPEED;
+            sai_attr_set[1].value.u32 = speed;
+            ret = sai_port_api_table->create_port(&port_info[port + count].port_id,switch_id,2,sai_attr_set);
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+        }
+    } else if (SAI_PORT_BREAKOUT_MODE_TYPE_1_LANE == breakout_mode) {
+        sai_attr_set[0].id = SAI_PORT_ATTR_HW_LANE_LIST;
+        sai_attr_set[0].value.u32list.count = 4;
+        for (count = 0; count < SAI_PORT_FOUR_LANES; count++) {
+            port_lane_list[count] = port_info[port+count].hw_lane;
+        }
+        sai_attr_set[0].value.u32list.list = port_lane_list;
+
+        sai_attr_set[1].id = SAI_PORT_ATTR_SPEED;
+        sai_attr_set[1].value.u32 = speed;
+        ret = sai_port_api_table->create_port(&port_info[port].port_id,switch_id,2,sai_attr_set);
+        EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+    } else if (SAI_PORT_BREAKOUT_MODE_TYPE_2_LANE == breakout_mode) {
+        for (count = 0; count < SAI_PORT_TWO_LANES; count++) {
+            if (count == 1) {
+                port = port + 1;
+            }
+            sai_attr_set[0].id = SAI_PORT_ATTR_HW_LANE_LIST;
+            sai_attr_set[0].value.u32list.count = 2;
+            sai_attr_set[0].value.u32list.list = &port_info[port + count].hw_lane;
+            sai_attr_set[0].value.u32list.list = &port_info[port + count + 1].hw_lane;
+
+            sai_attr_set[1].id = SAI_PORT_ATTR_SPEED;
+            sai_attr_set[1].value.u32 = speed;
+            ret = sai_port_api_table->create_port(&port_info[port + count * SAI_PORT_TWO_LANES].port_id,switch_id,2,sai_attr_set);
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+        }
+    }
+
+    return ret;
+}
+
+TEST_F(portTest, disable_port)
+{
+    sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_attribute_t sai_attr_set;
+    unsigned int port_idx = 0;
+
+    memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
+
+    /* Check port Oper state as UP by enabling the internal Loopback */
+    for(port_idx = 0; port_idx < port_count; port_idx++) {
+        if(port_info[port_idx].port_valid != true) {
+            continue;
+        }
+        /* Enable link admin state */
+        sai_attr_set.id = SAI_PORT_ATTR_ADMIN_STATE;
+        sai_attr_set.value.booldata = false;
+
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
+        if(ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+    }
+}
+TEST_F(portTest, breakout_4x10_set)
+{
+
+    sai_attribute_t sai_attr_set[2];
+    sai_attribute_t sai_attr_get;
+    unsigned int port_idx = 0,count =0;
+    bool supported = false;
+    sai_status_t ret = SAI_STATUS_SUCCESS;
+    int32_t current_mode = 0;
+
+
+    memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+    memset(sai_attr_set, 0, sizeof(sai_attr_set));
+
+    for (port_idx = 0; port_idx < SAI_MAX_PORTS; port_idx++) {
+        if (port_info[port_idx].port_valid != true) {
+            continue;
+        }
+
+        sai_port_supported_speed_check(port_info[port_idx].port_id, SAI_PORT_SPEED_TEN_GIG, &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        sai_check_breakout_mode_supported(port_info[port_idx].port_id,SAI_PORT_BREAKOUT_MODE_TYPE_4_LANE,
+                &supported);
+        if (supported != true) {
+            continue;
+        }
+        sai_attr_get.id = SAI_PORT_ATTR_CURRENT_BREAKOUT_MODE_TYPE;
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
+        EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+
+        /* This ports index is not possible in real time
+         * added this check for avoid Out-of-bounds access */
+        if(port_idx > SAI_PORT_MAX_ARRAY_INDEX) {
+            continue;
+        }
+
+        current_mode = sai_attr_get.value.s32;
+        if (current_mode == SAI_PORT_BREAKOUT_MODE_TYPE_4_LANE){
+            continue;
+        }
+
+        if (current_mode == SAI_PORT_BREAKOUT_MODE_TYPE_1_LANE) {
+            ret = sai_port_api_table->remove_port(port_info[port_idx].port_id);
+        } else { /*SAI_PORT_BREAKOUT_MODE_TYPE_2_LANE*/
+            for (count = 0; count < SAI_PORT_TWO_LANES; count ++) {
+                ret = sai_port_api_table->remove_port(port_info[port_idx+(count*SAI_PORT_TWO_LANES)].port_id);
+                if(ret != SAI_STATUS_SUCCESS){
+                    break;
+                }
+            }
+        }
+
+        EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+        for (count = 0; count < SAI_PORT_FOUR_LANES; count++) {
+            sai_attr_set[0].id = SAI_PORT_ATTR_HW_LANE_LIST;
+            sai_attr_set[0].value.u32list.count = 1;
+            sai_attr_set[0].value.u32list.list = &port_info[port_idx+count].hw_lane;
+
+            sai_attr_set[1].id = SAI_PORT_ATTR_SPEED;
+            sai_attr_set[1].value.u32 = SAI_PORT_SPEED_TEN_GIG;
+            ret = sai_port_api_table->create_port(&port_info[port_idx+count].port_id,switch_id,2,sai_attr_set);
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+        }
+    }
+}
+
+TEST_F(portTest, breakin_1x40_set)
+{
+
+    sai_attribute_t sai_attr_set[2];
+    sai_attribute_t sai_attr_get;
+    unsigned int port_idx = 0,count =0;
+    bool supported = false;
+    sai_status_t ret = SAI_STATUS_SUCCESS;
+    int32_t current_mode = 0;
+    uint32_t port_lane_list[4] = {0};
+
+
+    memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+    memset(sai_attr_set, 0, sizeof(sai_attr_set));
+
+    for (port_idx = 0; port_idx < SAI_MAX_PORTS; port_idx++) {
+        if (port_info[port_idx].port_valid != true) {
+            continue;
+        }
+
+        sai_port_supported_speed_check(port_info[port_idx].port_id, SAI_PORT_SPEED_FORTY_GIG, &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        sai_check_breakout_mode_supported(port_info[port_idx].port_id,SAI_PORT_BREAKOUT_MODE_TYPE_1_LANE,
+                &supported);
+        if (supported != true) {
+            continue;
+        }
+        sai_attr_get.id = SAI_PORT_ATTR_CURRENT_BREAKOUT_MODE_TYPE;
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
+        EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+
+        /* This ports index is not possible in real time
+         * added this check for avoid Out-of-bounds access */
+        if(port_idx > SAI_PORT_MAX_ARRAY_INDEX) {
+            continue;
+        }
+        current_mode = sai_attr_get.value.s32;
+        if (current_mode == SAI_PORT_BREAKOUT_MODE_TYPE_1_LANE){
+            continue;
+        }
+
+        if (current_mode == SAI_PORT_BREAKOUT_MODE_TYPE_2_LANE) {
+            for (count = 0; count < SAI_PORT_TWO_LANES;count ++) {
+                ret = sai_port_api_table->remove_port(port_info[port_idx+(count*SAI_PORT_TWO_LANES)].port_id);
+                if (ret != SAI_STATUS_SUCCESS){
+                    break;
+                }
+            }
+        } else {
+            for (count = 0; count < SAI_PORT_FOUR_LANES; count++) {
+                ret = sai_port_api_table->remove_port(port_info[port_idx+count].port_id);
+                if (ret != SAI_STATUS_SUCCESS){
+                    break;
+                }
+            }
+        }
+        EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+        sai_attr_set[0].id = SAI_PORT_ATTR_HW_LANE_LIST;
+        sai_attr_set[0].value.u32list.count = 4;
+        for (count = 0; count < SAI_PORT_FOUR_LANES; count++) {
+            port_lane_list[count] = port_info[port_idx+count].hw_lane;
+        }
+        sai_attr_set[0].value.u32list.list = port_lane_list;
+
+        sai_attr_set[1].id = SAI_PORT_ATTR_SPEED;
+        sai_attr_set[1].value.u32 = SAI_PORT_SPEED_FORTY_GIG;
+        ret = sai_port_api_table->create_port(&port_info[port_idx].port_id,switch_id,2,sai_attr_set);
+        EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+    }
+}
+
+TEST_F(portTest, fec_cl91_on_100g_set_get)
+{
+    sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_attribute_t sai_attr_get;
+    sai_attribute_t sai_attr_set;
+    unsigned int port_idx = 0;
+    bool supported = false;
+
+    memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
+    memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+
+    for (port_idx = 0; port_idx < SAI_MAX_PORTS; port_idx++) {
+        if (port_info[port_idx].port_valid != true) {
+            continue;
+        }
+
+        sai_port_supported_speed_check(port_info[port_idx].port_id,
+                            SAI_PORT_SPEED_HUNDRED_GIG, &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        sai_check_breakout_mode_supported(port_info[port_idx].port_id,SAI_PORT_BREAKOUT_MODE_TYPE_1_LANE,
+                                                            &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        ret = sai_set_flex_port_configuration(port_idx, SAI_PORT_BREAKOUT_MODE_TYPE_1_LANE,
+                                                                   SAI_PORT_SPEED_HUNDRED_GIG);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_set.id = SAI_PORT_ATTR_FEC_MODE;
+        sai_attr_set.value.s32 = SAI_PORT_FEC_MODE_RS;
+
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_get.id = SAI_PORT_ATTR_FEC_MODE;
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+        EXPECT_EQ(SAI_PORT_FEC_MODE_RS, sai_attr_get.value.s32);
+    }
+}
+
+TEST_F(portTest, fec_cl74_on_25g_set_get)
+{
+    sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_attribute_t sai_attr_get;
+    sai_attribute_t sai_attr_set;
+    unsigned int port_idx = 0;
+    bool supported = false;
+
+    memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
+    memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+
+    for (port_idx = 0; port_idx < SAI_MAX_PORTS; port_idx++) {
+        if (port_info[port_idx].port_valid != true) {
+            continue;
+        }
+
+        sai_port_supported_speed_check(port_info[port_idx].port_id,
+                        SAI_PORT_SPEED_TWENTY_FIVE_GIG, &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        sai_check_breakout_mode_supported(port_info[port_idx].port_id,SAI_PORT_BREAKOUT_MODE_TYPE_4_LANE,
+                &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        ret = sai_set_flex_port_configuration(port_idx, SAI_PORT_BREAKOUT_MODE_TYPE_4_LANE,
+                                                SAI_PORT_SPEED_TWENTY_FIVE_GIG);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_set.id = SAI_PORT_ATTR_FEC_MODE;
+        sai_attr_set.value.s32 = SAI_PORT_FEC_MODE_FC;
+
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_get.id = SAI_PORT_ATTR_FEC_MODE;
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+        EXPECT_EQ(SAI_PORT_FEC_MODE_FC, sai_attr_get.value.s32);
+    }
+}
+
+TEST_F(portTest, fec_cl74_on_50g_set_get)
+{
+    sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_attribute_t sai_attr_get;
+    sai_attribute_t sai_attr_set;
+    unsigned int port_idx = 0;
+    bool supported = false;
+
+    memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
+    memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+
+    for (port_idx = 0; port_idx < SAI_MAX_PORTS; port_idx++) {
+        if (port_info[port_idx].port_valid != true) {
+            continue;
+        }
+
+        sai_port_supported_speed_check(port_info[port_idx].port_id,
+                                SAI_PORT_SPEED_FIFTY_GIG, &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        sai_check_breakout_mode_supported(port_info[port_idx].port_id,SAI_PORT_BREAKOUT_MODE_TYPE_2_LANE,
+                                            &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        ret = sai_set_flex_port_configuration(port_idx, SAI_PORT_BREAKOUT_MODE_TYPE_4_LANE,
+                                                SAI_PORT_SPEED_FIFTY_GIG);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_set.id = SAI_PORT_ATTR_FEC_MODE;
+        sai_attr_set.value.s32 = SAI_PORT_FEC_MODE_FC;
+
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_get.id = SAI_PORT_ATTR_FEC_MODE;
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+        EXPECT_EQ(SAI_PORT_FEC_MODE_FC, sai_attr_get.value.s32);
+    }
+}
+
+TEST_F(portTest, oui_on_25g_set_get)
+{
+    sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_attribute_t sai_attr_get;
+    sai_attribute_t sai_attr_set;
+    unsigned int port_idx = 0;
+    bool supported = false;
+
+    memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
+    memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+
+    for (port_idx = 0; port_idx < SAI_MAX_PORTS; port_idx++) {
+        if (port_info[port_idx].port_valid != true) {
+            continue;
+        }
+
+        sai_port_supported_speed_check(port_info[port_idx].port_id,
+                                 SAI_PORT_SPEED_TWENTY_FIVE_GIG, &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        sai_check_breakout_mode_supported(port_info[port_idx].port_id, SAI_PORT_BREAKOUT_MODE_TYPE_4_LANE,
+                                            &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        ret = sai_set_flex_port_configuration(port_idx, SAI_PORT_BREAKOUT_MODE_TYPE_4_LANE,
+                                                            SAI_PORT_SPEED_TWENTY_FIVE_GIG);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_set.id = SAI_PORT_ATTR_ADVERTISED_OUI_CODE;
+        sai_attr_set.value.u32 = SAI_PORT_OUI_CODE_1;
+
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_get.id = SAI_PORT_ATTR_ADVERTISED_OUI_CODE;
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+        EXPECT_EQ(SAI_PORT_OUI_CODE_1, sai_attr_get.value.u32);
+    }
+}
+
+TEST_F(portTest, oui_on_50g_set_get)
+{
+    sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_attribute_t sai_attr_get;
+    sai_attribute_t sai_attr_set;
+    unsigned int port_idx = 0;
+    bool supported = false;
+
+    memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
+    memset(&sai_attr_get, 0, sizeof(sai_attribute_t));
+
+    for (port_idx = 0; port_idx < SAI_MAX_PORTS; port_idx++) {
+        if (port_info[port_idx].port_valid != true) {
+            continue;
+        }
+
+        sai_port_supported_speed_check(port_info[port_idx].port_id, SAI_PORT_SPEED_FIFTY_GIG, &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        sai_check_breakout_mode_supported(port_info[port_idx].port_id, SAI_PORT_BREAKOUT_MODE_TYPE_2_LANE,
+                &supported);
+        if (supported != true) {
+            continue;
+        }
+
+        ret = sai_set_flex_port_configuration(port_idx, SAI_PORT_BREAKOUT_MODE_TYPE_2_LANE, SAI_PORT_SPEED_FIFTY_GIG);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_set.id = SAI_PORT_ATTR_ADVERTISED_OUI_CODE;
+        sai_attr_set.value.u32 = SAI_PORT_OUI_CODE_2;
+
+        ret = sai_port_api_table->set_port_attribute(port_info[port_idx].port_id, &sai_attr_set);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+
+        sai_attr_get.id = SAI_PORT_ATTR_ADVERTISED_OUI_CODE;
+        ret = sai_port_api_table->get_port_attribute(port_info[port_idx].port_id, 1, &sai_attr_get);
+        if (ret != SAI_STATUS_SUCCESS) {
+            EXPECT_EQ(SAI_STATUS_SUCCESS, ret);
+            continue;
+        }
+        EXPECT_EQ(SAI_PORT_OUI_CODE_2, sai_attr_get.value.u32);
+    }
 }

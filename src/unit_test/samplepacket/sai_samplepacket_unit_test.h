@@ -55,6 +55,7 @@ class samplepacketTest : public ::testing::Test
         static void sai_test_samplepacket_port_breakout (void);
         static sai_object_id_t port_id_1;
         static sai_object_id_t port_id_2;
+        static sai_object_id_t switch_id;
 
 };
 #endif /* __SAI_SAMPLEPACKET_UNIT_TEST_H__ */

@@ -190,21 +190,24 @@ sai_status_t sai_qos_scheduler_reapply (dn_sai_qos_scheduler_t *p_old_sched_node
         sai_rc = sai_qos_scheduler_queue_reapply (p_old_sched_node, p_new_sched_node,
                                                   &update_queue_cnt, false);
         if (sai_rc != SAI_STATUS_SUCCESS) {
-            SAI_SCHED_LOG_ERR("Failed to reapply Scheduler 0x%"PRIx64" on queue.");
+            SAI_SCHED_LOG_ERR("Failed to reapply Scheduler 0x%"PRIx64" on queue.",
+                              p_new_sched_node->key.scheduler_id);
             break;
         }
 
         sai_rc = sai_qos_scheduler_sched_group_reapply (p_old_sched_node, p_new_sched_node,
                                                         &update_sg_cnt, false);
         if (sai_rc != SAI_STATUS_SUCCESS) {
-            SAI_SCHED_LOG_ERR("Failed to reapply Scheduler 0x%"PRIx64" on SG.");
+            SAI_SCHED_LOG_ERR("Failed to reapply Scheduler 0x%"PRIx64" on SG.",
+                              p_new_sched_node->key.scheduler_id);
             break;
         }
 
         sai_rc = sai_qos_scheduler_port_reapply (p_old_sched_node, p_new_sched_node,
                                                  &update_port_cnt, false);
         if (sai_rc != SAI_STATUS_SUCCESS) {
-            SAI_SCHED_LOG_ERR("Failed to reapply Scheduler 0x%"PRIx64" on port.");
+            SAI_SCHED_LOG_ERR("Failed to reapply Scheduler 0x%"PRIx64" on port.",
+                              p_new_sched_node->key.scheduler_id);
             break;
         }
     } while(0);
@@ -214,7 +217,8 @@ sai_status_t sai_qos_scheduler_reapply (dn_sai_qos_scheduler_t *p_old_sched_node
             sai_revrt_rc = sai_qos_scheduler_queue_reapply (p_new_sched_node, p_old_sched_node,
                                                             &update_queue_cnt, true);
             if (sai_revrt_rc != SAI_STATUS_SUCCESS) {
-                SAI_SCHED_LOG_ERR("Failed to revert Scheduler 0x%"PRIx64" on queue.");
+                SAI_SCHED_LOG_ERR("Failed to revert Scheduler 0x%"PRIx64" on queue.",
+                                  p_old_sched_node->key.scheduler_id);
                 /* TODO - ADDing ASSERT is only possibel here */
             }
         }
@@ -223,7 +227,8 @@ sai_status_t sai_qos_scheduler_reapply (dn_sai_qos_scheduler_t *p_old_sched_node
             sai_revrt_rc = sai_qos_scheduler_sched_group_reapply (p_new_sched_node, p_old_sched_node,
                                                                   &update_sg_cnt, true);
             if (sai_revrt_rc != SAI_STATUS_SUCCESS) {
-                SAI_SCHED_LOG_ERR("Failed to revert Scheduler 0x%"PRIx64" on SG.");
+                SAI_SCHED_LOG_ERR("Failed to revert Scheduler 0x%"PRIx64" on SG.",
+                                  p_old_sched_node->key.scheduler_id);
                 /* TODO - ADDing ASSERT is only possibel here */
             }
         }
@@ -232,7 +237,8 @@ sai_status_t sai_qos_scheduler_reapply (dn_sai_qos_scheduler_t *p_old_sched_node
             sai_revrt_rc = sai_qos_scheduler_port_reapply (p_new_sched_node, p_old_sched_node,
                                                            &update_port_cnt, true);
             if (sai_revrt_rc != SAI_STATUS_SUCCESS) {
-                SAI_SCHED_LOG_ERR("Failed to revert Scheduler 0x%"PRIx64" on port.");
+                SAI_SCHED_LOG_ERR("Failed to revert Scheduler 0x%"PRIx64" on port.",
+                                  p_old_sched_node->key.scheduler_id);
                 /* TODO - ADDing ASSERT is only possibel here */
             }
         }

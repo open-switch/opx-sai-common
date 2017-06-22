@@ -58,7 +58,7 @@ static dn_sai_hash_obj_db_t g_hash_obj_db = {
  * properties for create, set and get API.
  */
 static const dn_sai_attribute_entry_t dn_sai_hash_attr[] =  {
-    { SAI_HASH_ATTR_NATIVE_FIELD_LIST,        false, true, true, true, true, true },
+    { SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST,        false, true, true, true, true, true },
     { SAI_HASH_ATTR_UDF_GROUP_LIST,           false, true, true, true, true, true },
 };
 
@@ -175,8 +175,8 @@ static sai_status_t dn_sai_hash_attr_list_validate (
 
     if (status != SAI_STATUS_SUCCESS) {
 
-        SAI_HASH_LOG_ERR ("Attr list validation failed. op-type: %d, Error: %d.",
-                          op_type, status);
+        SAI_HASH_LOG_TRACE ("Attr list validation failed. op-type: %d, Error: %d.",
+                             op_type, status);
     } else {
 
         SAI_HASH_LOG_TRACE ("Attr list validation passed. op-type: %d, Error: %d.",
@@ -320,7 +320,7 @@ static sai_status_t dn_sai_hash_attr_set (dn_sai_hash_object_t *p_hash_obj,
 
         switch (p_attr->id) {
 
-            case SAI_HASH_ATTR_NATIVE_FIELD_LIST:
+            case SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST:
                 status = dn_sai_hash_native_field_list_set (p_hash_obj,
                                                        &p_attr->value.s32list);
                 break;
@@ -344,6 +344,7 @@ static sai_status_t dn_sai_hash_attr_set (dn_sai_hash_object_t *p_hash_obj,
 }
 
 static sai_status_t dn_sai_hash_obj_create (sai_object_id_t *hash_id,
+                                            _In_ sai_object_id_t switch_id,
                                             uint32_t attr_count,
                                             const sai_attribute_t *attr_list)
 {
@@ -517,7 +518,7 @@ static sai_status_t dn_sai_hash_obj_set_in_hw (dn_sai_hash_object_t *p_hash_obj,
 
     size_t attr_count = (sizeof (dn_switch_hash_attr_id)) / (sizeof (sai_attr_id_t));
 
-    if (attr->id == SAI_HASH_ATTR_NATIVE_FIELD_LIST) {
+    if (attr->id == SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST) {
 
         p_native_fields_list = &attr->value.s32list;
         p_udf_group_list     = &p_hash_obj->udf_group_list;
@@ -702,7 +703,7 @@ static sai_status_t dn_sai_hash_attr_get (dn_sai_hash_object_t *p_hash_obj,
 
         switch (p_attr->id) {
 
-            case SAI_HASH_ATTR_NATIVE_FIELD_LIST:
+            case SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST:
                 if ((p_attr->value.s32list.count) <
                     (p_hash_obj->native_fields_list.count)) {
 
@@ -894,9 +895,10 @@ static sai_status_t dn_sai_hash_default_hash_obj_create (sai_attr_id_t attr_id)
     }
 
     attr.value.s32list = hash_field_list;
-    attr.id            = SAI_HASH_ATTR_NATIVE_FIELD_LIST;
+    attr.id            = SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST;
 
-    status = dn_sai_hash_obj_create (&hash_obj_id, count, &attr);
+    status = dn_sai_hash_obj_create (&hash_obj_id, sai_switch_id_get(),
+                                     count, &attr);
 
     if (status != SAI_STATUS_SUCCESS) {
 
@@ -1049,8 +1051,8 @@ sai_status_t dn_sai_switch_hash_attr_set (sai_attr_id_t attr_id,
 
         if (status != SAI_STATUS_SUCCESS) {
 
-            SAI_HASH_LOG_ERR ("Switch Hash attr set with Id: 0x%"PRIx64" failed "
-                              "for settting hash fields in NPU.", hash_obj_id);
+            SAI_HASH_LOG_TRACE ("Switch Hash attr set with Id: 0x%"PRIx64" failed "
+                                "for settting hash fields in NPU.", hash_obj_id);
 
             break;
         }

@@ -170,6 +170,14 @@ bool sai_acl_object_list_action_attr(sai_acl_entry_attr_t entry_attr)
     }
     return false;
 }
+bool sai_acl_range_attr(sai_acl_entry_attr_t entry_attr)
+{
+    if(entry_attr == SAI_ACL_ENTRY_ATTR_FIELD_ACL_RANGE_TYPE)
+    {
+        return true;
+    }
+    return false;
+}
 
 bool sai_acl_portlist_attr(sai_acl_entry_attr_t entry_attr)
 {
@@ -1209,12 +1217,83 @@ static inline sai_status_t sai_acl_validate_object_type(
             SAI_ACL_LOG_ERR ("Invalid Mirror Session Object Type");
             invalid_object_type = true;
         }
+    } else if(attribute_id == SAI_ACL_ENTRY_ATTR_FIELD_ACL_RANGE_TYPE) {
+        if(!sai_is_obj_id_acl_range(oid)) {
+            SAI_ACL_LOG_ERR ("Invalid range Object type");
+            invalid_object_type = true;
+        }
     }
+
 
     if (invalid_object_type) {
         return SAI_STATUS_INVALID_OBJECT_TYPE;
     }
 
+    return SAI_STATUS_SUCCESS;
+}
+static sai_status_t sai_acl_rule_filter_populate_range(
+                                    sai_attr_id_t attribute_id,
+                                    sai_acl_filter_t *acl_filter,
+                                    sai_attribute_value_t *attr_value,
+                                    bool sai_acl_get_api)
+{
+    uint_t range_cnt = 0;
+    sai_object_id_t *range_list = NULL;
+    sai_object_list_t *range_info = NULL;
+    sai_status_t rc = SAI_STATUS_SUCCESS;
+
+    if (!sai_acl_get_api) {
+        /* CREATE OP */
+        range_info = &attr_value->aclfield.data.objlist;
+
+        if (((range_info->count == 0) || (range_info->list == NULL)) &&
+            attr_value->aclfield.enable) {
+            SAI_ACL_LOG_ERR ("Invalid range list");
+            return SAI_STATUS_INVALID_ATTR_VALUE_0;
+        }
+
+        if (attr_value->aclfield.enable) {
+            /* Validate the object type for each object id present in the list */
+            for (range_cnt = 0; range_cnt < range_info->count; range_cnt++) {
+                if ((rc = sai_acl_validate_object_type(attribute_id,
+                                range_info->list[range_cnt])) != SAI_STATUS_SUCCESS) {
+                    SAI_ACL_LOG_ERR ("Invalid Object Type ");
+                    return rc;
+                }
+            }
+
+            range_list = (sai_object_id_t *)calloc(range_info->count,
+                                                  sizeof(sai_object_id_t));
+
+            if (range_list == NULL) {
+                SAI_ACL_LOG_ERR ("System out of memory for range list");
+                return SAI_STATUS_NO_MEMORY;
+            }
+
+            memcpy(range_list, range_info->list,
+                   range_info->count * sizeof(sai_object_id_t));
+
+            acl_filter->match_data.obj_list.count = range_info->count;
+            acl_filter->match_data.obj_list.list = range_list;
+            acl_filter->enable = true;
+        }
+    } else {
+
+        range_info = &acl_filter->match_data.obj_list;
+
+        if (attr_value->aclfield.data.objlist.count < range_info->count) {
+            SAI_ACL_LOG_ERR ("Get Field range List failed, "
+                             "Actual range = %d, Available range = %d",
+                             range_info->count,
+                             attr_value->aclfield.data.objlist.count);
+            attr_value->aclfield.data.objlist.count = range_info->count;
+            return SAI_STATUS_BUFFER_OVERFLOW;
+        } else {
+            attr_value->aclfield.data.objlist.count = range_info->count;
+            memcpy (attr_value->aclfield.data.objlist.list, range_info->list,
+                    (range_info->count * sizeof(sai_object_id_t)));
+        }
+    }
     return SAI_STATUS_SUCCESS;
 }
 
@@ -1230,9 +1309,14 @@ static sai_status_t sai_acl_rule_filter_populate_object_list(
     sai_status_t rc = SAI_STATUS_SUCCESS;
 
     /*
-     * Check whether Object List belongs to Port List as ACL
-     * expects only port list to be part of object list.
+     * Check whether Object List belongs to Port List or range as ACL
+     * expects only port list and range to be part of object list.
      */
+
+    if(sai_acl_range_attr(attribute_id)) {
+        sai_acl_rule_filter_populate_range(attribute_id,
+                                           acl_filter, attr_value, sai_acl_get_api);
+    }
     if (sai_acl_portlist_attr(attribute_id)) {
         /* Verify the operation being performed (CREATE OR GET) */
         if (!sai_acl_get_api) {
@@ -1393,18 +1477,18 @@ static inline void sai_acl_rule_filter_populate_attr_mac(
 {
     /* Create Operation */
     if (!sai_acl_get_api) {
-        memcpy((uint8_t *)&acl_filter->match_data.mac,
-               (uint8_t *)&attr_value->aclfield.data.mac,
+        memcpy(acl_filter->match_data.mac,
+               attr_value->aclfield.data.mac,
                sizeof(sai_mac_t));
-        memcpy((uint8_t *)&acl_filter->match_mask.mac,
-               (uint8_t *)&attr_value->aclfield.mask.mac,
+        memcpy(acl_filter->match_mask.mac,
+               attr_value->aclfield.mask.mac,
                sizeof(sai_mac_t));
     } else {
         /* Get Operation */
-        memcpy((uint8_t *)&attr_value->aclfield.data.mac,
-               (uint8_t *)&acl_filter->match_data.mac, sizeof(sai_mac_t));
-        memcpy((uint8_t *)&attr_value->aclfield.mask.mac,
-               (uint8_t *)&acl_filter->match_mask.mac, sizeof(sai_mac_t));
+        memcpy(attr_value->aclfield.data.mac,
+               acl_filter->match_data.mac, sizeof(sai_mac_t));
+        memcpy(attr_value->aclfield.mask.mac,
+               acl_filter->match_mask.mac, sizeof(sai_mac_t));
     }
 }
 
@@ -1818,12 +1902,12 @@ sai_status_t sai_acl_rule_action_populate_attr_type (sai_attr_id_t attribute_id,
             break;
         case SAI_ACL_ENTRY_ATTR_MAC:
             if (!sai_acl_get_api) {
-                memcpy((uint8_t *)&acl_action->parameter.mac,
-                       (uint8_t *)&attr_value->aclaction.parameter.mac,
+                memcpy(acl_action->parameter.mac,
+                       attr_value->aclaction.parameter.mac,
                        sizeof(sai_mac_t));
             } else {
-                 memcpy((uint8_t *)&attr_value->aclaction.parameter.mac,
-                        (uint8_t *)&acl_action->parameter.mac,
+                 memcpy(attr_value->aclaction.parameter.mac,
+                        acl_action->parameter.mac,
                         sizeof(sai_mac_t));
             }
             break;

@@ -268,10 +268,10 @@ sai_status_t dn_sai_tunnel_attr_list_validate (sai_object_type_t obj_type,
 static sai_status_t dn_sai_tunnel_type_set (dn_sai_tunnel_t *p_tunnel_obj,
                                             const sai_attribute_t  *p_attr)
 {
-    if ((p_attr->value.s32 != SAI_TUNNEL_IPINIP) &&
-        (p_attr->value.s32 != SAI_TUNNEL_IPINIP_GRE) &&
-        (p_attr->value.s32 != SAI_TUNNEL_VXLAN) &&
-        (p_attr->value.s32 != SAI_TUNNEL_MPLS)) {
+    if ((p_attr->value.s32 != SAI_TUNNEL_TYPE_IPINIP) &&
+        (p_attr->value.s32 != SAI_TUNNEL_TYPE_IPINIP_GRE) &&
+        (p_attr->value.s32 != SAI_TUNNEL_TYPE_VXLAN) &&
+        (p_attr->value.s32 != SAI_TUNNEL_TYPE_MPLS)) {
 
         SAI_TUNNEL_LOG_ERR ("Invalid tunnel type value: %d.", p_attr->value.s32);
 
@@ -349,8 +349,8 @@ static sai_status_t dn_sai_tunnel_encap_sip_set (dn_sai_tunnel_t *p_tunnel_obj,
 static sai_status_t dn_sai_tunnel_ttl_mode_set (dn_sai_tunnel_t *p_tunnel_obj,
                                                 const sai_attribute_t  *p_attr)
 {
-    if ((p_attr->value.s32 != SAI_TUNNEL_TTL_UNIFORM_MODEL) &&
-        (p_attr->value.s32 != SAI_TUNNEL_TTL_PIPE_MODEL)) {
+    if ((p_attr->value.s32 != SAI_TUNNEL_TTL_MODE_UNIFORM_MODEL) &&
+        (p_attr->value.s32 != SAI_TUNNEL_TTL_MODE_PIPE_MODEL)) {
 
         SAI_TUNNEL_LOG_ERR ("Invalid ttl mode value: %d.", p_attr->value.s32);
 
@@ -371,8 +371,8 @@ static sai_status_t dn_sai_tunnel_ttl_mode_set (dn_sai_tunnel_t *p_tunnel_obj,
 static sai_status_t dn_sai_tunnel_dscp_mode_set (dn_sai_tunnel_t *p_tunnel_obj,
                                                  const sai_attribute_t  *p_attr)
 {
-    if ((p_attr->value.s32 != SAI_TUNNEL_DSCP_UNIFORM_MODEL) &&
-        (p_attr->value.s32 != SAI_TUNNEL_DSCP_PIPE_MODEL)) {
+    if ((p_attr->value.s32 != SAI_TUNNEL_DSCP_MODE_UNIFORM_MODEL) &&
+        (p_attr->value.s32 != SAI_TUNNEL_DSCP_MODE_PIPE_MODEL)) {
 
         SAI_TUNNEL_LOG_ERR ("Invalid dscp mode value: %d.", p_attr->value.s32);
 
@@ -524,6 +524,7 @@ static sai_status_t dn_sai_tunnel_attr_set (dn_sai_tunnel_t *p_tunnel_obj,
 }
 
 static sai_status_t dn_sai_tunnel_create (sai_object_id_t *tunnel_id,
+                                          sai_object_id_t  switch_id,
                                           uint32_t attr_count,
                                           const sai_attribute_t *attr_list)
 {

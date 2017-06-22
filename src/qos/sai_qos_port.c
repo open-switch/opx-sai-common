@@ -171,7 +171,7 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
             set_attr.id = SAI_PORT_ATTR_QOS_WRED_PROFILE_ID;
             set_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-            sai_rc = sai_port_attr_wred_profile_set (p_qos_port_node->port_id, &set_attr);
+            sai_rc = sai_port_attr_wred_profile_set_internal (p_qos_port_node->port_id, &set_attr);
 
 
             if(sai_rc != SAI_STATUS_SUCCESS) {
@@ -186,7 +186,7 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
         for (map_type = 0; map_type < SAI_QOS_MAX_QOS_MAPS_TYPES; map_type++) {
             if(p_qos_port_node->maps_id[map_type] != SAI_NULL_OBJECT_ID) {
                 set_attr.value.oid = SAI_NULL_OBJECT_ID;
-                sai_rc = sai_qos_map_on_port_set(p_qos_port_node->port_id, &set_attr, map_type);
+                sai_rc = sai_qos_map_on_port_set_internal(p_qos_port_node->port_id, &set_attr, map_type);
                 if(sai_rc != SAI_STATUS_SUCCESS) {
                     break;
                 }
@@ -208,7 +208,7 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
                 }
                 set_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-                sai_rc = sai_port_attr_storm_control_policer_set (p_qos_port_node->port_id,
+                sai_rc = sai_port_attr_storm_control_policer_set_internal (p_qos_port_node->port_id,
                                                                   &set_attr);
                 if(sai_rc != SAI_STATUS_SUCCESS) {
                     break;
@@ -240,7 +240,7 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
             set_attr.id = SAI_PORT_ATTR_QOS_WRED_PROFILE_ID;
             set_attr.value.oid = wred_id;
 
-            rev_sai_rc = sai_port_attr_wred_profile_set (p_qos_port_node->port_id, &set_attr);
+            rev_sai_rc = sai_port_attr_wred_profile_set_internal (p_qos_port_node->port_id, &set_attr);
 
 
             if(rev_sai_rc != SAI_STATUS_SUCCESS) {
@@ -255,7 +255,7 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
             for (rev_map_type = 0; rev_map_type < map_type; rev_map_type++) {
                 if(maps_id[rev_map_type] != SAI_NULL_OBJECT_ID) {
                     set_attr.value.oid = maps_id[rev_map_type];
-                    rev_sai_rc = sai_qos_map_on_port_set(p_qos_port_node->port_id, &set_attr, rev_map_type);
+                    rev_sai_rc = sai_qos_map_on_port_set_internal (p_qos_port_node->port_id, &set_attr, rev_map_type);
                     if(rev_sai_rc != SAI_STATUS_SUCCESS) {
                         SAI_QOS_LOG_ERR ("Error: Unable to revert map type %d on port:0x%"PRIx64""
                                 " Error %d", rev_map_type, p_qos_port_node->port_id, rev_sai_rc);
@@ -277,7 +277,7 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
                     }
                     set_attr.value.oid = policer_id[rev_policer_type];
 
-                    rev_sai_rc = sai_port_attr_storm_control_policer_set (p_qos_port_node->port_id,
+                    rev_sai_rc = sai_port_attr_storm_control_policer_set_internal (p_qos_port_node->port_id,
                                                                           &set_attr);
                     if(rev_sai_rc != SAI_STATUS_SUCCESS) {
                         SAI_QOS_LOG_ERR ("Error: Unable to revert policer type %d on port:0x%"PRIx64""
@@ -410,7 +410,6 @@ static sai_status_t sai_qos_port_global_init (sai_object_id_t port_id)
 
     SAI_QOS_LOG_TRACE ("Qos Port 0x%"PRIx64" Global Init.", port_id);
 
-    sai_qos_lock ();
 
     do {
         p_qos_port_node = sai_qos_port_node_alloc ();
@@ -457,8 +456,6 @@ static sai_status_t sai_qos_port_global_init (sai_object_id_t port_id)
         sai_qos_port_free_resources (p_qos_port_node);
     }
 
-    sai_qos_unlock ();
-
     return sai_rc;
 }
 
@@ -475,7 +472,6 @@ static sai_status_t sai_qos_port_global_deinit (sai_object_id_t port_id)
         return SAI_STATUS_INVALID_OBJECT_TYPE;
     }
 
-    sai_qos_lock ();
 
     do {
         p_qos_port_node = sai_qos_port_node_get (port_id);
@@ -511,8 +507,6 @@ static sai_status_t sai_qos_port_global_deinit (sai_object_id_t port_id)
         sai_qos_port_free_resources (p_qos_port_node);
 
     } while (0);
-
-    sai_qos_unlock ();
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
         SAI_QOS_LOG_INFO ("Qos Port 0x%"PRIx64" De-Initialized.", port_id);
@@ -553,7 +547,7 @@ static sai_status_t sai_qos_port_handle_deinit_failure (sai_object_id_t port_id)
     return SAI_STATUS_SUCCESS;
 }
 
-sai_status_t sai_qos_port_init (sai_object_id_t port_id)
+static sai_status_t sai_qos_port_init_internal (sai_object_id_t port_id)
 {
     sai_status_t       sai_rc = SAI_STATUS_SUCCESS;
     bool               is_port_global_init = false;
@@ -561,16 +555,17 @@ sai_status_t sai_qos_port_init (sai_object_id_t port_id)
     bool               is_port_hierarchy_init = false;
     dn_sai_qos_port_t  *p_qos_port_node = NULL;
 
-    p_qos_port_node = sai_qos_port_node_get (port_id);
-
-
-    if(p_qos_port_node != NULL) {
-         return SAI_STATUS_SUCCESS;
-    }
-
-    SAI_QOS_LOG_TRACE ("Qos Port 0x%"PRIx64" Init.", port_id);
-
     do {
+        p_qos_port_node = sai_qos_port_node_get (port_id);
+
+        if (p_qos_port_node != NULL) {
+            SAI_QOS_LOG_TRACE ("Qos Port 0x%"PRIx64" already exists.", port_id);
+            sai_rc = SAI_STATUS_SUCCESS;
+            break;
+        }
+
+        SAI_QOS_LOG_TRACE ("Qos Port 0x%"PRIx64" Init.", port_id);
+
         sai_rc = sai_qos_port_global_init (port_id);
 
         if (sai_rc != SAI_STATUS_SUCCESS) {
@@ -580,17 +575,6 @@ sai_status_t sai_qos_port_init (sai_object_id_t port_id)
         }
 
         is_port_global_init = true;
-
-        /* Initialize all queues on port */
-        sai_rc = sai_qos_port_queue_all_init (port_id);
-
-        if (sai_rc != SAI_STATUS_SUCCESS) {
-            SAI_QOS_LOG_CRIT ("SAI QOS port 0x%"PRIx64" queue all init failed.",
-                               port_id);
-            break;
-        }
-
-        is_port_queue_init = true;
 
         if (sai_qos_is_hierarchy_qos_supported ()) {
             /* Initialize Default Scheduler groups on port */
@@ -602,25 +586,51 @@ sai_status_t sai_qos_port_init (sai_object_id_t port_id)
                 break;
             }
             is_port_hierarchy_init = true;
+        } else {
+            /* Initialize all queues on port */
+            sai_rc = sai_qos_port_queue_all_init (port_id);
+
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_QOS_LOG_CRIT ("SAI QOS port 0x%"PRIx64" queue all init failed.",
+                                   port_id);
+                break;
+            }
         }
+
+        is_port_queue_init = true;
 
         sai_rc = sai_qos_port_create_all_pg (port_id);
         if (sai_rc != SAI_STATUS_SUCCESS) {
             SAI_QOS_LOG_CRIT ("SAI QOS port 0x%"PRIx64" pg init failed.", port_id);
             break;
         }
+
     } while (0);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
         SAI_QOS_LOG_INFO ("Qos Port 0x%"PRIx64" init success.", port_id);
     } else {
-        SAI_QUEUE_LOG_ERR ("Failed Qos Port 0x%"PRIx64" init.", port_id);
+        SAI_QOS_LOG_ERR ("Failed Qos Port 0x%"PRIx64" init.", port_id);
 
         sai_qos_port_handle_init_failure (port_id, is_port_global_init,
                                           is_port_queue_init,
                                           is_port_hierarchy_init);
 
     }
+
+    return sai_rc;
+}
+
+sai_status_t sai_qos_port_init (sai_object_id_t port_id)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    sai_qos_lock();
+
+    sai_rc = sai_qos_port_init_internal (port_id);
+
+    sai_qos_unlock();
+
     return sai_rc;
 }
 
@@ -696,7 +706,7 @@ static sai_status_t sai_qos_non_default_configs_remove (sai_object_id_t port_id)
     return sai_rc;
 }
 
-sai_status_t sai_qos_port_deinit (sai_object_id_t port_id)
+static sai_status_t sai_qos_port_deinit_internal (sai_object_id_t port_id)
 {
     sai_status_t       sai_rc = SAI_STATUS_SUCCESS;
     dn_sai_qos_port_t *p_qos_port_node = NULL;
@@ -711,21 +721,28 @@ sai_status_t sai_qos_port_deinit (sai_object_id_t port_id)
 
     SAI_QOS_LOG_TRACE ("Qos Port De-Init. Port ID 0x%"PRIx64".", port_id);
 
-    p_qos_port_node = sai_qos_port_node_get (port_id);
-
-    if (NULL == p_qos_port_node) {
-        SAI_QOS_LOG_ERR ("Qos Port 0x%"PRIx64" does not exist in tree.",
-                         port_id);
-
-        return SAI_STATUS_INVALID_OBJECT_ID;
-    }
-
     do {
+        p_qos_port_node = sai_qos_port_node_get (port_id);
+
+        if (NULL == p_qos_port_node) {
+            SAI_QOS_LOG_ERR ("Qos Port 0x%"PRIx64" does not exist in tree.",
+                             port_id);
+
+            sai_rc = SAI_STATUS_INVALID_OBJECT_ID;
+            break;
+        }
 
         sai_rc = sai_qos_non_default_configs_remove (port_id);
         if (sai_rc != SAI_STATUS_SUCCESS) {
             SAI_QOS_LOG_ERR ("Failed to remove non default scheduler port 0x%"PRIx64".",
                     port_id);
+            break;
+        }
+
+        sai_rc = sai_qos_port_destroy_all_pg (port_id);
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_QOS_LOG_ERR ("SAI QOS port 0x%"PRIx64" pg all de-init failed.",
+                             port_id);
             break;
         }
 
@@ -738,22 +755,15 @@ sai_status_t sai_qos_port_deinit (sai_object_id_t port_id)
                                  "failed.", port_id);
                 break;
             }
-        }
+        } else {
+            /* De-Initialize all queues on port */
+            sai_rc = sai_qos_port_queue_all_deinit (port_id);
 
-        /* De-Initialize all queues on port */
-        sai_rc = sai_qos_port_queue_all_deinit (port_id);
-
-        if (sai_rc != SAI_STATUS_SUCCESS) {
-            SAI_QOS_LOG_ERR ("SAI QOS port 0x%"PRIx64" queue all de-init failed.",
-                             port_id);
-            break;
-        }
-
-        sai_rc = sai_qos_port_destroy_all_pg (port_id);
-        if (sai_rc != SAI_STATUS_SUCCESS) {
-            SAI_QOS_LOG_ERR ("SAI QOS port 0x%"PRIx64" pg all de-init failed.",
-                             port_id);
-            break;
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_QOS_LOG_ERR ("SAI QOS port 0x%"PRIx64" queue all de-init failed.",
+                                 port_id);
+                break;
+            }
         }
 
         sai_rc = sai_qos_port_global_deinit (port_id);
@@ -775,6 +785,19 @@ sai_status_t sai_qos_port_deinit (sai_object_id_t port_id)
     return sai_rc;
 }
 
+sai_status_t sai_qos_port_deinit (sai_object_id_t port_id)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    sai_qos_lock();
+
+    sai_rc = sai_qos_port_deinit_internal (port_id);
+
+    sai_qos_unlock();
+
+    return sai_rc;
+}
+
 sai_status_t sai_qos_port_all_init (void)
 {
     sai_status_t    sai_rc = SAI_STATUS_FAILURE;
@@ -785,7 +808,7 @@ sai_status_t sai_qos_port_all_init (void)
 
     cpu_port_id = sai_switch_cpu_port_obj_id_get();
 
-    sai_rc = sai_qos_port_init (cpu_port_id);
+    sai_rc = sai_qos_port_init_internal (cpu_port_id);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         SAI_QOS_LOG_CRIT ("SAI QOS CPU Port 0x%"PRIx64" init failed.",
@@ -800,7 +823,7 @@ sai_status_t sai_qos_port_all_init (void)
             continue;
         }
 
-        sai_rc = sai_qos_port_init (port_info->sai_port_id);
+        sai_rc = sai_qos_port_init_internal (port_info->sai_port_id);
 
         if (sai_rc != SAI_STATUS_SUCCESS) {
             SAI_QOS_LOG_CRIT ("SAI QOS Port 0x%"PRIx64" init failed.",
@@ -830,7 +853,7 @@ sai_status_t sai_qos_port_all_deinit (void)
 
     cpu_port_id = sai_switch_cpu_port_obj_id_get();
 
-    sai_rc = sai_qos_port_deinit (cpu_port_id);
+    sai_rc = sai_qos_port_deinit_internal (cpu_port_id);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         SAI_QOS_LOG_CRIT ("SAI QOS CPU Port 0x%"PRIx64" de-init failed.",
@@ -853,7 +876,7 @@ sai_status_t sai_qos_port_all_deinit (void)
 
         port_id = p_qos_port_node->port_id;
 
-        sai_rc = sai_qos_port_deinit (port_id);
+        sai_rc = sai_qos_port_deinit_internal (port_id);
 
         if (sai_rc != SAI_STATUS_SUCCESS) {
             SAI_QOS_LOG_ERR ("SAI QOS Port 0x%"PRIx64" de-init failed.", port_id);
@@ -869,6 +892,7 @@ sai_status_t sai_qos_port_all_deinit (void)
 
     return sai_rc;
 }
+
 sai_status_t sai_qos_port_buffer_profile_set (sai_object_id_t port_id,
                                               sai_object_id_t profile_id)
 {

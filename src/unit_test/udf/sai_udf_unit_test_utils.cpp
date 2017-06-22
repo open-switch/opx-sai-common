@@ -40,6 +40,7 @@ extern "C" {
 sai_switch_api_t* saiUdfTest::p_sai_switch_api_tbl = NULL;
 sai_udf_api_t* saiUdfTest::p_sai_udf_api_tbl = NULL;
 sai_object_id_t saiUdfTest::dflt_udf_group_id = SAI_NULL_OBJECT_ID;
+static sai_object_id_t switch_id = 0;
 
 #define UDF_PRINT(msg, ...) \
     printf(msg"\n", ##__VA_ARGS__)
@@ -57,13 +58,6 @@ sai_object_id_t saiUdfTest::dflt_udf_group_id = SAI_NULL_OBJECT_ID;
 static inline void sai_port_state_evt_callback (
                                      uint32_t count,
                                      sai_port_oper_status_notification_t *data)
-{
-    UNREFERENCED_PARAMETER(count);
-    UNREFERENCED_PARAMETER(data);
-}
-
-static inline void sai_port_evt_callback (uint32_t count,
-                                          sai_port_event_notification_t *data)
 {
     UNREFERENCED_PARAMETER(count);
     UNREFERENCED_PARAMETER(data);
@@ -100,10 +94,7 @@ static inline void sai_switch_shutdown_callback (void)
 /* SAI switch initialization */
 void saiUdfTest::SetUpTestCase (void)
 {
-    sai_switch_notification_t notification;
     sai_status_t              status = SAI_STATUS_FAILURE;
-
-    memset (&notification, 0, sizeof(sai_switch_notification_t));
 
     /*
      * Query and populate the SAI Switch API Table.
@@ -116,20 +107,39 @@ void saiUdfTest::SetUpTestCase (void)
 
     /*
      * Switch Initialization.
-     * Fill in notification callback routines with stubs.
      */
-    notification.on_switch_state_change = sai_switch_operstate_callback;
-    notification.on_fdb_event = sai_fdb_evt_callback;
-    notification.on_port_state_change = sai_port_state_evt_callback;
-    notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-    notification.on_port_event = sai_port_evt_callback;
-    notification.on_packet_event = sai_packet_event_callback;
 
-    ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
+    sai_attribute_t sai_attr_set[7];
+    uint32_t attr_count = 7;
+
+    memset(&sai_attr_set,0, sizeof(sai_attribute_t));
+
+    sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+    sai_attr_set[0].value.booldata = 1;
+
+    sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+    sai_attr_set[1].value.u32 = 0;
+
+    sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+    sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+    sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+    sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+    sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+    sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+    sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+    sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+    sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+    sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+    ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-               (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                         &notification)));
+               (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                         sai_attr_set)));
 
     /* Query the UDF API method tables */
     sai_test_udf_api_table_get ();
@@ -143,7 +153,7 @@ void saiUdfTest::SetUpTestCase (void)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    UDF_PRINT ("Created a default UDF Group Id: 0x%"PRIx64" for UDF tests.",
+    UDF_PRINT ("Created a default UDF Group Id: 0x%" PRIx64 " for UDF tests.",
                dflt_udf_group_id);
 }
 
@@ -210,7 +220,7 @@ void saiUdfTest::sai_test_udf_group_attr_value_print (sai_attribute_t *p_attr)
         case SAI_UDF_GROUP_ATTR_UDF_LIST:
             UDF_PRINT ("UDF List count: %u.", p_attr->value.objlist.count);
             for (index = 0; index < p_attr->value.objlist.count; index++) {
-                UDF_PRINT ("UDF Id[%u]: 0x%"PRIx64".", index,
+                UDF_PRINT ("UDF Id[%u]: 0x%" PRIx64 ".", index,
                            p_attr->value.objlist.list[index]);
             }
             break;
@@ -262,14 +272,14 @@ sai_status_t saiUdfTest::sai_test_udf_group_create (
 
     va_end (ap);
 
-    status = p_sai_udf_api_tbl->create_udf_group (udf_group_id, attr_count,
+    status = p_sai_udf_api_tbl->create_udf_group (udf_group_id, switch_id, attr_count,
                                                   attr_list);
 
     if (status != SAI_STATUS_SUCCESS) {
         UDF_PRINT ("SAI UDF Group Creation API failed with error: %d.", status);
     } else {
         UDF_PRINT ("SAI UDF Group Creation API success, UDF Group Id: "
-                   "0x%"PRIx64".", *udf_group_id);
+                   "0x%" PRIx64 ".", *udf_group_id);
     }
 
     return status;
@@ -279,7 +289,7 @@ sai_status_t saiUdfTest::sai_test_udf_group_remove (sai_object_id_t udf_group_id
 {
     sai_status_t       status;
 
-    UDF_PRINT ("Testing UDF Group Id: 0x%"PRIx64" remove.", udf_group_id);
+    UDF_PRINT ("Testing UDF Group Id: 0x%" PRIx64 " remove.", udf_group_id);
 
     status = p_sai_udf_api_tbl->remove_udf_group (udf_group_id);
 
@@ -436,12 +446,12 @@ sai_status_t saiUdfTest::sai_test_udf_create (sai_object_id_t *udf_id,
 
     va_end (ap);
 
-    status = p_sai_udf_api_tbl->create_udf (udf_id, attr_count, attr_list);
+    status = p_sai_udf_api_tbl->create_udf (udf_id, switch_id, attr_count, attr_list);
 
     if (status != SAI_STATUS_SUCCESS) {
         UDF_PRINT ("SAI UDF Creation API failed with error: %d.", status);
     } else {
-        UDF_PRINT ("SAI UDF Creation API success, UDF Id: 0x%"PRIx64".", *udf_id);
+        UDF_PRINT ("SAI UDF Creation API success, UDF Id: 0x%" PRIx64 ".", *udf_id);
     }
 
     return status;
@@ -451,7 +461,7 @@ sai_status_t saiUdfTest::sai_test_udf_remove (sai_object_id_t udf_id)
 {
     sai_status_t  status;
 
-    UDF_PRINT ("Testing UDF Id: 0x%"PRIx64" remove.", udf_id);
+    UDF_PRINT ("Testing UDF Id: 0x%" PRIx64 " remove.", udf_id);
 
     status = p_sai_udf_api_tbl->remove_udf (udf_id);
 
@@ -579,7 +589,7 @@ void saiUdfTest::sai_test_udf_api_attr_value_fill (sai_attribute_t *p_attr,
         case SAI_UDF_ATTR_GROUP_ID:
             p_attr->value.oid = (sai_object_id_t) attr_val;
 
-            UDF_PRINT ("Value OID: 0x%"PRIx64".", p_attr->value.oid);
+            UDF_PRINT ("Value OID: 0x%" PRIx64 ".", p_attr->value.oid);
             break;
 
         case SAI_UDF_ATTR_OFFSET:
@@ -625,11 +635,11 @@ void saiUdfTest::sai_test_udf_api_attr_value_print (sai_attribute_t *p_attr)
             break;
 
         case SAI_UDF_ATTR_MATCH_ID:
-            UDF_PRINT ("UDF Match ID: 0x%"PRIx64".", p_attr->value.oid);
+            UDF_PRINT ("UDF Match ID: 0x%" PRIx64 ".", p_attr->value.oid);
             break;
 
         case SAI_UDF_ATTR_GROUP_ID:
-            UDF_PRINT ("UDF Group ID: 0x%"PRIx64".", p_attr->value.oid);
+            UDF_PRINT ("UDF Group ID: 0x%" PRIx64 ".", p_attr->value.oid);
             break;
 
         case SAI_UDF_ATTR_OFFSET:
@@ -696,12 +706,12 @@ sai_status_t saiUdfTest::sai_test_udf_match_create (sai_object_id_t *match_id,
 
     va_end (ap);
 
-    status = p_sai_udf_api_tbl->create_udf_match (match_id, attr_count, attr_list);
+    status = p_sai_udf_api_tbl->create_udf_match (match_id, switch_id, attr_count, attr_list);
 
     if (status != SAI_STATUS_SUCCESS) {
         UDF_PRINT ("SAI UDF Match Creation API failed with error: %d.", status);
     } else {
-        UDF_PRINT ("SAI UDF Match Creation API success, Match Id: 0x%"PRIx64".",
+        UDF_PRINT ("SAI UDF Match Creation API success, Match Id: 0x%" PRIx64 ".",
                    *match_id);
     }
 
@@ -712,7 +722,7 @@ sai_status_t saiUdfTest::sai_test_udf_match_remove (sai_object_id_t match_id)
 {
     sai_status_t  status;
 
-    UDF_PRINT ("Testing UDF Match Id: 0x%"PRIx64" remove.", match_id);
+    UDF_PRINT ("Testing UDF Match Id: 0x%" PRIx64 " remove.", match_id);
 
     status = p_sai_udf_api_tbl->remove_udf_match (match_id);
 

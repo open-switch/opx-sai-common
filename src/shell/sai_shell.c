@@ -201,24 +201,36 @@ sai_status_t sai_shell_cmd_init(void) {
     sai_shell_cmd_add("exit",sai_shell_cmd_exit,"Exit the SAI Shell");
     sai_shell_cmd_add("prompt",sai_shell_prompt_change,"[on|off] - To Enable/Disable Prompt");
     sai_shell_cmd_add("npu",sai_npu_shell,"To Enter NPU shell");
+    sai_shell_add_debug_commands();
 
     return (sai_shell_npu_api_get()->shell_cmd_init());
 }
 
 sai_status_t sai_shell_start(void) {
 
+    return SAI_STATUS_SUCCESS;
+}
+
+sai_status_t sai_shell_set(bool status)
+{
     t_std_error er = STD_ERR_OK;
 
-    SAI_SWITCH_LOG_TRACE("SAI Shell initialized");
+    SAI_SWITCH_LOG_TRACE("SAI Shell re-initialized");
 
-    strncpy(shell.path,SAI_SHELL_CMD_SOCK,sizeof(shell.path)-1);
-    shell.param = NULL;
-    shell.func = npu_shell_proxy;
-    if ((er = std_cmd_redir_init(&shell)) != STD_ERR_OK) {
-        SAI_SWITCH_LOG_ERR ("SAI redirect init failed with err %d",er);
-        return SAI_STATUS_FAILURE;
+    if (status == false) {
+        if((er = std_cmd_redir_term_conn(&shell)) != STD_ERR_OK) {
+            SAI_SWITCH_LOG_ERR ("SAI tern redirect failed with err %d",er);
+            return SAI_STATUS_FAILURE;
+        }
+    }else {
+        strncpy(shell.path,SAI_SHELL_CMD_SOCK,sizeof(shell.path)-1);
+        shell.param = NULL;
+        shell.func = npu_shell_proxy;
+        if ((er = std_cmd_redir_init(&shell)) != STD_ERR_OK) {
+            SAI_SWITCH_LOG_ERR ("SAI redirect init failed with err %d",er);
+            return SAI_STATUS_FAILURE;
+        }
     }
 
     return SAI_STATUS_SUCCESS;
 }
-

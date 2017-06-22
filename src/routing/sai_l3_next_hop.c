@@ -794,6 +794,7 @@ static sai_status_t sai_fib_ip_next_hop_remove (sai_fib_nh_t *p_nh_node)
 
 /* Next Hop IPv4 address attribute is expected in Network Byte Order */
 static sai_status_t sai_fib_next_hop_create (sai_object_id_t *p_next_hop_id,
+                                             sai_object_id_t switch_id,
                                              uint32_t attr_count,
                                              const sai_attribute_t *attr_list)
 {

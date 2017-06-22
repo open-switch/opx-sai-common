@@ -33,6 +33,7 @@
 #include "sai_samplepacket_api.h"
 #include "sai_common_infra.h"
 #include "sai_common_utils.h"
+#include "sai_port_common.h"
 
 #include "saiport.h"
 #include "saitypes.h"
@@ -46,12 +47,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <inttypes.h>
-
-/*
- * SAI internal port event notification handler, which invokes
- * registered SAI port event notification function
- */
-static sai_port_event_notification_fn sai_port_event_callback = NULL;
 
 /* Internal port event notification handler list for all SAI module,
  * used to invoke all registered internal modules notification function */
@@ -138,7 +133,7 @@ static sai_status_t sai_port_set_drop_tagged (sai_object_id_t port_id,
     return SAI_STATUS_SUCCESS;
 }
 
-sai_status_t sai_port_set_attribute(sai_object_id_t port_id,
+static sai_status_t sai_port_apply_attribute (sai_object_id_t port_id,
                                     const sai_attribute_t *attr)
 {
     sai_status_t ret = SAI_STATUS_FAILURE;
@@ -147,7 +142,6 @@ sai_status_t sai_port_set_attribute(sai_object_id_t port_id,
 
     SAI_PORT_LOG_TRACE("Attribute %d set for port 0x%"PRIx64"", attr->id, port_id);
 
-    sai_port_lock();
     do {
         if(!sai_is_obj_id_port(port_id)) {
             SAI_PORT_LOG_ERR("port id 0x%"PRIx64" is not a port object", port_id);
@@ -224,8 +218,6 @@ sai_status_t sai_port_set_attribute(sai_object_id_t port_id,
             case SAI_PORT_ATTR_QOS_DOT1P_TO_COLOR_MAP:
             case SAI_PORT_ATTR_QOS_DSCP_TO_TC_MAP:
             case SAI_PORT_ATTR_QOS_DSCP_TO_COLOR_MAP:
-            case SAI_PORT_ATTR_QOS_TC_TO_DSCP_MAP:
-            case SAI_PORT_ATTR_QOS_TC_TO_DOT1P_MAP:
             case SAI_PORT_ATTR_QOS_TC_TO_PRIORITY_GROUP_MAP:
             case SAI_PORT_ATTR_QOS_PFC_PRIORITY_TO_QUEUE_MAP:
                 ret = sai_qos_map_on_port_set(port_id, attr,
@@ -272,6 +264,11 @@ sai_status_t sai_port_set_attribute(sai_object_id_t port_id,
                 }
                 break;
 
+            case SAI_PORT_ATTR_INGRESS_ACL:
+            case SAI_PORT_ATTR_EGRESS_ACL:
+                ret = SAI_STATUS_SUCCESS;
+                break;
+
             default:
                 ret = sai_port_npu_api_get()->port_set_attribute(port_id, attr);
                 if(ret != SAI_STATUS_SUCCESS) {
@@ -296,8 +293,19 @@ sai_status_t sai_port_set_attribute(sai_object_id_t port_id,
 
     } while(0);
 
-    sai_port_unlock();
     return ret;
+}
+
+static sai_status_t sai_port_set_attribute(sai_object_id_t port_id,
+                                    const sai_attribute_t *attr)
+{
+    sai_status_t sai_rc = SAI_STATUS_FAILURE;
+    sai_port_lock();
+
+    sai_rc = sai_port_apply_attribute(port_id, attr);
+
+    sai_port_unlock();
+    return sai_rc;
 }
 
 sai_status_t sai_port_get_attribute(sai_object_id_t port_id,
@@ -331,8 +339,8 @@ sai_status_t sai_port_get_attribute(sai_object_id_t port_id,
 
         ret = sai_port_npu_api_get()->port_get_attribute(port_id, attr_count, attr_list);
         if(ret != SAI_STATUS_SUCCESS) {
-            SAI_PORT_LOG_ERR("Attr get for port id 0x%"PRIx64" failed with err %d",
-                             port_id, ret);
+            SAI_PORT_LOG_TRACE("Attr get for port id 0x%"PRIx64" failed with err %d",
+                                port_id, ret);
             break;
         }
     } while(0);
@@ -545,7 +553,7 @@ static sai_status_t sai_port_set_attribute_default(sai_object_id_t sai_port_id)
     }
 
     memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
-    sai_attr_set.id = SAI_PORT_ATTR_INTERNAL_LOOPBACK;
+    sai_attr_set.id = SAI_PORT_ATTR_INTERNAL_LOOPBACK_MODE;
     sai_attr_set.value.s32 = port_attr_info->internal_loopback;
     ret = sai_port_set_attribute(sai_port_id, &sai_attr_set);
     if (ret != SAI_STATUS_SUCCESS) {
@@ -555,7 +563,7 @@ static sai_status_t sai_port_set_attribute_default(sai_object_id_t sai_port_id)
     }
 
     memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
-    sai_attr_set.id = SAI_PORT_ATTR_FDB_LEARNING;
+    sai_attr_set.id = SAI_PORT_ATTR_FDB_LEARNING_MODE;
     sai_attr_set.value.s32 = port_attr_info->fdb_learning;
     ret = sai_port_set_attribute(sai_port_id, &sai_attr_set);
     if (ret != SAI_STATUS_SUCCESS) {
@@ -586,20 +594,6 @@ void sai_port_state_register_callback(sai_port_state_change_notification_fn port
     sai_port_lock();
     sai_port_npu_api_get()->reg_link_state_cb(port_state_notf_fn);
     sai_port_unlock();
-}
-
-/* Notify Adapter host through the registered port event callback */
-void sai_port_event_notification(uint32_t count,
-                                 sai_port_event_notification_t *data)
-{
-    STD_ASSERT(data != NULL);
-
-    /* @todo Invoke other modules for port related changes based on
-     * port ADD/DELETE event */
-
-    if(sai_port_event_callback != NULL) {
-        sai_port_event_callback(count, data);
-    }
 }
 
 /* Port Module's internal port_event notification handler */
@@ -638,15 +632,6 @@ sai_status_t sai_port_event_internal_notif_register(sai_module_t module_id,
     sai_port_unlock();
 
     return SAI_STATUS_SUCCESS;
-}
-
-void sai_port_event_register_callback(sai_port_event_notification_fn port_event_notf_fn)
-{
-    SAI_PORT_LOG_TRACE("Port Event notification registration");
-
-    sai_port_lock();
-    sai_port_event_callback = port_event_notf_fn;
-    sai_port_unlock();
 }
 
 /* Notify all the registered modules with port events  */
@@ -688,186 +673,25 @@ void sai_port_init_event_notification(void)
     sai_port_unlock();
 
     sai_port_event_internal_notf(count, data);
-    sai_port_event_notification(count, data);
 }
 
-/*
- * Port Add/Delete event notification to registered Adapter host/Internal SAI modules.
- * This API loops through all ports in the breakout port list and creates notification */
-static void sai_port_breakout_add_delete_event_notification(bool internal_notf,
-                                                            const sai_port_breakout_t *portbreakout,
-                                                            sai_port_event_t event_type)
+void sai_ports_linkscan_enable(void)
 {
-    uint_t port_idx = 0;
-    sai_port_event_notification_t data[portbreakout->port_list.count];
+    sai_port_info_t *port_info = NULL;
 
-    STD_ASSERT(portbreakout != NULL);
-    STD_ASSERT(portbreakout->port_list.list != NULL);
-
-    for(port_idx = 0; port_idx < portbreakout->port_list.count; port_idx++) {
-        data[port_idx].port_id = portbreakout->port_list.list[port_idx];
-        data[port_idx].port_event = event_type;
-    }
-
-    if(internal_notf) {
-        sai_port_event_internal_notf(portbreakout->port_list.count, data);
-    } else {
-        /* Adapter host notification */
-        sai_port_event_notification(portbreakout->port_list.count, data);
-    }
-}
-
-/* Port add event notification to registered Adapter host/Internal SAI modules.
- * As breakout will create new ports which are to notified, this API retrieves
- * the new ports and creates ADD notification. */
-static void sai_port_breakout_add_event_notification(bool internal_notf,
-                                                     const sai_port_breakout_t *portbreakout)
-{
-    uint_t port_idx = 0, port_count = 0, lane = 0, max_lanes = 0;
-    sai_object_id_t port = SAI_NULL_OBJECT_ID;
-    sai_object_id_t port_list[SAI_PORT_BREAKOUT_MODE_MAX];
-    sai_status_t ret_code = SAI_STATUS_SUCCESS;
-
-    STD_ASSERT(portbreakout != NULL);
-    STD_ASSERT(portbreakout->port_list.list != NULL);
-
-    sai_port_breakout_mode_type_t breakout_mode = portbreakout->breakout_mode;
-
-    /* Update the port list on the breakout mode applied */
-    if(breakout_mode == SAI_PORT_BREAKOUT_MODE_4_LANE) {
-
-        /* ADD notification for the control port */
-        port_list[port_count] = port = portbreakout->port_list.list[port_idx];
-        port_count++;
-
-        sai_port_lock();
-
-        do {
-            if(sai_port_max_lanes_get(port, &max_lanes) != SAI_STATUS_SUCCESS) {
-                SAI_PORT_LOG_ERR("Max port lane get failed for port 0x%"PRIx64"", port);
-                ret_code = SAI_STATUS_FAILURE;
-                break;
-            }
-
-            sai_port_info_t *port_info = sai_port_info_get(port);
-            if(port_info == NULL) {
-                SAI_PORT_LOG_ERR("port info get returns NULL for port 0x%"PRIx64"", port);
-                ret_code = SAI_STATUS_FAILURE;
-                break;
-            }
-
-            /* ADD notification for the subsidiary ports */
-            for (lane = 1; lane < max_lanes; lane++) {
-                port_info = sai_port_info_getnext(port_info);
-
-                if(port_info == NULL) {
-                    SAI_PORT_LOG_ERR("port info getnext returns NULL");
-                    ret_code = SAI_STATUS_FAILURE;
-                    break;
-                }
-
-                port_list[port_count] = port_info->sai_port_id;
-                port_count++;
-            }
-        }while(0);
-
-        sai_port_unlock();
-
-        if(ret_code != SAI_STATUS_SUCCESS) {
-            return;
-        }
-
-    } else if(breakout_mode == SAI_PORT_BREAKOUT_MODE_1_LANE) {
-
-        /* Port list need not necessarily have the ports in consecutive order; Only
-         * one port among the ports in port list will be valid after break-in.
-         * Send ADD notification the first valid in the port list. */
-
-        sai_port_lock();
-
-        for(port_idx = 0; port_idx < portbreakout->port_list.count; port_idx++) {
-
-            /* ADD notification for control and subsidiary ports */
-            if(sai_is_port_valid(portbreakout->port_list.list[port_idx])) {
-
-                port_list[port_count] = portbreakout->port_list.list[port_idx];
-                port_count++;
-
-                break;
+    sai_port_lock();
+    for (port_info = sai_port_info_getfirst(); (port_info != NULL);
+         port_info = sai_port_info_getnext(port_info)) {
+        if (sai_is_port_valid(port_info->sai_port_id)) {
+            if ((sai_port_npu_api_get()->linkscan_mode_set != NULL) &&
+                    (sai_port_npu_api_get()->linkscan_mode_set(port_info->sai_port_id, true)
+                            != SAI_STATUS_SUCCESS)) {
+                SAI_PORT_LOG_ERR("Failed to enable linkcan on port 0x%"PRIx64" in npu",
+                                 port_info->sai_port_id);
             }
         }
-        sai_port_unlock();
     }
-
-    {
-        sai_port_event_notification_t data[port_count];
-        /* Invoke port event notification based on the notification type */
-        for(port_idx = 0; port_idx < port_count; port_idx++) {
-            data[port_idx].port_id = port_list[port_idx];
-            data[port_idx].port_event = SAI_PORT_EVENT_ADD;
-        }
-
-        if(internal_notf) {
-            sai_port_event_internal_notf(port_count, data);
-        } else {
-            sai_port_event_notification(port_count, data);
-        }
-    }
-}
-
-/* Post Breakout, provides ADD/DELETE port event callback notification to adapter host */
-static void sai_port_breakout_event_notification(const sai_port_breakout_t *portbreakout)
-{
-    STD_ASSERT(portbreakout != NULL);
-
-    SAI_PORT_LOG_TRACE("Creating SAI_PORT_EVENT after applying breakout mode %d",
-                       portbreakout->breakout_mode);
-
-    /* Delete notification to all ports in the breakout port list */
-    sai_port_breakout_add_delete_event_notification(false, portbreakout,
-                                                    SAI_PORT_EVENT_DELETE);
-
-    /* Add notification to all the newly created ports */
-    sai_port_breakout_add_event_notification(false, portbreakout);
-}
-
-/* Validates a given port and its breakout capability */
-static sai_status_t sai_port_breakout_mode_validation(sai_object_id_t port,
-                                                      sai_port_breakout_mode_type_t breakout_mode)
-{
-    bool breakout_sup = false;
-    sai_status_t ret_code = SAI_STATUS_FAILURE;
-
-    if(!sai_is_obj_id_port(port)) {
-        SAI_PORT_LOG_ERR("Port id 0x%"PRIx64" is not a port object", port);
-        return SAI_STATUS_INVALID_OBJECT_TYPE;
-    }
-
-    if(!sai_is_port_valid(port)) {
-        SAI_PORT_LOG_ERR("Port 0x%"PRIx64" is not a valid port", port);
-        return SAI_STATUS_INVALID_OBJECT_ID;
-    }
-
-    if(sai_is_obj_id_cpu_port(port)) {
-        SAI_PORT_LOG_ERR("Breakout mode not supported on CPU port 0x%"PRIx64"", port);
-        return SAI_STATUS_ATTR_NOT_SUPPORTED_0;
-    }
-
-    ret_code = sai_is_port_capb_supported(port, sai_port_capb_from_break_mode(breakout_mode),
-                                          &breakout_sup);
-    if(ret_code != SAI_STATUS_SUCCESS) {
-        SAI_PORT_LOG_ERR("Breakout mode %d port capability support get failed "
-                         "for port 0x%"PRIx64" with err %d", breakout_mode, port, ret_code);
-        return ret_code;
-    }
-
-    if(!breakout_sup) {
-        SAI_PORT_LOG_ERR("Breakout mode %d not supported on this port 0x%"PRIx64"",
-                         breakout_mode, port);
-        return SAI_STATUS_ATTR_NOT_SUPPORTED_0;
-    }
-
-    return ret_code;
+    sai_port_unlock();
 }
 
 /* Validates the breakout mode and its corresponding lane count value */
@@ -876,7 +700,7 @@ static inline sai_status_t sai_port_breakout_validate(sai_port_breakout_mode_typ
 {
     sai_port_lane_count_t lane_count = 0;
 
-    if(mode >= SAI_PORT_BREAKOUT_MODE_MAX) {
+    if(mode >= SAI_PORT_BREAKOUT_MODE_TYPE_MAX) {
         return SAI_STATUS_INVALID_ATTR_VALUE_0;
     }
 
@@ -887,141 +711,6 @@ static inline sai_status_t sai_port_breakout_validate(sai_port_breakout_mode_typ
     }
 
     return SAI_STATUS_SUCCESS;
-}
-
-/* Invokes breakout mode NPU call and generates Add/Delete port event notification */
-static sai_status_t sai_port_npu_breakout_set_event_notify(const sai_port_breakout_t *portbreakout)
-{
-    sai_status_t ret_code = SAI_STATUS_FAILURE;
-
-    STD_ASSERT(portbreakout != NULL);
-
-    /* Pre-breakout: Notify internal SAI modules with the port(s) to be deleted */
-    sai_port_breakout_add_delete_event_notification(true, portbreakout,
-                                                    SAI_PORT_EVENT_DELETE);
-
-    sai_port_lock();
-    ret_code = sai_port_npu_api_get()->breakout_set(portbreakout);
-    sai_port_unlock();
-
-    if(ret_code != SAI_STATUS_SUCCESS) {
-        SAI_PORT_LOG_ERR("NPU Breakout mode set failed with error %d", ret_code);
-
-        /* On NPU breakout set failure, send internal notification with ADD for the ports
-         * which are deleted earlier */
-        sai_port_breakout_add_delete_event_notification(true, portbreakout,
-                                                        SAI_PORT_EVENT_ADD);
-
-        return ret_code;
-    }
-
-    /* Post-breakout: Notify internal SAI modules with the port(s) added after breakout */
-    sai_port_breakout_add_event_notification(true, portbreakout);
-
-    /* Notify Adapter host about the port events after breakout mode Succeeds */
-    sai_port_breakout_event_notification(portbreakout);
-
-    return ret_code;
-}
-
-sai_status_t sai_port_breakout_set(const sai_port_breakout_t *portbreakout)
-{
-    uint_t port_idx = 0, port_group = 0, temp_port_group = 0;
-    sai_object_id_t *port = NULL;
-    bool dyn_breakout = false;
-    sai_status_t ret_code = SAI_STATUS_FAILURE;
-
-    STD_ASSERT(portbreakout != NULL);
-    STD_ASSERT(portbreakout->port_list.list != NULL);
-
-    dyn_breakout = sai_is_switch_capb_supported(SAI_SWITCH_CAP_DYNAMIC_BREAKOUT_MODE);
-    if(!dyn_breakout){
-        SAI_PORT_LOG_ERR("Dynamic breakout mode not supported on this switch");
-        return SAI_STATUS_ATTR_NOT_SUPPORTED_0;
-    }
-
-    /* Validate the breakout mode support on all ports in the list */
-    sai_port_breakout_mode_type_t breakout_mode = portbreakout->breakout_mode;
-
-    ret_code = sai_port_breakout_validate(breakout_mode,
-                                          portbreakout->port_list.count);
-    if(ret_code != SAI_STATUS_SUCCESS) {
-        SAI_PORT_LOG_ERR("Breakout mode %d validation failed with err %d",
-                         portbreakout->breakout_mode, ret_code);
-        return ret_code;
-    }
-
-    port = &portbreakout->port_list.list[port_idx];
-    sai_port_lock();
-
-    do {
-        if(breakout_mode == sai_port_current_breakout_mode_get(*port)) {
-
-            SAI_PORT_LOG_NTC("Breakout mode %d is already enable on port 0x%"PRIx64"",
-                               breakout_mode, *port);
-
-            ret_code = SAI_STATUS_ITEM_ALREADY_EXISTS;
-            break;
-        }
-
-        /* In a multi-lane port, all the lanes of the port are part of the same port group.
-         * To apply break-in, all ports in the port list be part of the same port group
-         * Get the port group of the first port in the list and validate it against the
-         * remaining ports in the list.
-         */
-
-        ret_code = sai_port_breakout_mode_validation(*port, breakout_mode);
-        if(ret_code != SAI_STATUS_SUCCESS) {
-            SAI_PORT_LOG_ERR("Port 0x%"PRIx64" validation failed with err %d",
-                             *port, ret_code);
-            break;
-        }
-
-        ret_code = sai_port_port_group_get(*port, &port_group);
-        if(ret_code != SAI_STATUS_SUCCESS) {
-            SAI_PORT_LOG_ERR("Port group get for port 0x%"PRIx64" failed with err %d",
-                             *port, ret_code);
-            break;
-        }
-
-        for(port_idx = 1; port_idx < portbreakout->port_list.count; ++port_idx, ++port) {
-
-            ret_code = sai_port_breakout_mode_validation(*port, breakout_mode);
-            if(ret_code != SAI_STATUS_SUCCESS) {
-                SAI_PORT_LOG_ERR("Port 0x%"PRIx64" validation failed with err %d",
-                                 *port, ret_code);
-                break;
-            }
-
-            ret_code = sai_port_port_group_get(*port, &temp_port_group);
-            if(ret_code != SAI_STATUS_SUCCESS) {
-                SAI_PORT_LOG_ERR("Port group get for port 0x%"PRIx64" failed with err %d",
-                                 *port, ret_code);
-                break;
-            }
-
-            /* Verify the port_group of first port in the list with all other ports */
-            if(port_group != temp_port_group) {
-                ret_code = SAI_STATUS_INVALID_OBJECT_ID;
-                break;
-            }
-        }
-
-    } while(0);
-
-    sai_port_unlock();
-
-    if(ret_code != SAI_STATUS_SUCCESS) {
-        return ret_code;
-    }
-
-    ret_code = sai_port_npu_breakout_set_event_notify(portbreakout);
-    if(ret_code != SAI_STATUS_SUCCESS) {
-        SAI_PORT_LOG_ERR("NPU Breakout mode set and event notify call failed with err %d",
-                         ret_code);
-    }
-
-    return ret_code;
 }
 
 /* Get the list of valid logical ports in the switch */
@@ -1092,8 +781,130 @@ sai_status_t sai_port_init(void)
     return ret_code;
 }
 
+sai_status_t sai_port_remove(sai_object_id_t port_id)
+{
+
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    sai_port_event_notification_t data;
+    bool linkscan_set = false;
+
+    memset (&data, 0, sizeof(data));
+    sai_port_lock();
+    do {
+        if(!sai_is_port_valid(port_id)) {
+            SAI_PORT_LOG_ERR("port id 0x%"PRIx64" is not valid", port_id);
+            sai_rc = SAI_STATUS_INVALID_OBJECT_ID;
+            break;
+        }
+
+        if (sai_port_npu_api_get()->linkscan_mode_set != NULL) {
+            if (sai_port_npu_api_get()->linkscan_mode_set(port_id, false)
+                      != SAI_STATUS_SUCCESS) {
+                SAI_PORT_LOG_ERR("Failed to disable linkscan on port 0x%"PRIx64" in npu",
+                                 port_id);
+            } else {
+                linkscan_set = true;
+            }
+        }
+
+        sai_rc = sai_port_npu_api_get()->npu_port_remove(port_id);
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_PORT_LOG_ERR("Failed to remove port id 0x%"PRIx64" in npu",port_id);
+            break;
+        }
+
+    } while(0);
+
+    sai_port_unlock();
+
+    if(sai_rc == SAI_STATUS_SUCCESS) {
+        data.port_id = port_id;
+        data.port_event = SAI_PORT_EVENT_DELETE;
+        sai_port_event_internal_notf (1,&data);
+        sai_port_validity_set (port_id, false);
+    } else if (linkscan_set) { /* Enable linkscan when port removal failed */
+
+        /* Function pointer check is not required as the flag will be enabled
+         * only when it is not NULL  and function call to disable linkscan is
+         * successful
+         */
+        if (sai_port_npu_api_get()->linkscan_mode_set(port_id, true)
+                      != SAI_STATUS_SUCCESS) {
+            SAI_PORT_LOG_ERR("Failed to enable linkscan on port 0x%"PRIx64" in npu",
+                             port_id);
+        }
+    }
+
+    return sai_rc;
+}
+
+sai_status_t sai_port_create(sai_object_id_t *port_id, sai_object_id_t switch_id,
+                            uint32_t attr_count, const sai_attribute_t *attr_list)
+{
+    sai_port_info_t *port_info = NULL;
+    uint_t attr_idx = 0;
+    bool sai_port_created = false;
+    sai_port_event_notification_t data;
+    sai_status_t sai_rc = SAI_STATUS_FAILURE;
+
+    sai_port_lock ();
+    do {
+        sai_rc = sai_port_npu_api_get()->npu_port_create(port_id, attr_count, attr_list);
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_PORT_LOG_ERR("Port create failed at npu");
+            break;
+        }
+
+        sai_port_created = true;
+        port_info = sai_port_info_get (*port_id);
+        if(port_info == NULL) {
+            sai_rc = SAI_STATUS_FAILURE;
+            break;
+        }
+        sai_port_validity_set (*port_id, true);
+
+        for (attr_idx = 0; attr_idx < attr_count; attr_idx++) {
+            if (attr_list[attr_idx].id != SAI_PORT_ATTR_HW_LANE_LIST) {
+                sai_rc = sai_port_apply_attribute(*port_id, &attr_list[attr_idx]);
+                if(sai_rc != SAI_STATUS_SUCCESS) {
+                    SAI_PORT_LOG_ERR("Error: Unable to set attribute %d on port 0x%"PRIx64"",
+                                      attr_list[attr_idx].id, *port_id);
+                    break;
+                }
+            }
+        }
+    } while(0);
+
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        if(sai_port_created) {
+            sai_port_npu_api_get()->npu_port_remove(*port_id);
+            sai_port_validity_set (*port_id, false);
+        }
+    }
+    sai_port_unlock();
+
+    if(sai_rc == SAI_STATUS_SUCCESS) {
+        data.port_id = *port_id;
+        data.port_event = SAI_PORT_EVENT_ADD;
+        sai_port_event_internal_notf (1,&data);
+
+        sai_port_lock();
+        if ((sai_port_npu_api_get()->linkscan_mode_set != NULL) &&
+                 (sai_port_npu_api_get()->linkscan_mode_set(*port_id, true)
+                      != SAI_STATUS_SUCCESS)) {
+            SAI_PORT_LOG_ERR("Failed to enable linkcan on port 0x%"PRIx64" in npu",
+                             *port_id);
+        }
+        sai_port_unlock();
+    }
+
+    return sai_rc;
+}
+
 static sai_port_api_t sai_port_method_table =
 {
+    sai_port_create,
+    sai_port_remove,
     sai_port_set_attribute,
     sai_port_get_attribute,
     sai_port_get_stats,

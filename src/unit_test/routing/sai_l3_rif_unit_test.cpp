@@ -61,6 +61,7 @@ class saiL3RifTest : public saiL3Test {
 
         static const unsigned int SAI_TEST_MTU_DFLT = 1514;
 
+        static sai_object_id_t test_vlan_obj_id;
         static sai_object_id_t test_port_id;
         static sai_object_id_t test_port_id_2;
         static sai_object_id_t vr_id_dflt;
@@ -72,6 +73,7 @@ class saiL3RifTest : public saiL3Test {
         static sai_vlan_api_t* sai_vlan_api_table;
 };
 
+sai_object_id_t saiL3RifTest ::test_vlan_obj_id = 0;
 sai_object_id_t saiL3RifTest ::test_port_id = 0;
 sai_object_id_t saiL3RifTest ::test_port_id_2 = 0;
 sai_object_id_t   saiL3RifTest ::vr_id_dflt = 0;
@@ -102,7 +104,7 @@ void saiL3RifTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Create Vlan */
-    sai_rc = sai_test_vlan_create (test_vlan_id);
+    sai_rc = sai_test_vlan_create (&test_vlan_obj_id, test_vlan_id);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -128,7 +130,7 @@ void saiL3RifTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Create a vlan RIF on vr_id_dflt to be used in SET attribute APIs */
-    sai_rc = sai_test_vlan_create (test_vlan_id_2);
+    sai_rc = sai_test_vlan_create (&test_vlan_obj_id, test_vlan_id_2);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -187,13 +189,10 @@ void saiL3RifTest ::TearDownTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Remove all the VLAN IDs created on the test case setup */
-    sai_rc = sai_test_vlan_remove (test_vlan_id);
+    sai_rc = sai_test_vlan_remove (test_vlan_obj_id);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    sai_rc = sai_test_vlan_remove (test_vlan_id_2);
-
-    ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 }
 
 /*
@@ -311,7 +310,7 @@ sai_object_id_t saiL3RifTest ::sai_test_rif_add_lag_member (
     attr_list [count].value.oid = port_id;
     count++;
 
-    sai_rc = sai_lag_api_table->create_lag_member (&member_id, count,
+    sai_rc = sai_lag_api_table->create_lag_member (&member_id, switch_id, count,
                                                    attr_list);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -1163,7 +1162,7 @@ TEST_F (saiL3RifTest, create_rif_on_zero_member_lag)
     ASSERT_TRUE (sai_lag_api_table != NULL);
 
     /* Create the LAG object */
-    sai_rc = sai_lag_api_table->create_lag(&lag_id, 0, NULL);
+    sai_rc = sai_lag_api_table->create_lag(&lag_id, switch_id, 0, NULL);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Create RIF with LAG object id */
@@ -1208,9 +1207,8 @@ TEST_F (saiL3RifTest, create_rif_on_active_lag)
     bool            vrf_v6_state = false;
     const unsigned int member_count = 2;
     sai_object_id_t lag_id;
-    sai_object_id_t port_arr[member_count];
     sai_attribute_t attr;
-    sai_vlan_port_t  vlan_port[member_count];
+    sai_object_id_t port_arr[member_count];
     unsigned int     port_id_index = 2;
     unsigned int     index;
     sai_object_id_t  member_arr[member_count];
@@ -1221,17 +1219,16 @@ TEST_F (saiL3RifTest, create_rif_on_active_lag)
     /* Remove the port members from default VLAN */
     port_arr[0] = sai_l3_port_id_get (2);
     port_arr[1] = sai_l3_port_id_get (3);
-    vlan_port[0].port_id = port_arr[0];
-    vlan_port[1].port_id = port_arr[1];
-    vlan_port[0].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-    vlan_port[1].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
 
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_vlan_api_table->remove_ports_from_vlan(
-               saiL3Test::SAI_TEST_DEFAULT_VLAN, member_count,
-               (const sai_vlan_port_t*)vlan_port));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_remove_port_from_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                port_arr[0]));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_remove_port_from_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                port_arr[1]));
 
     /* Create the LAG object with port members */
-    sai_rc = sai_lag_api_table->create_lag (&lag_id, 0, &attr);
+    sai_rc = sai_lag_api_table->create_lag (&lag_id, switch_id, 0, &attr);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     for (index = 0; index < member_count; index++) {
@@ -1283,9 +1280,12 @@ TEST_F (saiL3RifTest, create_rif_on_active_lag)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Add the port members back to default VLAN */
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_vlan_api_table->add_ports_to_vlan(
-               saiL3Test::SAI_TEST_DEFAULT_VLAN, member_count,
-               (const sai_vlan_port_t*)vlan_port));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_add_port_to_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                port_arr[0]));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_add_port_to_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                port_arr[1]));
 }
 
 /*
@@ -1299,29 +1299,28 @@ TEST_F (saiL3RifTest, rif_lag_member_update)
     sai_object_id_t lag_id;
     sai_attribute_t attr;
     const unsigned int member_count = 4;
-    sai_vlan_port_t  vlan_port[member_count];
     sai_object_id_t  member_arr[member_count];
     unsigned int     port_id_index = 2;
     unsigned int     index;
 
-    vlan_port[0].port_id = sai_l3_port_id_get (2);
-    vlan_port[1].port_id = sai_l3_port_id_get (3);
-    vlan_port[2].port_id = sai_l3_port_id_get (4);
-    vlan_port[3].port_id = sai_l3_port_id_get (5);
-    vlan_port[0].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-    vlan_port[1].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-    vlan_port[2].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-    vlan_port[3].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-
     ASSERT_TRUE(sai_vlan_api_table != NULL);
 
     /* Remove the port members from default VLAN */
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_vlan_api_table->remove_ports_from_vlan(
-               saiL3Test::SAI_TEST_DEFAULT_VLAN, member_count,
-               (const sai_vlan_port_t*)vlan_port));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_remove_port_from_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                sai_l3_port_id_get(2)));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_remove_port_from_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                sai_l3_port_id_get(3)));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_remove_port_from_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                sai_l3_port_id_get(4)));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_remove_port_from_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                sai_l3_port_id_get(5)));
 
     /* Create the LAG object with first two port members */
-    sai_rc = sai_lag_api_table->create_lag (&lag_id, 0, &attr);
+    sai_rc = sai_lag_api_table->create_lag (&lag_id, switch_id, 0, &attr);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     for (index = 0; index < 2; index++) {
@@ -1379,9 +1378,18 @@ TEST_F (saiL3RifTest, rif_lag_member_update)
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     /* Add the port members back to default VLAN */
-    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_vlan_api_table->add_ports_to_vlan(
-               saiL3Test::SAI_TEST_DEFAULT_VLAN, member_count,
-               (const sai_vlan_port_t*)vlan_port));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_add_port_to_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                sai_l3_port_id_get(2)));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_add_port_to_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                sai_l3_port_id_get(3)));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_add_port_to_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                sai_l3_port_id_get(4)));
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_test_add_port_to_vlan(
+                sai_vlan_api_table, sai_l3_default_vlan_obj_id_get(),
+                sai_l3_port_id_get(5)));
 }
 
 int main (int argc, char **argv)

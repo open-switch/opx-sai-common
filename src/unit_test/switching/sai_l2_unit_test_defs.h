@@ -22,6 +22,8 @@
 #include "saifdb.h"
 #include "sai_switch_utils.h"
 
+#define SAI_GTEST_VLAN_MEMBER_ATTR_COUNT 3
+#define SAI_GTEST_VLAN_MEMBER_PORT_COUNT 2
 #define SAI_GTEST_VLAN 10
 #define SAI_GTEST_INVALID_VLAN_ID 4096
 

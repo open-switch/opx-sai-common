@@ -186,6 +186,7 @@ static void dn_sai_tunnel_term_remove_from_tunnel_list (
 }
 
 static sai_status_t dn_sai_tunnel_term_create (sai_object_id_t *tunnel_term_id,
+                                               sai_object_id_t  switch_id,
                                                uint32_t attr_count,
                                                const sai_attribute_t *attr_list)
 {

@@ -56,12 +56,14 @@ class saiL3NextHopTest : public saiL3Test
         static const unsigned int default_port = 0;
         static const unsigned int default_vlan = 100;
 
+        static sai_object_id_t  vlan_obj_id;
         static sai_object_id_t  port_id;
         static sai_object_id_t  vrf_id;
         static sai_object_id_t  port_rif_id;
         static sai_object_id_t  vlan_rif_id;
 };
 
+sai_object_id_t saiL3NextHopTest::vlan_obj_id = 0;
 sai_object_id_t saiL3NextHopTest::port_id = 0;
 sai_object_id_t saiL3NextHopTest::vrf_id = 0;
 sai_object_id_t saiL3NextHopTest::port_rif_id = 0;
@@ -82,7 +84,7 @@ void saiL3NextHopTest::SetUpTestCase (void)
     port_id = sai_l3_port_id_get (default_port);
 
     /* Create Vlan */
-    status = sai_test_vlan_create (default_vlan);
+    status = sai_test_vlan_create (&vlan_obj_id, default_vlan);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -134,7 +136,7 @@ void saiL3NextHopTest::TearDownTestCase (void)
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Remove Vlan */
-    status = sai_test_vlan_remove (default_vlan);
+    status = sai_test_vlan_remove (vlan_obj_id);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 }
@@ -220,7 +222,7 @@ TEST_F (saiL3NextHopTest, create_and_remove_on_port_rif)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id: 0x%"PRIx64".\n", nh_id);
+    printf ("SAI Next Hop Object Id: 0x%" PRIx64 ".\n", nh_id);
 
     sai_ip_nh_verify_after_creation (nh_id, port_rif_id, ip_af, p_nh_ip_addr);
 
@@ -251,7 +253,7 @@ TEST_F (saiL3NextHopTest, create_and_remove_on_vlan_rif)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id: 0x%"PRIx64".\n", nh_id);
+    printf ("SAI Next Hop Object Id: 0x%" PRIx64 ".\n", nh_id);
 
     sai_ip_nh_verify_after_creation (nh_id, vlan_rif_id, ip_af, p_nh_ip_addr);
 
@@ -282,7 +284,7 @@ TEST_F (saiL3NextHopTest, create_and_remove_with_ipv6_addr)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("%s(): SAI Next Hop Object Id: 0x%"PRIx64".\n", __FUNCTION__, nh_id);
+    printf ("%s(): SAI Next Hop Object Id: 0x%" PRIx64 ".\n", __FUNCTION__, nh_id);
 
     sai_ip_nh_verify_after_creation (nh_id, vlan_rif_id, ip_af, p_nh_ip_addr);
 
@@ -321,7 +323,7 @@ TEST_F (saiL3NextHopTest, create_and_remove_when_neighbor_exists)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id: 0x%"PRIx64".\n", nh_id);
+    printf ("SAI Next Hop Object Id: 0x%" PRIx64 ".\n", nh_id);
 
     sai_ip_nh_verify_after_creation (nh_id, port_rif_id, ip_af, p_nh_ip_addr);
 
@@ -353,10 +355,11 @@ TEST_F (saiL3NextHopTest, duplicate_nh_ip_in_different_vrf)
     sai_ip_addr_family_t    ip_af = SAI_IP_ADDR_FAMILY_IPV6;
     sai_object_id_t         new_vrf_id;
     sai_object_id_t         new_rif_id;
+    sai_object_id_t         new_vlan_obj_id;
     const unsigned int      new_vlan = 200;
 
     /* Create Vlan */
-    status = sai_test_vlan_create (new_vlan);
+    status = sai_test_vlan_create (&new_vlan_obj_id, new_vlan);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -386,7 +389,7 @@ TEST_F (saiL3NextHopTest, duplicate_nh_ip_in_different_vrf)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id for NH 1: 0x%"PRIx64".\n", nh_id1);
+    printf ("SAI Next Hop Object Id for NH 1: 0x%" PRIx64 ".\n", nh_id1);
 
     /* Create another next hop with same address in the different VRF */
     status = sai_test_nexthop_create (&nh_id2, default_nh_attr_count,
@@ -399,7 +402,7 @@ TEST_F (saiL3NextHopTest, duplicate_nh_ip_in_different_vrf)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id for NH 2: 0x%"PRIx64".\n", nh_id2);
+    printf ("SAI Next Hop Object Id for NH 2: 0x%" PRIx64 ".\n", nh_id2);
 
     sai_ip_nh_verify_after_creation (nh_id2, new_rif_id, ip_af, p_nh_ip_addr);
 
@@ -426,7 +429,7 @@ TEST_F (saiL3NextHopTest, duplicate_nh_ip_in_different_vrf)
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Remove Vlan */
-    status = sai_test_vlan_remove (new_vlan);
+    status = sai_test_vlan_remove (new_vlan_obj_id);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 }
@@ -452,7 +455,7 @@ TEST_F (saiL3NextHopTest, duplicate_nh_in_same_vrf)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id: 0x%"PRIx64".\n", nh_id);
+    printf ("SAI Next Hop Object Id: 0x%" PRIx64 ".\n", nh_id);
 
     status = sai_test_nexthop_create (&nh_id, default_nh_attr_count,
                                       SAI_NEXT_HOP_ATTR_TYPE,
@@ -680,7 +683,7 @@ TEST_F (saiL3NextHopTest, removal_when_route_exists)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id: 0x%"PRIx64".\n", nh_id);
+    printf ("SAI Next Hop Object Id: 0x%" PRIx64 ".\n", nh_id);
 
     /* Create a route pointing to the next-hop */
     status = sai_test_route_create (vrf_id, ip_af, (char *)p_route_str,
@@ -731,19 +734,19 @@ TEST_F (saiL3NextHopTest, removal_when_added_in_nh_group)
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Object Id: 0x%"PRIx64".\n", nh_id);
+    printf ("SAI Next Hop Object Id: 0x%" PRIx64 ".\n", nh_id);
 
     /* Create a Next Hop Group pointing to the next-hop */
     status = sai_test_nh_group_create (&group_id, &nh_id,
                                        default_nh_group_attr_count,
                                        SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                        SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                       SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                        group_nh_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
-    printf ("SAI Next Hop Group Object Id: 0x%"PRIx64".\n", group_id);
+    printf ("SAI Next Hop Group Object Id: 0x%" PRIx64 ".\n", group_id);
 
     /* Verify the next hop cannot be removed */
     status = sai_test_nexthop_remove (nh_id);

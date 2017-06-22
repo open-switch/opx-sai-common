@@ -147,7 +147,7 @@ TEST_F(fdbInit, sai_fdb_multi_notification_callback)
     flush_attr[0].value.u16 =  SAI_GTEST_VLAN;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_fdb_api_table->flush_fdb_entries(1,
+              sai_fdb_api_table->flush_fdb_entries(switch_id, 1,
                                  (const sai_attribute_t*)flush_attr));
 
     while(notification_wait) {
@@ -186,7 +186,7 @@ TEST_F(fdbInit, sai_fdb_multi_notification_callback)
     flush_attr[0].value.u16 =  SAI_GTEST_VLAN;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS,
-              sai_fdb_api_table->flush_fdb_entries(1,
+              sai_fdb_api_table->flush_fdb_entries(switch_id, 1,
                                  (const sai_attribute_t*)flush_attr));
 
     while(notification_wait) {

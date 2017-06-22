@@ -44,6 +44,9 @@ extern "C" {
 #include <stdarg.h>
 }
 
+#define SAI_TEST_MAX_GROUP_NEXT_HOP_MEMBER_ATTR (SAI_NEXT_HOP_GROUP_MEMBER_ATTR_END - SAI_NEXT_HOP_GROUP_MEMBER_ATTR_START)
+#define SAI_MAX_MAC_LENGTH 6
+
 /* Definition for the data members */
 sai_switch_api_t* saiL3Test ::p_sai_switch_api_tbl = NULL;
 sai_vlan_api_t* saiL3Test ::p_sai_vlan_api_tbl = NULL;
@@ -54,20 +57,19 @@ sai_next_hop_api_t* saiL3Test ::p_sai_nh_api_tbl = NULL;
 sai_next_hop_group_api_t* saiL3Test ::p_sai_nh_grp_api_tbl = NULL;
 sai_route_api_t* saiL3Test ::p_sai_route_api_tbl = NULL;
 sai_fdb_api_t* saiL3Test ::p_sai_fdb_api_table = NULL;
+sai_l3_test_nh_grp_info_2_member_t saiL3Test::_nh_grp_info_2_member;
+sai_l3_test_member_2_nh_grp_info_t saiL3Test::_nh_member_2_grp_info;
 const char* saiL3Test ::router_mac = "00:a0:a1:a2:a3:a4";
 unsigned int saiL3Test::port_count = 0;
 sai_object_id_t saiL3Test::port_list[SAI_TEST_MAX_PORTS] = {0};
+sai_object_id_t saiL3Test::default_vlan_id = 0;
+sai_object_id_t saiL3Test::switch_id = 0;
 
 /*
  * Stubs for Callback functions to be passed from adapter host/application.
  */
 static inline void sai_port_state_evt_callback (uint32_t count,
                                                 sai_port_oper_status_notification_t *data)
-{
-}
-
-static inline void sai_port_evt_callback (uint32_t count,
-                                          sai_port_event_notification_t *data)
 {
 }
 
@@ -95,11 +97,9 @@ static inline void sai_switch_shutdown_callback (void)
 /* SAI switch initialization */
 void saiL3Test ::SetUpTestCase (void)
 {
-    sai_switch_notification_t notification;
     sai_attribute_t attr;
     sai_status_t sai_rc = SAI_STATUS_SUCCESS;
 
-    memset (&notification, 0, sizeof(sai_switch_notification_t));
 
     /*
      * Query and populate the SAI Switch API Table.
@@ -110,22 +110,38 @@ void saiL3Test ::SetUpTestCase (void)
 
     ASSERT_TRUE (p_sai_switch_api_tbl != NULL);
 
-    /*
-     * Switch Initialization.
-     * Fill in notification callback routines with stubs.
-     */
-    notification.on_switch_state_change = sai_switch_operstate_callback;
-    notification.on_fdb_event = sai_fdb_evt_callback;
-    notification.on_port_state_change = sai_port_state_evt_callback;
-    notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-    notification.on_port_event = sai_port_evt_callback;
-    notification.on_packet_event = sai_packet_event_callback;
 
-    ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
+    sai_attribute_t sai_attr_set[7];
+    uint32_t attr_count = 7;
+
+    memset(&sai_attr_set,0, sizeof(sai_attribute_t));
+
+    sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+    sai_attr_set[0].value.booldata = 1;
+
+    sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+    sai_attr_set[1].value.u32 = 0;
+
+    sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+    sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+    sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+    sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+    sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+    sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+    sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+    sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+    sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+    sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+    ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS,
-               (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                         &notification)));
+               (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                         sai_attr_set)));
 
     /* Query the L3 API method tables */
     SetUpL3ApiQuery ();
@@ -137,14 +153,24 @@ void saiL3Test ::SetUpTestCase (void)
     attr.value.objlist.count = SAI_TEST_MAX_PORTS;
     attr.value.objlist.list  = port_list;
 
-    sai_rc = p_sai_switch_api_tbl->get_switch_attribute (1, &attr);
+    sai_rc = p_sai_switch_api_tbl->get_switch_attribute (switch_id,1, &attr);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
-
     port_count = attr.value.objlist.count;
 
     printf ("Switch port count is %u.\r\n", port_count);
 
+    /* Get the default VLAN OBJ ID */
+    memset (&attr, 0, sizeof (attr));
+
+    attr.id = SAI_SWITCH_ATTR_DEFAULT_VLAN_ID;
+    sai_rc = p_sai_switch_api_tbl->get_switch_attribute (switch_id,1, &attr);
+    ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+    default_vlan_id = attr.value.oid;
+
+    printf ("Default VLAN obj ID is %lu.\r\n", default_vlan_id);
+
     ASSERT_TRUE (port_count != 0);
+    ASSERT_TRUE (default_vlan_id != 0);
 }
 
 /* SAI L3 API Query */
@@ -278,7 +304,7 @@ sai_status_t saiL3Test ::sai_test_router_mac_set (const char *mac_str)
     memcpy (attr.value.mac, sai_mac, sizeof (sai_mac_t));
 
     sai_rc = p_sai_switch_api_tbl->set_switch_attribute
-        ((const sai_attribute_t *)&attr);
+        (switch_id,(const sai_attribute_t *)&attr);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("Switch MAC set failed.\r\n");
@@ -296,7 +322,7 @@ sai_status_t saiL3Test ::sai_test_router_mac_get (sai_mac_t *p_switch_mac)
 
     attr.id = SAI_SWITCH_ATTR_SRC_MAC_ADDRESS;
 
-    sai_rc = p_sai_switch_api_tbl->get_switch_attribute (1, &attr);
+    sai_rc = p_sai_switch_api_tbl->get_switch_attribute (switch_id,1, &attr);
 
     memcpy (p_switch_mac, attr.value.mac, sizeof (sai_mac_t));
 
@@ -312,18 +338,22 @@ sai_status_t saiL3Test ::sai_test_router_mac_init (const char *mac_str)
     sai_test_router_mac_get (&sai_mac);
 
     /* Set Router MAC, if it is not initialized */
-    if ((memcmp (&sai_mac, &zero_mac, sizeof (sai_mac_t))) == 0) {
+    if ((memcmp (sai_mac, zero_mac, sizeof (sai_mac_t))) == 0) {
         sai_rc = sai_test_router_mac_set (mac_str);
     }
 
     return sai_rc;
 }
 
-sai_status_t saiL3Test ::sai_test_vlan_create (unsigned int vlan_id)
+sai_status_t saiL3Test ::sai_test_vlan_create (sai_object_id_t *vlan_obj_id,
+        unsigned int vlan_id)
 {
     sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    sai_attribute_t attr;
 
-    sai_rc = p_sai_vlan_api_tbl->create_vlan (vlan_id);
+    attr.id = SAI_VLAN_ATTR_VLAN_ID;
+    attr.value.u16 = vlan_id;
+    sai_rc = p_sai_vlan_api_tbl->create_vlan(vlan_obj_id,0,1,&attr);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI VLAN Creation API failed with error: %d\r\n", sai_rc);
@@ -334,16 +364,16 @@ sai_status_t saiL3Test ::sai_test_vlan_create (unsigned int vlan_id)
     return sai_rc;
 }
 
-sai_status_t saiL3Test ::sai_test_vlan_remove (unsigned int vlan_id)
+sai_status_t saiL3Test ::sai_test_vlan_remove (sai_object_id_t vlan_obj_id)
 {
     sai_status_t sai_rc = SAI_STATUS_SUCCESS;
 
-    sai_rc = p_sai_vlan_api_tbl->remove_vlan (vlan_id);
+    sai_rc = p_sai_vlan_api_tbl->remove_vlan (vlan_obj_id);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI VLAN Remove API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("SAI VLAN Remove API success, VLAN ID: %d\r\n", vlan_id);
+        printf ("SAI VLAN Remove API success, VLAN OBJ ID: %ld\r\n", vlan_obj_id);
     }
 
     return sai_rc;
@@ -356,9 +386,9 @@ static const char* sai_test_vrf_attr_id_to_name_get (unsigned int attr_id) {
         return "VRF V6 Admin State";
     } else if (SAI_VIRTUAL_ROUTER_ATTR_SRC_MAC_ADDRESS == attr_id) {
         return "VRF SRC MAC";
-    } else if (SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION == attr_id) {
+    } else if (SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION == attr_id) {
         return "VRF TTL1 PKT ACTION";
-    } else if (SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS == attr_id) {
+    } else if (SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION == attr_id) {
         return "VRF IP OPTIONS PKT ACTION";
     } else {
         return "INVALID/UNKNOWN";
@@ -387,8 +417,8 @@ static void sai_test_vrf_attr_value_fill (sai_attribute_t *p_attr,
 
                 break;
 
-            case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION:
-            case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS:
+            case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION:
+            case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION:
                 p_attr->value.s32 = attr_val;
 
                 printf ("Value: %d\r\n", p_attr->value.s32);
@@ -428,11 +458,11 @@ static void sai_test_vrf_attr_value_print (sai_attribute_t *p_attr)
 
             break;
 
-        case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_ACTION:
+        case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_TTL1_PACKET_ACTION:
             printf ("VRF TTL1 VIOLATION PKT ACTION: %d\r\n", p_attr->value.s32);
             break;
 
-        case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS:
+        case SAI_VIRTUAL_ROUTER_ATTR_VIOLATION_IP_OPTIONS_PACKET_ACTION:
             printf ("VRF IP OPTIONS VIOLATION PKT ACTION: %d\r\n",
                     p_attr->value.s32);
             break;
@@ -460,6 +490,7 @@ sai_status_t saiL3Test ::sai_test_vrf_create (sai_object_id_t *p_vr_id,
     sai_attribute_t *p_attr_list = NULL;
     unsigned int     attr_id = 0;
     unsigned long    val = 0;
+    char            default_mac[SAI_MAX_MAC_LENGTH] = {0};
     const char      *mac_str = NULL;
 
     p_attr_list
@@ -486,18 +517,19 @@ sai_status_t saiL3Test ::sai_test_vrf_create (sai_object_id_t *p_vr_id,
             mac_str = va_arg (ap, char*);
         } else {
             val = va_arg (ap, unsigned long);
+            mac_str = default_mac; /* To Avoid de-reference */
         }
 
         sai_test_vrf_attr_value_fill (&p_attr_list [ap_idx], val, mac_str);
     }
 
-    sai_rc = p_sai_vrf_api_tbl->create_virtual_router (p_vr_id, attr_count,
+    sai_rc = p_sai_vrf_api_tbl->create_virtual_router (p_vr_id, switch_id, attr_count,
                                                        p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI VRF Creation API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("SAI VRF Creation API success, VRF ID: 0x%"PRIx64"\r\n",
+        printf ("SAI VRF Creation API success, VRF ID: 0x%" PRIx64 "\r\n",
                 *p_vr_id);
     }
 
@@ -518,7 +550,7 @@ sai_status_t saiL3Test ::sai_test_vrf_remove (sai_object_id_t vr_id)
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI VRF removal failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("SAI VRF removal success for VRF ID: 0x%"PRIx64"\r\n", vr_id);
+        printf ("SAI VRF removal success for VRF ID: 0x%" PRIx64 "\r\n", vr_id);
     }
 
     return sai_rc;
@@ -534,7 +566,7 @@ sai_status_t saiL3Test ::sai_test_vrf_attr_set (sai_object_id_t vr_id,
 
     attr.id = attr_id;
 
-    printf ("Setting Attribute %s (ID = %d) for VRF 0x%"PRIx64".\r\n",
+    printf ("Setting Attribute %s (ID = %d) for VRF 0x%" PRIx64 ".\r\n",
             sai_test_vrf_attr_id_to_name_get (attr_id), attr_id, vr_id);
 
     sai_test_vrf_attr_value_fill (&attr, val, mac_str);
@@ -569,7 +601,7 @@ sai_status_t saiL3Test ::sai_test_vrf_attr_get (sai_object_id_t vrf_id,
     unsigned int ap_idx = 0;
     unsigned int attr_id = 0;
 
-    printf ("Testing VRF GET API for VRF ID: 0x%"PRIx64" with attribute count: "
+    printf ("Testing VRF GET API for VRF ID: 0x%" PRIx64 " with attribute count: "
             "%d\r\n", vrf_id, attr_count);
 
     va_start (ap, attr_count);
@@ -590,7 +622,7 @@ sai_status_t saiL3Test ::sai_test_vrf_attr_get (sai_object_id_t vrf_id,
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("VRF Get API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("VRF Get API success, VRF ID: 0x%"PRIx64"\r\n", vrf_id);
+        printf ("VRF Get API success, VRF ID: 0x%" PRIx64 "\r\n", vrf_id);
 
         printf ("\r\n##### VRF Attributes Details #####\r\n");
 
@@ -608,25 +640,34 @@ sai_status_t saiL3Test ::sai_test_vrf_attr_get (sai_object_id_t vrf_id,
 
 static const char* sai_test_rif_attr_id_to_name_get (unsigned int attr_id)
 {
-    if (SAI_ROUTER_INTERFACE_ATTR_VIRTUAL_ROUTER_ID == attr_id) {
-        return "VRF ID";
-    } else if (SAI_ROUTER_INTERFACE_ATTR_TYPE == attr_id) {
-        return "RIF TYPE";
-    } else if (SAI_ROUTER_INTERFACE_ATTR_PORT_ID == attr_id) {
-        return "RIF PORT ID";
-    } else if (SAI_ROUTER_INTERFACE_ATTR_VLAN_ID == attr_id) {
-        return "RIF VLAN ID";
-    } else if (SAI_ROUTER_INTERFACE_ATTR_SRC_MAC_ADDRESS == attr_id) {
-        return "RIF SRC MAC";
-    } else if (SAI_ROUTER_INTERFACE_ATTR_ADMIN_V4_STATE == attr_id) {
-        return "RIF V4 Admin State";
-    } else if (SAI_ROUTER_INTERFACE_ATTR_ADMIN_V6_STATE == attr_id) {
-        return "RIF V6 Admin State";
-    } else if (SAI_ROUTER_INTERFACE_ATTR_MTU == attr_id) {
-        return "RIF MTU";
-    } else {
+    static const std::unordered_map <int, const char*, std::hash<int>>
+        _rif_attr_id_2_str_map = {
+            {SAI_ROUTER_INTERFACE_ATTR_VIRTUAL_ROUTER_ID, "VRF ID"},
+            {SAI_ROUTER_INTERFACE_ATTR_TYPE, "RIF TYPE"},
+            {SAI_ROUTER_INTERFACE_ATTR_PORT_ID, "RIF PORT ID"},
+            {SAI_ROUTER_INTERFACE_ATTR_VLAN_ID, "RIF VLAN ID"},
+            {SAI_ROUTER_INTERFACE_ATTR_SRC_MAC_ADDRESS, "RIF SRC MAC"},
+            {SAI_ROUTER_INTERFACE_ATTR_ADMIN_V4_STATE, "RIF V4 Admin State"},
+            {SAI_ROUTER_INTERFACE_ATTR_ADMIN_V6_STATE, "RIF V6 Admin State"},
+            {SAI_ROUTER_INTERFACE_ATTR_MTU, "RIF MTU"},
+            {SAI_ROUTER_INTERFACE_ATTR_INGRESS_ACL, "RIF Ingress ACL"},
+            {SAI_ROUTER_INTERFACE_ATTR_EGRESS_ACL, "RIF Egress ACL"},
+            {SAI_ROUTER_INTERFACE_ATTR_V4_MCAST_ENABLE, "RIF V4 Mcast Enable"},
+            {SAI_ROUTER_INTERFACE_ATTR_V6_MCAST_ENABLE, "RIF V6 Mcast Enable"},
+        };
+
+    try {
+        const auto& map_kv = _rif_attr_id_2_str_map.find (attr_id);
+
+        if (map_kv != _rif_attr_id_2_str_map.end ()) {
+            return map_kv->second;
+        }
+    }
+    catch (...) {
         return "INVALID/UNKNOWN";
     }
+
+    return "INVALID/UNKNOWN";
 }
 
 static void sai_test_rif_attr_value_fill (sai_attribute_t *p_attr,
@@ -646,7 +687,7 @@ static void sai_test_rif_attr_value_fill (sai_attribute_t *p_attr,
         case SAI_ROUTER_INTERFACE_ATTR_PORT_ID:
             p_attr->value.oid = attr_val;
 
-            printf ("Value: 0x%"PRIx64"\r\n", p_attr->value.oid);
+            printf ("Value: 0x%" PRIx64 "\r\n", p_attr->value.oid);
             break;
         case SAI_ROUTER_INTERFACE_ATTR_MTU:
             p_attr->value.u32 = attr_val;
@@ -692,11 +733,11 @@ static void sai_test_rif_attr_value_print (sai_attribute_t *p_attr)
             break;
 
         case SAI_ROUTER_INTERFACE_ATTR_VIRTUAL_ROUTER_ID:
-            printf ("RIF VRF: 0x%"PRIx64".\r\n", p_attr->value.oid);
+            printf ("RIF VRF: 0x%" PRIx64 ".\r\n", p_attr->value.oid);
             break;
 
         case SAI_ROUTER_INTERFACE_ATTR_PORT_ID:
-            printf ("RIF Port ID: 0x%"PRIx64".\r\n", p_attr->value.oid);
+            printf ("RIF Port ID: 0x%" PRIx64 ".\r\n", p_attr->value.oid);
             break;
 
         case SAI_ROUTER_INTERFACE_ATTR_VLAN_ID:
@@ -751,8 +792,9 @@ sai_object_id_t *p_rif_id, unsigned int attr_count, ...)
     sai_attribute_t *p_attr_list = NULL;
     unsigned int     attr_id = 0;
     unsigned long    val = 0;
+    char             default_mac[SAI_MAX_MAC_LENGTH] = {0};
     char            *mac_str = NULL;
-    sai_vlan_port_t  vlan_port[1];
+    //sai_vlan_port_t  vlan_port[1];
 
     p_attr_list
         = (sai_attribute_t *) calloc (attr_count, sizeof (sai_attribute_t));
@@ -779,29 +821,30 @@ sai_object_id_t *p_rif_id, unsigned int attr_count, ...)
             mac_str = va_arg (ap, char*);
         } else {
             val = va_arg (ap, unsigned long);
+            mac_str = default_mac; /* To avoid de-reference */
         }
 
         if (SAI_ROUTER_INTERFACE_ATTR_PORT_ID == attr_id) {
             /* Remove the port from default VLAN */
             if(sai_object_type_query(val) == SAI_OBJECT_TYPE_PORT) {
-                vlan_port[0].port_id = val;
-                vlan_port[0].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-                p_sai_vlan_api_tbl->remove_ports_from_vlan(
-                                             SAI_TEST_DEFAULT_VLAN, 1,
-                                             (const sai_vlan_port_t*)vlan_port);
+                sai_rc = sai_test_remove_port_from_vlan(p_sai_vlan_api_tbl,
+                        default_vlan_id, val);
+                if (sai_rc != SAI_STATUS_SUCCESS) {
+                    printf("Failed to remove port from default vlan\r\n");
+                }
             }
         }
 
         sai_test_rif_attr_value_fill (&p_attr_list [ap_idx], val, mac_str);
     }
 
-    sai_rc = p_sai_rif_api_tbl->create_router_interface (p_rif_id, attr_count,
+    sai_rc = p_sai_rif_api_tbl->create_router_interface (p_rif_id, switch_id, attr_count,
                                                          p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI RIF Creation failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("SAI RIF Creation success, RIF ID: 0x%"PRIx64"\r\n", *p_rif_id);
+        printf ("SAI RIF Creation success, RIF ID: 0x%" PRIx64 "\r\n", *p_rif_id);
     }
 
     if (p_attr_list) {
@@ -817,7 +860,6 @@ sai_status_t saiL3Test ::sai_test_rif_remove (sai_object_id_t rif_id)
     int             rif_type;
     sai_status_t    sai_rc = SAI_STATUS_SUCCESS;
     sai_object_id_t port_id = 0;
-    sai_vlan_port_t vlan_port[1];
     sai_attribute_t attr_list[1];
 
     sai_rc = sai_test_rif_attr_get (rif_id, attr_list, 1,
@@ -829,25 +871,21 @@ sai_status_t saiL3Test ::sai_test_rif_remove (sai_object_id_t rif_id)
          sai_rc = sai_test_rif_attr_get (rif_id, attr_list, 1,
                                          SAI_ROUTER_INTERFACE_ATTR_PORT_ID);
          port_id = attr_list [0].value.oid;
-         if(sai_object_type_query(port_id) == SAI_OBJECT_TYPE_PORT) {
-             vlan_port[0].port_id = port_id;
-             vlan_port[0].tagging_mode = SAI_VLAN_TAGGING_MODE_UNTAGGED;
-        }
     }
     sai_rc = p_sai_rif_api_tbl->remove_router_interface (rif_id);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("SAI RIF Removal failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("SAI RIF Removal success for RIF ID: 0x%"PRIx64"\r\n", rif_id);
+        printf ("SAI RIF Removal success for RIF ID: 0x%" PRIx64 "\r\n", rif_id);
     }
 
     if((rif_type == SAI_ROUTER_INTERFACE_TYPE_PORT) &&
        (sai_object_type_query(port_id) == SAI_OBJECT_TYPE_PORT)) {
         /* Add the port back to default VLAN */
-        sai_rc = p_sai_vlan_api_tbl->add_ports_to_vlan(SAI_TEST_DEFAULT_VLAN, 1,
-                                                       (const sai_vlan_port_t*)
-                                                       vlan_port);
+        printf ("Testing Adding ports in/from Vlan \r\n");
+        sai_rc = sai_test_add_port_to_vlan(p_sai_vlan_api_tbl,
+                default_vlan_id, port_id);
         if(sai_rc != SAI_STATUS_SUCCESS) {
             printf("Failed to add port to default vlan\r\n");
         }
@@ -865,7 +903,7 @@ const char *mac_str)
 
     attr.id = attr_id;
 
-    printf ("Setting Attribute %s (ID = %d) for RIF 0x%"PRIx64".\r\n",
+    printf ("Setting Attribute %s (ID = %d) for RIF 0x%" PRIx64 ".\r\n",
             sai_test_rif_attr_id_to_name_get (attr_id), attr_id, rif_id);
 
     sai_test_rif_attr_value_fill (&attr, val, mac_str);
@@ -899,7 +937,7 @@ unsigned int attr_count,...)
     unsigned int ap_idx = 0;
     unsigned int attr_id = 0;
 
-    printf ("Testing RIF GET API for RIF ID: 0x%"PRIx64" with attribute count:"
+    printf ("Testing RIF GET API for RIF ID: 0x%" PRIx64 " with attribute count:"
             " %d\r\n", rif_id, attr_count);
 
     va_start (ap, attr_count);
@@ -920,7 +958,7 @@ unsigned int attr_count,...)
     if (sai_rc != SAI_STATUS_SUCCESS) {
         printf ("RIF Get API failed with error: %d\r\n", sai_rc);
     } else {
-        printf ("RIF Get API success, RIF ID: 0x%"PRIx64"\r\n", rif_id);
+        printf ("RIF Get API success, RIF ID: 0x%" PRIx64 "\r\n", rif_id);
 
         printf ("\r\n##### RIF Attributes Details #####\r\n");
 
@@ -1034,7 +1072,7 @@ static void sai_test_route_attr_value_fill (sai_attribute_t *p_attr,
         case SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID:
             p_attr->value.oid = attr_val;
 
-            printf ("Value: 0x%"PRIx64"\r\n", p_attr->value.oid);
+            printf ("Value: 0x%" PRIx64 "\r\n", p_attr->value.oid);
             break;
 
         case SAI_ROUTE_ENTRY_ATTR_META_DATA:
@@ -1063,7 +1101,7 @@ static void sai_test_route_attr_value_print (sai_attribute_t *p_attr)
             break;
 
         case SAI_ROUTE_ENTRY_ATTR_NEXT_HOP_ID:
-            printf ("Next Hop object ID: 0x%"PRIx64"\r\n", p_attr->value.oid);
+            printf ("Next Hop object ID: 0x%" PRIx64 "\r\n", p_attr->value.oid);
             break;
 
         case SAI_ROUTE_ENTRY_ATTR_META_DATA:
@@ -1254,7 +1292,7 @@ sai_status_t saiL3Test ::sai_test_route_attr_get (sai_object_id_t vrf,
 
     memset (&uc_route_entry, 0, sizeof (uc_route_entry));
 
-    printf ("Testing Route GET API for VRF: 0x%"PRIx64", ip_family: %u, "
+    printf ("Testing Route GET API for VRF: 0x%" PRIx64 ", ip_family: %u, "
             "ip_str: %s, prefix_len: %u with attribute count: %u\r\n", vrf,
             ip_family, ip_str, prefix_len, attr_count);
 
@@ -1359,13 +1397,13 @@ static void sai_test_nexthop_attr_value_pair_fill (unsigned int attr_count,
 
             case SAI_NEXT_HOP_ATTR_ROUTER_INTERFACE_ID:
                 p_attr->value.oid = va_arg ((*p_varg_list), unsigned long);
-                printf ("Attr Index: %d, Set NH RIF Id value: 0x%"PRIx64".\n",
+                printf ("Attr Index: %d, Set NH RIF Id value: 0x%" PRIx64 ".\n",
                         index, p_attr->value.oid);
                 break;
 
             case SAI_NEXT_HOP_ATTR_TUNNEL_ID:
                 p_attr->value.oid = va_arg ((*p_varg_list), unsigned long);
-                printf ("Attr Index: %d, Set NH Tunnel Id value: 0x%"PRIx64".\n",
+                printf ("Attr Index: %d, Set NH Tunnel Id value: 0x%" PRIx64 ".\n",
                         index, p_attr->value.oid);
                 break;
 
@@ -1409,7 +1447,7 @@ sai_status_t saiL3Test::sai_test_nexthop_create (sai_object_id_t *p_nh_id,
 
     va_end (varg_list);
 
-    sai_rc = p_sai_nh_api_tbl->create_next_hop (p_nh_id, attr_count,
+    sai_rc = p_sai_nh_api_tbl->create_next_hop (p_nh_id, switch_id, attr_count,
                                                 p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
@@ -1418,7 +1456,7 @@ sai_status_t saiL3Test::sai_test_nexthop_create (sai_object_id_t *p_nh_id,
 
     } else {
 
-        printf ("SAI Next Hop Creation success, NH Id: 0x%"PRIx64".\n", (*p_nh_id));
+        printf ("SAI Next Hop Creation success, NH Id: 0x%" PRIx64 ".\n", (*p_nh_id));
     }
 
     free (p_attr_list);
@@ -1438,7 +1476,7 @@ sai_status_t saiL3Test::sai_test_nexthop_remove (sai_object_id_t nh_id)
 
     } else {
 
-        printf ("SAI Next Hop removal success for NH ID: 0x%"PRIx64".\n", nh_id);
+        printf ("SAI Next Hop removal success for NH ID: 0x%" PRIx64 ".\n", nh_id);
     }
 
     return sai_rc;
@@ -1465,7 +1503,7 @@ static void sai_test_nexthop_attr_list_print (unsigned int attr_count,
                 break;
 
             case SAI_NEXT_HOP_ATTR_ROUTER_INTERFACE_ID:
-                printf ("Index: %d, Next Hop RIF Id: 0x%"PRIx64".\n", attr_index,
+                printf ("Index: %d, Next Hop RIF Id: 0x%" PRIx64 ".\n", attr_index,
                         p_attr->value.oid);
                 break;
 
@@ -1607,7 +1645,7 @@ sai_status_t saiL3Test::sai_test_neighbor_create (
         inet_pton (AF_INET6, ip_str, (void *) &neighbor_entry.ip_address.addr.ip6);
     }
 
-    printf ("SAI Neighbor entry, RIF Id: 0x%"PRIx64", IP addr: %s.\n",
+    printf ("SAI Neighbor entry, RIF Id: 0x%" PRIx64 ", IP addr: %s.\n",
             rif_id, ip_str);
 
     p_attr_list = (sai_attribute_t *) calloc (attr_count,
@@ -1857,11 +1895,42 @@ sai_status_t saiL3Test::sai_test_neighbor_attr_get (
 
 /*
  * p_group_id  - [out] pointer to Next Hop Group ID generated by the SAI API.
+ * type        - [in]  Next Hop Group Type.
+ */
+sai_status_t saiL3Test::sai_test_nh_group_create_no_nh_list (
+                                           sai_object_id_t *p_group_id,
+                                           sai_next_hop_group_type_t type)
+{
+    sai_status_t    sai_rc;
+    sai_attribute_t attr;
+
+    attr.id        = SAI_NEXT_HOP_GROUP_ATTR_TYPE;
+    attr.value.s32 = type;
+
+    sai_rc = p_sai_nh_grp_api_tbl->
+        create_next_hop_group (p_group_id, switch_id, 1, &attr);
+
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        printf ("SAI NH Group Creation failed with error: %d.\n", sai_rc);
+    }
+    else {
+        printf ("SAI NH Group Creation success, Group Id: 0x%" PRIx64 ".\n",
+                (*p_group_id));
+    }
+
+    return sai_rc;
+}
+
+/*
+ * p_group_id  - [out] pointer to Next Hop Group ID generated by the SAI API.
  * p_nh_list   - [in]  pointer to the next hop list.
  * attr_count  - [in]  number of attributes passed.
  *               For each attribute, {id, value} is passed. For
- *               SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST next-hop count alone is
- *               passed. next-hop list is assigned from the input arg.
+ *               SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST next-hop count
+ *               alone is passed. next-hop list is assigned from the input arg.
+ *               Though SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST represents
+ *               the list NH Group Member Ids (and not Next Hop Ids), but in the
+ *               unit test code, this will be used to represent the Next Hop Ids
  *
  * For attr-count = 2,
  * sai_test_nh_group_create (p_group_id, p_nh_list, 2, id_0, val_0, id_1, val_1)
@@ -1874,8 +1943,10 @@ sai_status_t saiL3Test::sai_test_nh_group_create (
     sai_status_t       sai_rc;
     sai_attribute_t   *p_attr_list = NULL;
     sai_attribute_t   *p_attr = NULL;
+    sai_attr_id_t      attr_id;
     va_list            varg_list;
     unsigned int       index;
+    unsigned int       attr_index = 0;
     unsigned int       nh_count = 0;
 
     p_attr_list = (sai_attribute_t *) calloc (attr_count,
@@ -1891,41 +1962,44 @@ sai_status_t saiL3Test::sai_test_nh_group_create (
 
     for (index = 0; index < attr_count; index++) {
 
-        p_attr = &p_attr_list [index];
+        p_attr = &p_attr_list [attr_index];
 
-        p_attr->id = va_arg (varg_list, unsigned int);
+        attr_id = va_arg (varg_list, unsigned int);
 
-        switch (p_attr->id) {
+        switch (attr_id) {
 
             case SAI_NEXT_HOP_GROUP_ATTR_TYPE:
+                p_attr->id = attr_id;
                 p_attr->value.s32 = va_arg (varg_list, unsigned int);
 
                 printf ("Attr Index: %d, Set NH Group Type to value: %d.\n",
-                        index, p_attr->value.s32);
+                        attr_index, p_attr->value.s32);
+                attr_index++;
                 break;
 
-            case SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST:
+            case SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST:
+                /*
+                 * NH list is not a valid attribute for Group Create.
+                 * So skip this attribute after obtaining the nh_count.
+                 */
                 nh_count = va_arg (varg_list, unsigned int);
 
-                p_attr->value.objlist.count = nh_count;
-                p_attr->value.objlist.list  = p_nh_list;
-
                 printf ("Attr Index: %d, Set NH Group NH list of count: %d.\n",
-                        index, nh_count);
+                        attr_index, nh_count);
                 break;
 
             default:
                 p_attr->value.u64 = va_arg (varg_list, unsigned int);
                 printf ("Attr Index: %d, Set unknown Attr Id: %d to value: %ld.\n",
-                        index, p_attr->id, p_attr->value.u64);
+                        attr_index, p_attr->id, p_attr->value.u64);
                 break;
         }
     }
 
     va_end (varg_list);
 
-    sai_rc = p_sai_nh_grp_api_tbl->create_next_hop_group (p_group_id, attr_count,
-                                                          p_attr_list);
+    sai_rc = p_sai_nh_grp_api_tbl->create_next_hop_group (p_group_id, switch_id,
+                                                          attr_index, p_attr_list);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
 
@@ -1933,8 +2007,14 @@ sai_status_t saiL3Test::sai_test_nh_group_create (
 
     } else {
 
-        printf ("SAI Next Hop Group Creation success, Group Id: 0x%"PRIx64".\n",
+        printf ("SAI Next Hop Group Creation success, Group Id: 0x%" PRIx64 ".\n",
                 (*p_group_id));
+
+        sai_rc = sai_test_add_nh_to_group (*p_group_id, nh_count, p_nh_list);
+
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            p_sai_nh_grp_api_tbl->remove_next_hop_group (*p_group_id);
+        }
     }
 
     free (p_attr_list);
@@ -1944,21 +2024,96 @@ sai_status_t saiL3Test::sai_test_nh_group_create (
 
 sai_status_t saiL3Test::sai_test_nh_group_remove (sai_object_id_t group_id)
 {
-    sai_status_t sai_rc;
+    sai_status_t     sai_rc;
+    sai_object_id_t *nh_list;
+    unsigned int     nh_count;
+
+    sai_rc = sai_test_get_nh_count (group_id, &nh_count);
+
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        printf ("Failed to get the NH count. Group ID: 0x%" PRIx64 ", Err: %d.",
+                group_id, sai_rc);
+        return sai_rc;
+    }
+
+    nh_list = (sai_object_id_t *) calloc (nh_count, sizeof (sai_object_id_t));
+
+    if (nh_list == NULL) {
+        return SAI_STATUS_NO_MEMORY;
+    }
+
+    sai_rc = sai_test_get_nh_list (group_id, &nh_count, nh_list);
+
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        printf ("Failed to get the NH list. Group ID: 0x%" PRIx64 ", Err: %d.",
+                group_id, sai_rc);
+        free (nh_list);
+        return sai_rc;
+    }
+
+    sai_rc = sai_test_remove_nh_from_group (group_id, nh_count, nh_list);
+
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        printf ("SAI Next Hop Group Member Remove failed with error: %d. "
+                "Group Id: 0x%" PRIx64 "\n", sai_rc, group_id);
+
+        free (nh_list);
+        return sai_rc;
+    }
 
     sai_rc = p_sai_nh_grp_api_tbl->remove_next_hop_group (group_id);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
-
         printf ("SAI Next Hop Group Remove failed with error: %d.\n", sai_rc);
-
-    } else {
-
-        printf ("SAI Next Hop Group Remove success for Group Id: 0x%"PRIx64".\n",
+    }
+    else {
+        printf ("SAI Next Hop Group Remove success. Group Id: 0x%" PRIx64 ".\n",
                 group_id);
     }
 
+    free (nh_list);
     return sai_rc;
+}
+
+static sai_status_t sai_test_convert_nh_grp_member_to_nh_id (
+                                            sai_object_id_t  in_nh_group_id,
+                                            unsigned int     attr_count,
+                                            sai_attribute_t *p_attr_list)
+{
+    unsigned int     attr_index;
+    sai_attribute_t *p_attr;
+    unsigned int     idx;
+    sai_object_id_t  grp_id;
+    sai_object_id_t  nh_id;
+    sai_status_t     rc;
+
+    printf ("Converting SAI Next Hop Group member to NH Id...\n");
+
+    for (attr_index = 0; attr_index < attr_count; attr_index++) {
+
+        p_attr = &p_attr_list [attr_index];
+
+        if (p_attr->id == SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST) {
+
+            for (idx = 0; idx < p_attr->value.objlist.count; idx++) {
+                rc = saiL3Test::sai_test_get_next_hop_group_info (
+                                               p_attr->value.objlist.list[idx],
+                                               &grp_id, &nh_id);
+
+                if (rc != SAI_STATUS_SUCCESS) {
+                    return rc;
+                }
+
+                if (in_nh_group_id != grp_id) {
+                    return SAI_STATUS_INVALID_OBJECT_ID;
+                }
+
+                p_attr->value.objlist.list[idx] = nh_id;
+            }
+        }
+    }
+
+    return SAI_STATUS_SUCCESS;
 }
 
 static void sai_test_nh_group_attr_list_print (unsigned int attr_count,
@@ -1980,14 +2135,14 @@ static void sai_test_nh_group_attr_list_print (unsigned int attr_count,
                         attr_index, p_attr->value.u32);
                 break;
 
-            case SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST:
+            case SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST:
                 printf ("Index: %d, Next Hop Group NH List count: %d, "
                         "NH List NH Ids: \n", attr_index,
                         p_attr->value.objlist.count);
 
                 for (idx = 0; idx < p_attr->value.objlist.count; idx++)
                 {
-                    printf ("0x%"PRIx64" ", p_attr->value.objlist.list[idx]);
+                    printf ("0x%" PRIx64 " ", p_attr->value.objlist.list[idx]);
                 }
                 printf ("\n");
                 break;
@@ -2044,6 +2199,10 @@ sai_status_t saiL3Test::sai_test_nh_group_attr_get (sai_object_id_t nh_group_id,
 
         printf ("SAI Next Hop Group Get attribute success.\n");
 
+        sai_rc = sai_test_convert_nh_grp_member_to_nh_id (nh_group_id,
+                                                          attr_count,
+                                                          p_attr_list);
+
         sai_test_nh_group_attr_list_print (attr_count, p_attr_list);
     }
 
@@ -2055,19 +2214,121 @@ sai_status_t saiL3Test::sai_test_add_nh_to_group (
                                               unsigned int nh_count,
                                               sai_object_id_t *p_nh_list)
 {
-    sai_status_t sai_rc;
+    sai_attribute_t attr_list [SAI_TEST_MAX_GROUP_NEXT_HOP_MEMBER_ATTR];
+    sai_object_id_t member_id [nh_count];
+    bool            map_created [nh_count];
+    bool            member_created [nh_count];
+    uint32_t        attr_index = 0;
+    sai_status_t    sai_rc = SAI_STATUS_SUCCESS;
+    uint32_t        index;
+    uint32_t        tmp_index;
 
-    sai_rc = p_sai_nh_grp_api_tbl->add_next_hop_to_group (group_id, nh_count,
-                                                          p_nh_list);
+    memset (member_id, 0, sizeof (member_id));
 
-    if (sai_rc != SAI_STATUS_SUCCESS) {
+    attr_list[attr_index].id = SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_GROUP_ID;
+    attr_list[attr_index].value.oid = group_id;
+    attr_index++;
 
-        printf ("SAI Add Next Hop to Group failed with error: %d.\n", sai_rc);
+    attr_list[attr_index].id = SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_ID;
 
-    } else {
+    for (index = 0; index < nh_count; index++) {
+        map_created [index] = false;
+        member_created [index] = false;
+        attr_list[attr_index].value.oid = p_nh_list [index];
 
-        printf ("SAI Add Next Hop to Group success for Group Id: 0x%"PRIx64".\n",
-                group_id);
+        sai_rc = p_sai_nh_grp_api_tbl->
+            create_next_hop_group_member(&member_id [index],
+                    switch_id,
+                    attr_index + 1, attr_list);
+
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
+
+        member_created [index] = true;
+
+        printf ("NH Member: 0x%" PRIx64 ", added successfully to the "
+                "Group: 0x%" PRIx64 ".\n", member_id [index], group_id);
+        sai_rc = sai_test_next_hop_group_map_add (group_id, p_nh_list [index],
+                                                  member_id [index]);
+
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
+
+        map_created [index] = true;
+    }
+
+    if (sai_rc == SAI_STATUS_SUCCESS) {
+        printf ("SAI Add Next Hop to Group success for "
+                "Group Id: 0x%" PRIx64 ".\n", group_id);
+
+        return SAI_STATUS_SUCCESS;
+    }
+
+    printf ("SAI Add Next Hop to Group failed with error: %d.\n", sai_rc);
+
+    for (tmp_index = 0; tmp_index <= index; tmp_index++) {
+        if (member_created [tmp_index] == true) {
+            p_sai_nh_grp_api_tbl->
+                remove_next_hop_group_member (member_id [tmp_index]);
+
+            if (map_created [tmp_index] == true) {
+                sai_test_next_hop_group_map_del(group_id, p_nh_list [tmp_index],
+                                                member_id [tmp_index]);
+            }
+        }
+    }
+
+    return sai_rc;
+}
+
+sai_status_t saiL3Test::sai_test_add_nh_to_group (
+                                              sai_object_id_t group_id,
+                                              unsigned int nh_count,
+                                              sai_object_id_t *p_nh_list,
+                                              sai_object_id_t *p_member_list)
+{
+    sai_attribute_t attr_list [SAI_TEST_MAX_GROUP_NEXT_HOP_MEMBER_ATTR];
+    uint32_t        attr_index = 0;
+    sai_status_t    sai_rc = SAI_STATUS_SUCCESS;
+    uint32_t        index;
+    uint32_t        tmp_index;
+
+    attr_list[attr_index].id = SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_GROUP_ID;
+    attr_list[attr_index].value.oid = group_id;
+    attr_index++;
+
+    attr_list[attr_index].id = SAI_NEXT_HOP_GROUP_MEMBER_ATTR_NEXT_HOP_ID;
+
+    for (index = 0; index < nh_count; index++) {
+        attr_list[attr_index].value.oid = p_nh_list [index];
+
+        sai_rc = p_sai_nh_grp_api_tbl->
+            create_next_hop_group_member(&p_member_list [index],
+                    switch_id,
+                    attr_index + 1, attr_list);
+
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
+
+        printf ("NH Member: 0x%" PRIx64 ", added successfully to the "
+                "Group: 0x%" PRIx64 ".\n", p_member_list [index], group_id);
+    }
+
+    if (sai_rc == SAI_STATUS_SUCCESS) {
+        printf ("SAI Add Next Hop to Group success for "
+                "Group Id: 0x%" PRIx64 ".\n", group_id);
+
+        return SAI_STATUS_SUCCESS;
+    }
+
+    printf ("SAI Add Next Hop to Group failed with error: %d.\n", sai_rc);
+
+    for (tmp_index = 0; tmp_index < index; tmp_index++) {
+        p_sai_nh_grp_api_tbl->
+            remove_next_hop_group_member (p_member_list [tmp_index]);
     }
 
     return sai_rc;
@@ -2078,23 +2339,221 @@ sai_status_t saiL3Test::sai_test_remove_nh_from_group (
                                               unsigned int nh_count,
                                               sai_object_id_t *p_nh_list)
 {
-    sai_status_t sai_rc;
+    sai_status_t    sai_rc;
+    sai_object_id_t member_id;
+    uint32_t        index;
 
-    sai_rc = p_sai_nh_grp_api_tbl->remove_next_hop_from_group (group_id, nh_count,
-                                                               p_nh_list);
+    for (index = 0; index < nh_count; index++) {
 
-    if (sai_rc != SAI_STATUS_SUCCESS) {
+        sai_rc = sai_test_get_next_hop_member_id (group_id, p_nh_list [index],
+                                                  &member_id);
 
-        printf ("SAI Remove Next Hop from Group failed with error: %d.\n",
-                sai_rc);
-    } else {
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            return sai_rc;
+        }
 
-        printf ("SAI Remove Next Hop from Group success for Group Id: "
-                "0x%"PRIx64".\n", group_id);
+        sai_rc = p_sai_nh_grp_api_tbl->
+            remove_next_hop_group_member (member_id);
+
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            printf ("SAI Remove NH member from Group failed. Group Id: "
+                    "0x%" PRIx64 ", NH Id: 0x%" PRIx64 ", Member Id: "
+                    "0x%" PRIx64 ". Error: %d.\n", group_id, p_nh_list[index],
+                    member_id, sai_rc);
+        }
+        else {
+            printf ("SAI Remove NH member from Group success. Group Id: "
+                    "0x%" PRIx64 ", NH Id: 0x%" PRIx64 ", Member Id: "
+                    "0x%" PRIx64 ".\n", group_id, p_nh_list[index],
+                    member_id);
+        }
+
+        sai_test_next_hop_group_map_del (group_id, p_nh_list[index], member_id);
     }
 
-    return sai_rc;
+    return SAI_STATUS_SUCCESS;
 }
+
+sai_status_t saiL3Test::sai_test_next_hop_group_map_add (
+                                            sai_object_id_t grp_id,
+                                            sai_object_id_t nh_id,
+                                            sai_object_id_t member_id)
+{
+    sai_l3_test_nh_grp_info_t grp_info;
+
+    memset (&grp_info, 0, sizeof (grp_info));
+    grp_info.nh_grp_id = grp_id;
+    grp_info.nh_id     = nh_id;
+
+    printf ("Map ADD. Group Id: 0x%" PRIx64 ", NH Id: 0x%" PRIx64 ", "
+            "Member Id: 0x%" PRIx64 ".\n", grp_id, nh_id, member_id);
+    try {
+        _nh_grp_info_2_member.insert (std::make_pair (grp_info, member_id));
+        _nh_member_2_grp_info.insert (std::make_pair (member_id, grp_info));
+    }
+    catch (...) {
+        return SAI_STATUS_FAILURE;
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+sai_status_t saiL3Test::sai_test_next_hop_group_map_del (
+                                            sai_object_id_t grp_id,
+                                            sai_object_id_t nh_id,
+                                            sai_object_id_t member_id)
+{
+    sai_l3_test_nh_grp_info_t grp_info;
+
+    memset (&grp_info, 0, sizeof (grp_info));
+    grp_info.nh_grp_id = grp_id;
+    grp_info.nh_id     = nh_id;
+
+    printf ("Map DELETE. Group Id: 0x%" PRIx64 ", NH Id: 0x%" PRIx64 ", "
+            "Member Id: 0x%" PRIx64 ".\n", grp_id, nh_id, member_id);
+    try {
+        _nh_grp_info_2_member.erase (grp_info);
+        _nh_member_2_grp_info.erase (member_id);
+    }
+    catch (...) {
+        return SAI_STATUS_FAILURE;
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+sai_status_t saiL3Test::sai_test_get_next_hop_group_info (
+                                             sai_object_id_t  member_id,
+                                             sai_object_id_t *out_grp_id,
+                                             sai_object_id_t *out_nh_id)
+{
+    try {
+        auto it = _nh_member_2_grp_info.find (member_id);
+
+        if (it == _nh_member_2_grp_info.end ()) {
+            return SAI_STATUS_FAILURE;
+        }
+
+        sai_l3_test_nh_grp_info_t& grp_info = it->second;
+
+        *out_grp_id = grp_info.nh_grp_id;
+        *out_nh_id  = grp_info.nh_id;
+    }
+    catch (...) {
+        return SAI_STATUS_FAILURE;
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+sai_status_t saiL3Test::sai_test_get_next_hop_member_id (
+                                            sai_object_id_t  grp_id,
+                                            sai_object_id_t  nh_id,
+                                            sai_object_id_t *out_member_id)
+{
+    sai_l3_test_nh_grp_info_t grp_info;
+
+    memset (&grp_info, 0, sizeof (grp_info));
+
+    grp_info.nh_grp_id = grp_id;
+    grp_info.nh_id     = nh_id;
+
+    try {
+        auto it = _nh_grp_info_2_member.find (grp_info);
+
+        if (it == _nh_grp_info_2_member.end ()) {
+            return SAI_STATUS_FAILURE;
+        }
+
+        *out_member_id = it->second;
+    }
+    catch (...) {
+        return SAI_STATUS_FAILURE;
+    }
+
+    return SAI_STATUS_SUCCESS;
+}
+
+void saiL3Test::sai_test_print_next_hop_info_map (bool print_all_groups,
+                                                  sai_object_id_t grp_id)
+{
+    uint32_t     index = 0;
+
+    try {
+        for (auto& map_kv: _nh_grp_info_2_member) {
+            const sai_l3_test_nh_grp_info_t& grp_info = map_kv.first;
+
+            if ((print_all_groups) || (grp_info.nh_grp_id == grp_id)) {
+                index++;
+                printf ("### [%03d] Group Id: 0x%" PRIx64 ", NH Id: "
+                        "0x%" PRIx64 ", Member Id: 0x%" PRIx64 ".\n", index,
+                        grp_info.nh_grp_id, grp_info.nh_id, map_kv.second);
+            }
+        }
+    }
+    catch (...) {
+        return;
+    }
+
+    return;
+}
+
+sai_status_t saiL3Test::sai_test_get_nh_count (sai_object_id_t  group_id,
+                                               uint32_t        *out_nh_count)
+{
+    sai_status_t rc = SAI_STATUS_SUCCESS;
+    uint32_t     index = 0;
+
+    try {
+        for (auto& map_kv: _nh_grp_info_2_member) {
+            const sai_l3_test_nh_grp_info_t& grp_info = map_kv.first;
+
+            if (grp_info.nh_grp_id == group_id) {
+                index++;
+            }
+        }
+    }
+    catch (...) {
+        rc = SAI_STATUS_FAILURE;
+    }
+
+    *out_nh_count = index;
+    return rc;
+}
+
+sai_status_t saiL3Test::sai_test_get_nh_list (sai_object_id_t  group_id,
+                                              uint32_t        *in_out_nh_count,
+                                              sai_object_id_t *out_nh_list)
+{
+    sai_status_t rc = SAI_STATUS_SUCCESS;
+    uint32_t     index = 0;
+
+    try {
+        for (auto& map_kv: _nh_grp_info_2_member) {
+            const sai_l3_test_nh_grp_info_t& grp_info = map_kv.first;
+
+            if (grp_info.nh_grp_id == group_id) {
+                if (index >= (*in_out_nh_count)) {
+                    printf("sai_test_get_nh_list(). Buffer Overflow. "
+                           "group_id: 0x%" PRIx64 ", index: %d, in_count: %d\n",
+                           group_id, index, *in_out_nh_count);
+                    rc = SAI_STATUS_FAILURE;
+                    break;
+                }
+
+                out_nh_list [index] = grp_info.nh_id;
+                index++;
+            }
+        }
+    }
+    catch (...) {
+        rc = SAI_STATUS_FAILURE;
+    }
+
+    *in_out_nh_count = index;
+    return rc;
+}
+
 
 /*
  * Helper function to create an FDB entry.
@@ -2202,4 +2661,108 @@ sai_status_t saiL3Test::sai_test_neighbor_fdb_entry_port_set (
     }
 
     return status;
+}
+
+sai_status_t saiL3Test ::sai_test_remove_port_from_vlan(
+        sai_vlan_api_t *sai_vlan_api_tbl,
+        sai_object_id_t vlan_obj_id, sai_object_id_t port_id)
+{
+    sai_status_t    sai_rc = SAI_STATUS_SUCCESS;
+    sai_attribute_t attr;
+    int port_count=0;
+    int it=0;
+
+    attr.id = SAI_VLAN_ATTR_MEMBER_LIST;
+    attr.value.objlist.count = 0;
+
+    /* Getting the number of ports using count as 0 */
+    sai_rc = sai_vlan_api_tbl->get_vlan_attribute(vlan_obj_id,1,&attr);
+    if(SAI_STATUS_BUFFER_OVERFLOW != sai_rc) {
+        printf("Unable to get the VLAN member list count for"
+                " VLAN obj id:%lu, rc:%d\r\n",vlan_obj_id,sai_rc);
+        return SAI_STATUS_FAILURE;
+    }
+    port_count = attr.value.objlist.count;
+    printf("VLAN member list count for VLAN obj id:%lu is %d\r\n",
+            vlan_obj_id,attr.value.objlist.count);
+
+    {
+        sai_object_id_t list[port_count];
+
+        /* Getting the list of ports in default vlan */
+        attr.value.objlist.count = port_count;
+        attr.value.objlist.list = list;
+        sai_rc = sai_vlan_api_tbl->get_vlan_attribute(vlan_obj_id,1,&attr);
+        if(SAI_STATUS_SUCCESS != sai_rc) {
+            printf("Unable to get the VLAN member list for"
+                    " VLAN obj id:%lu, rc:%d\r\n",vlan_obj_id,sai_rc);
+            return SAI_STATUS_FAILURE;
+        }
+
+        attr.id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+        attr.value.oid = 0;
+        /* Finding the member id of the port id */
+        for(it=0; it<port_count; it++) {
+            sai_rc = sai_vlan_api_tbl->get_vlan_member_attribute(list[it],1,&attr);
+            if(SAI_STATUS_SUCCESS != sai_rc) {
+                printf("Unable to get the VLAN member port id for "
+                        "member:%lu in VLAN obj:%lu, rc:%d\r\n",
+                        list[it],vlan_obj_id,sai_rc);
+            }
+
+            if(attr.value.oid == port_id) {
+                sai_rc = sai_vlan_api_tbl->remove_vlan_member(list[it]);
+                if(SAI_STATUS_SUCCESS != sai_rc) {
+                    printf("Failed member remove for VLAN member:%lu "
+                            "in VLAN obj:%lu, rc:%d\r\n",
+                            list[it],vlan_obj_id,sai_rc);
+                    return SAI_STATUS_FAILURE;
+                }
+                return SAI_STATUS_SUCCESS;
+            }
+        }
+    }
+
+    printf("Unable to find port:%lu as member in VLAN obj:%lu",
+            port_id,vlan_obj_id);
+
+    return SAI_STATUS_FAILURE;
+}
+
+sai_status_t saiL3Test ::sai_test_add_port_to_vlan(
+        sai_vlan_api_t *sai_vlan_api_tbl,
+        sai_object_id_t vlan_obj_id, sai_object_id_t port_id)
+{
+    sai_status_t    sai_rc = SAI_STATUS_SUCCESS;
+    sai_object_id_t vlan_member_id;
+    sai_attribute_t attr[3];
+    uint32_t attr_count = 0;
+
+    memset(&attr,0,sizeof(attr));
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_ID;
+    attr[attr_count].value.oid = vlan_obj_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_PORT_ID;
+    attr[attr_count].value.oid = port_id;
+    attr_count++;
+    attr[attr_count].id = SAI_VLAN_MEMBER_ATTR_VLAN_TAGGING_MODE;
+    attr[attr_count].value.u32 = SAI_VLAN_TAGGING_MODE_UNTAGGED;
+    attr_count++;
+    sai_rc = sai_vlan_api_tbl->create_vlan_member(&vlan_member_id, 0,
+            attr_count, attr);
+
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        return SAI_STATUS_FAILURE;
+    }
+    return SAI_STATUS_SUCCESS;
+}
+
+sai_object_id_t saiL3Test ::sai_l3_default_vlan_obj_id_get (void)
+{
+    return default_vlan_id;
+}
+
+void saiL3Test ::sai_l3_default_vlan_obj_id_set(sai_object_id_t vlan_obj_id)
+{
+    default_vlan_id = vlan_obj_id;
 }

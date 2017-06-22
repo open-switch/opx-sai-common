@@ -173,7 +173,10 @@ sai_status_t sai_api_query(sai_api_t sai_api_id, void** api_method_table)
 
         case SAI_API_UNSPECIFIED:
         default:
-            SAI_SWITCH_LOG_ERR("Method table for api-id %d",sai_api_id);
+            if (sai_api_id > SAI_API_CUSTOM_RANGE_START) {
+                return (sai_extn_module_api_query (sai_api_id, api_method_table));
+            }
+            SAI_SWITCH_LOG_TRACE("Method table for api-id %d",sai_api_id);
             return SAI_STATUS_NOT_SUPPORTED;
     }
 

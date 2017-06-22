@@ -42,57 +42,31 @@
 #include <inttypes.h>
 #include <stdlib.h>
 
+#define SAI_QOS_SCHED_GROUP_DFLT_ATTR_COUNT 5
+
 static sai_status_t sai_qos_sched_group_node_init (dn_sai_qos_sched_group_t *p_sg_node)
 {
     std_dll_init (&p_sg_node->hqos_info.child_sched_group_dll_head);
 
     std_dll_init (&p_sg_node->hqos_info.child_queue_dll_head);
 
-    p_sg_node->hqos_info.parent_sched_group_id = SAI_NULL_OBJECT_ID;
+    p_sg_node->parent_id = SAI_NULL_OBJECT_ID;
 
     p_sg_node->child_offset = SAI_QOS_CHILD_INDEX_INVALID;
 
-    p_sg_node->hqos_info.max_childs = sai_switch_max_hierarchy_node_childs_get();
+    p_sg_node->max_childs = sai_switch_max_hierarchy_node_childs_get();
 
     p_sg_node->hqos_info.child_index_bitmap =
-        std_bitmap_create_array (p_sg_node->hqos_info.max_childs);
+        std_bitmap_create_array (p_sg_node->max_childs);
 
     if (p_sg_node->hqos_info.child_index_bitmap == NULL) {
         SAI_SCHED_GRP_LOG_ERR ("Failed to create Hierarchy child index bitmap"
-                               "array of size %d.", p_sg_node->hqos_info.max_childs);
+                               "array of size %d.", p_sg_node->max_childs);
 
         return SAI_STATUS_NO_MEMORY;
     }
 
     return SAI_STATUS_SUCCESS;
-}
-
-static bool sai_qos_sched_group_is_in_use (dn_sai_qos_sched_group_t *p_sg_node)
-{
-
-    STD_ASSERT (p_sg_node != NULL);
-
-    /* Verify Any childs are associted to scheduler group. */
-
-    if (sai_qos_sched_group_get_first_child_sched_group (p_sg_node)
-        != NULL) {
-        SAI_SCHED_GRP_LOG_ERR ("Scheduler group in use, Scheduler group "
-                               "has child scheduler group.");
-        return true;
-    }
-
-    if (sai_qos_sched_group_get_first_child_queue (p_sg_node)
-        != NULL) {
-        SAI_SCHED_GRP_LOG_ERR ("Scheduler group in use, Scheduler group "
-                               "has child queue");
-        return true;
-    }
-
-    /* Verify Scheduler group is child of any parent. */
-    if (p_sg_node->hqos_info.parent_sched_group_id != SAI_NULL_OBJECT_ID)
-        return true;
-
-    return false;
 }
 
 sai_status_t sai_qos_sched_group_remove_configs (dn_sai_qos_sched_group_t *p_sg_node)
@@ -104,19 +78,25 @@ sai_status_t sai_qos_sched_group_remove_configs (dn_sai_qos_sched_group_t *p_sg_
 
     STD_ASSERT (p_sg_node != NULL);
 
+    if (p_sg_node->hierarchy_level == 0)
+    {
+        return SAI_STATUS_SUCCESS;
+    }
+
     sched_id = p_sg_node->scheduler_id;
 
     if((sched_id != sai_qos_default_sched_id_get()) && (sched_id != SAI_NULL_OBJECT_ID)) {
+
         set_attr.id = SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID;
-        set_attr.value.oid = sai_qos_default_sched_id_get();
+        set_attr.value.oid = SAI_NULL_OBJECT_ID;
 
         sai_rc = sai_qos_sched_group_scheduler_set (p_sg_node, &set_attr);
 
         if(sai_rc != SAI_STATUS_SUCCESS) {
             SAI_SCHED_GRP_LOG_ERR ("Error: Unable to remove scheduler profile from sg:0x%"PRIx64"",
                     p_sg_node->key.sched_group_id);
-            set_attr.id = sched_id;
-            set_attr.value.oid = sai_qos_default_sched_id_get();
+            set_attr.id = SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID;
+            set_attr.value.oid = sched_id;
             rev_sai_rc = sai_qos_sched_group_scheduler_set (p_sg_node, &set_attr);
             if(rev_sai_rc != SAI_STATUS_SUCCESS) {
                 SAI_SCHED_GRP_LOG_ERR ("Error unable to revert scheduler profile on sg:0x%"PRIx64"",
@@ -124,17 +104,29 @@ sai_status_t sai_qos_sched_group_remove_configs (dn_sai_qos_sched_group_t *p_sg_
             }
             return sai_rc;
         }
-        p_sg_node->scheduler_id = sai_qos_default_sched_id_get();
     }
     return SAI_STATUS_SUCCESS;
 
 }
+
 static void sai_qos_sched_group_free_resources (dn_sai_qos_sched_group_t *p_sg_node,
-                                          bool is_sg_set_in_npu,
-                                          bool is_sg_set_in_port_list)
+                                                bool is_sg_set_in_npu,
+                                                bool is_sg_set_in_port_list,
+                                                bool is_sg_add_to_parent)
 {
+    sai_object_id_t    sg_obj_id = SAI_NULL_OBJECT_ID;
+
     if (p_sg_node == NULL) {
         return;
+    }
+
+    sg_obj_id = p_sg_node->key.sched_group_id;
+    if (is_sg_add_to_parent) {
+        sai_sched_group_npu_api_get ()->sched_group_detach_from_parent(
+                                              sg_obj_id);
+
+        sai_qos_sched_group_and_child_nodes_update (p_sg_node->parent_id,
+                                                    sg_obj_id, false);
     }
 
     /* Remove Scheduler group from NPU, if it was already applied created.*/
@@ -223,19 +215,19 @@ static void sai_qos_sched_group_attr_set (dn_sai_qos_sched_group_t *p_sg_node,
                 break;
 
             case SAI_SCHEDULER_GROUP_ATTR_LEVEL:
-                 p_sg_node->hierarchy_level = p_attr->value.u32;
+                p_sg_node->hierarchy_level = p_attr->value.u32;
                 break;
 
             case SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID:
-                if(p_attr->value.oid == SAI_NULL_OBJECT_ID) {
-                    p_sg_node->scheduler_id = sai_qos_default_sched_id_get();
-                } else {
-                    p_sg_node->scheduler_id = p_attr->value.oid;
-                }
+                p_sg_node->scheduler_id = p_attr->value.oid;
                 break;
 
             case SAI_SCHEDULER_GROUP_ATTR_MAX_CHILDS:
                 p_sg_node->max_childs = p_attr->value.u32;
+                break;
+
+            case SAI_SCHEDULER_GROUP_ATTR_PARENT_NODE:
+                p_sg_node->parent_id = p_attr->value.oid;
                 break;
 
             default:
@@ -254,28 +246,102 @@ static sai_status_t sai_qos_sched_group_attributes_validate (
 {
     sai_status_t                    sai_rc = SAI_STATUS_SUCCESS;
     uint_t                          max_vendor_attr_count = 0;
-    const dn_sai_attribute_entry_t *p_vendor_attr = NULL;
+    const dn_sai_attribute_entry_t  *p_vendor_attr = NULL;
+    uint_t                          list_index = 0;
+    const sai_attribute_t           *p_attr = NULL;
+    sai_object_type_t               parent_object_type = 0;
 
     SAI_SCHED_GRP_LOG_TRACE ("Parsing attributes for Scheduler group, "
                              "attribute count %d op_type %d.", attr_count,
                              op_type);
 
-    if (attr_count == 0)
-        return SAI_STATUS_INVALID_PARAMETER;
+    do {
+        if (attr_count == 0)
+            return SAI_STATUS_INVALID_PARAMETER;
 
-    sai_sched_group_npu_api_get()->attribute_table_get(&p_vendor_attr,
+        sai_sched_group_npu_api_get()->attribute_table_get(&p_vendor_attr,
                                                        &max_vendor_attr_count);
 
-    STD_ASSERT(p_vendor_attr != NULL);
-    STD_ASSERT(max_vendor_attr_count > 0);
+        STD_ASSERT(p_vendor_attr != NULL);
+        STD_ASSERT(max_vendor_attr_count > 0);
 
-    sai_rc = sai_attribute_validate (attr_count, attr_list, p_vendor_attr,
-                                     op_type, max_vendor_attr_count);
+        sai_rc = sai_attribute_validate (attr_count, attr_list, p_vendor_attr,
+                                         op_type, max_vendor_attr_count);
 
-    if(sai_rc != SAI_STATUS_SUCCESS) {
-        SAI_SCHED_GRP_LOG_ERR ("Attribute validation failed for %d "
-                               "operation", op_type);
-    }
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_SCHED_GRP_LOG_ERR ("Attribute validation failed for %d "
+                                   "operation", op_type);
+            break;
+        }
+
+        if (op_type == SAI_OP_GET)
+            break;
+
+        for (list_index = 0, p_attr = attr_list;
+             (list_index < attr_count) && (p_attr != NULL);
+             list_index++, p_attr++) {
+
+            switch (p_attr->id)
+            {
+                case SAI_SCHEDULER_GROUP_ATTR_PORT_ID :
+                    if ((p_attr->value.oid == SAI_NULL_OBJECT_ID)
+                          || (sai_qos_port_node_get (p_attr->value.oid)
+                                               == NULL)) {
+                        SAI_SCHED_GRP_LOG_ERR ("SAI_SCHEDULER_GROUP_ATTR_PORT_ID : 0x%"PRIx64""
+                             "is invalid.", p_attr->value.oid);
+                        return sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTR_VALUE_0,
+                                                       list_index);
+                    }
+                    break;
+
+                case SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID :
+                    if ((p_attr->value.oid != SAI_NULL_OBJECT_ID)
+                          && (sai_qos_scheduler_node_get
+                                               (p_attr->value.oid) == NULL)) {
+                        SAI_SCHED_GRP_LOG_ERR ("SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID : 0x%"PRIx64""
+                             "is invalid.", p_attr->value.oid);
+                        return sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTR_VALUE_0,
+                                                       list_index);
+                    }
+                    break;
+
+                case SAI_SCHEDULER_GROUP_ATTR_PARENT_NODE :
+                    if (p_attr->value.oid != SAI_NULL_OBJECT_ID) {
+                        parent_object_type = sai_uoid_obj_type_get
+                                                 (p_attr->value.oid);
+
+                        if ((parent_object_type != SAI_OBJECT_TYPE_SCHEDULER_GROUP)
+                              && (parent_object_type != SAI_OBJECT_TYPE_PORT)) {
+                            SAI_SCHED_GRP_LOG_ERR ("SAI_SCHEDULER_GROUP_ATTR_PARENT_NODE : 0x%"PRIx64""
+                             "is invalid.", p_attr->value.oid);
+                            return sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTR_VALUE_0,
+                                                           list_index);
+                        }
+
+                        if ((parent_object_type == SAI_OBJECT_TYPE_SCHEDULER_GROUP)
+                                    && (sai_qos_sched_group_node_get
+                                                         (p_attr->value.oid) == NULL)) {
+                            SAI_SCHED_GRP_LOG_ERR ("SAI_OBJECT_TYPE_SCHEDULER_GROUP  : 0x%"PRIx64""
+                             "is invalid.", p_attr->value.oid);
+                            return sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTR_VALUE_0,
+                                                           list_index);
+                        }
+
+                        if ((parent_object_type == SAI_OBJECT_TYPE_PORT)
+                                   && (sai_qos_port_node_get (p_attr->value.oid) == NULL)) {
+                            SAI_SCHED_GRP_LOG_ERR ("SAI_OBJECT_TYPE_PORT  : 0x%"PRIx64""
+                             "is invalid.", p_attr->value.oid);
+                            return sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTR_VALUE_0,
+                                                           list_index);
+                        }
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+        }
+    } while (0);
 
     return sai_rc;
 }
@@ -388,6 +454,11 @@ static bool sai_qos_sched_group_is_duplicate_set (dn_sai_qos_sched_group_t *p_sg
 
     switch (p_attr->id)
     {
+        case SAI_SCHEDULER_GROUP_ATTR_PARENT_NODE:
+            if (p_sg_node->parent_id == p_attr->value.oid)
+                is_duplicate = true;
+            break;
+
         case SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID:
             if (p_sg_node->scheduler_id == p_attr->value.oid)
                 is_duplicate = true;
@@ -403,8 +474,10 @@ static bool sai_qos_sched_group_is_duplicate_set (dn_sai_qos_sched_group_t *p_sg
 }
 
 
-static sai_status_t sai_qos_sched_group_create (
-                          sai_object_id_t *sg_obj_id, uint32_t attr_count,
+static sai_status_t sai_qos_sched_group_create_internal (
+                          sai_object_id_t *sg_obj_id,
+                          sai_object_id_t switch_id,
+                          uint32_t attr_count,
                           const sai_attribute_t *attr_list)
 {
     sai_status_t               sai_rc = SAI_STATUS_SUCCESS;
@@ -412,6 +485,8 @@ static sai_status_t sai_qos_sched_group_create (
     sai_object_id_t            sg_oid = SAI_NULL_OBJECT_ID;
     bool                       is_sg_set_in_npu = false;
     bool                       is_sg_set_in_port_list = false;
+    bool                       is_sg_add_to_parent = false;
+    sai_attribute_t attr;
 
     SAI_SCHED_GRP_LOG_TRACE ("Scheduler group Creation, attr_count: %d.",
                              attr_count);
@@ -433,8 +508,6 @@ static sai_status_t sai_qos_sched_group_create (
                                "group creation.");
         return sai_rc;
     }
-
-    sai_qos_lock ();
 
     do {
         p_sg_node = sai_qos_sched_grp_node_alloc ();
@@ -468,7 +541,7 @@ static sai_status_t sai_qos_sched_group_create (
         *sg_obj_id = sg_oid;
         p_sg_node->key.sched_group_id = sg_oid;
 
-        /* Add the Queue node to PORT's Queue list */
+        /* Add the SG node to PORT's SG list */
         sai_rc = sai_qos_port_sched_group_list_update (p_sg_node, true);
 
         if (sai_rc != SAI_STATUS_SUCCESS) {
@@ -485,6 +558,45 @@ static sai_status_t sai_qos_sched_group_create (
             SAI_SCHED_GRP_LOG_ERR ("Scheduler group insertion to tree failed.");
             break;
         }
+
+        if ((p_sg_node->hierarchy_level == 0)
+                 && (sai_qos_is_hierarchy_qos_supported())) {
+             break;
+        } else {
+            sai_rc = sai_sched_group_npu_api_get()->sched_group_attach_to_parent
+                                                    (sg_oid,
+                                                     p_sg_node->parent_id);
+
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_SCHED_GRP_LOG_ERR ("Failed to attach child SG 0x%"PRIx64""
+                                       "to parent SG 0x%"PRIx64" "
+                                       "for port 0x%"PRIx64" level %d.",
+                                       sg_oid, p_sg_node->parent_id,
+                                       p_sg_node->port_id, p_sg_node->hierarchy_level);
+                break;
+            }
+            is_sg_add_to_parent = true;
+
+            sai_rc = sai_qos_sched_group_and_child_nodes_update (p_sg_node->parent_id,
+                                                             sg_oid, true);
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_SCHED_GRP_LOG_ERR ("Failed to update the child and parent hierarchy "
+                                       "information.");
+                break;
+            }
+
+            attr.id = SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID;
+            attr.value.oid = p_sg_node->scheduler_id;
+            p_sg_node->scheduler_id = SAI_NULL_OBJECT_ID;
+            sai_rc = sai_qos_sched_group_scheduler_set(p_sg_node, &attr);
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_SCHED_GRP_LOG_ERR ("Error: Unable to set scheduler profile: 0x%"PRIx64""
+                                       " for sg:0x%"PRIx64"",
+                                       p_sg_node->scheduler_id,
+                                       p_sg_node->key.sched_group_id);
+            }
+        }
+
     } while (0);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
@@ -493,17 +605,19 @@ static sai_status_t sai_qos_sched_group_create (
     } else {
         SAI_SCHED_GRP_LOG_ERR ("Failed to create Scheduler group.");
         sai_qos_sched_group_free_resources (p_sg_node, is_sg_set_in_npu,
-                                            is_sg_set_in_port_list);
+                                            is_sg_set_in_port_list,
+                                            is_sg_add_to_parent);
+        *sg_obj_id = SAI_NULL_OBJECT_ID;
     }
 
-    sai_qos_unlock ();
     return sai_rc;
 }
 
-static sai_status_t sai_qos_sched_group_remove (sai_object_id_t sg_id)
+static sai_status_t sai_qos_sched_group_remove_internal (sai_object_id_t sg_id)
 {
-    sai_status_t               sai_rc = SAI_STATUS_SUCCESS;
+    sai_status_t              sai_rc = SAI_STATUS_SUCCESS;
     dn_sai_qos_sched_group_t  *p_sg_node = NULL;
+    sai_object_id_t           parent_id = SAI_NULL_OBJECT_ID;
 
     SAI_SCHED_GRP_LOG_TRACE ("Scheduler group remove ID 0x%"PRIx64".", sg_id);
 
@@ -513,8 +627,6 @@ static sai_status_t sai_qos_sched_group_remove (sai_object_id_t sg_id)
 
         return SAI_STATUS_INVALID_OBJECT_TYPE;
     }
-
-    sai_qos_lock ();
 
     do {
         p_sg_node = sai_qos_sched_group_node_get (sg_id);
@@ -529,6 +641,15 @@ static sai_status_t sai_qos_sched_group_remove (sai_object_id_t sg_id)
             break;
         }
 
+        if (p_sg_node->hqos_info.child_count  > 0) {
+            SAI_SCHED_GRP_LOG_ERR ("Scheduler group 0x%"PRIx64" configs can't be deleted, \
+                                   child count :%d", sg_id, p_sg_node->hqos_info.child_count);
+            sai_rc = SAI_STATUS_OBJECT_IN_USE;
+            break;
+        }
+
+        parent_id = p_sg_node->parent_id;
+
         SAI_SCHED_GRP_LOG_TRACE ("Scheduler group remove. Port ID 0x%"PRIx64", "
                                  "Level %d SGID 0x%"PRIx64"", p_sg_node->port_id,
                                  p_sg_node->hierarchy_level, sg_id);
@@ -540,13 +661,24 @@ static sai_status_t sai_qos_sched_group_remove (sai_object_id_t sg_id)
             break;
         }
 
-        if (sai_qos_sched_group_is_in_use (p_sg_node)) {
-            SAI_SCHED_GRP_LOG_ERR ("Scheduler group 0x%"PRIx64" can't be deleted, "
-                                   "It is in use.", sg_id);
+        if (p_sg_node->hierarchy_level != 0)
+        {
+            sai_rc = sai_sched_group_npu_api_get()->sched_group_detach_from_parent(sg_id);
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_SCHED_GRP_LOG_ERR ("Scheduler group 0x%"PRIx64" detach from parent "
+                                       "0x%"PRIx64" failed in NPU.", sg_id,
+                                       p_sg_node->parent_id);
+                break;
+            }
 
-            sai_rc = SAI_STATUS_OBJECT_IN_USE;
-
-            break;
+            /* Update parent HQos information */
+            sai_rc = sai_qos_sched_group_and_child_nodes_update (parent_id,
+                                                                 sg_id, false);
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_SCHED_GRP_LOG_ERR ("Failed to update the child and parent hierarchy "
+                                       "information.");
+                break;
+            }
         }
 
         sai_rc = sai_sched_group_npu_api_get()->sched_group_remove (p_sg_node);
@@ -567,8 +699,6 @@ static sai_status_t sai_qos_sched_group_remove (sai_object_id_t sg_id)
 
     } while (0);
 
-    sai_qos_unlock ();
-
     if (sai_rc == SAI_STATUS_SUCCESS) {
         SAI_SCHED_GRP_LOG_INFO ("Scheduler group 0x%"PRIx64" removed.", sg_id);
     } else {
@@ -579,12 +709,54 @@ static sai_status_t sai_qos_sched_group_remove (sai_object_id_t sg_id)
     return sai_rc;
 }
 
+static sai_status_t sai_qos_sched_group_modify_parent (
+                                        sai_object_id_t sg_id,
+                                        dn_sai_qos_sched_group_t *p_sg_node,
+                                        sai_object_id_t new_parent_id)
+{
+    sai_status_t                sai_rc = SAI_STATUS_SUCCESS;
+    sai_object_id_t             old_parent_id = SAI_NULL_OBJECT_ID;
+
+    STD_ASSERT(p_sg_node != NULL);
+    old_parent_id = p_sg_node->parent_id;
+
+    SAI_SCHED_GRP_LOG_TRACE ("Scheduler group modify parent. Port ID 0x%"PRIx64", "
+                             "Level %d SGID 0x%"PRIx64"", p_sg_node->port_id,
+                             p_sg_node->hierarchy_level, sg_id);
+
+    sai_rc = sai_sched_group_npu_api_get()->sched_group_modify_parent(sg_id, new_parent_id);
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_SCHED_GRP_LOG_ERR ("Scheduler group 0x%"PRIx64" modify parent from "
+                               "0x%"PRIx64" to 0x%"PRIx64" failed in NPU.", sg_id,
+                               old_parent_id, new_parent_id);
+        return sai_rc;
+    }
+
+    /* Update parent HQos information */
+    sai_rc = sai_qos_sched_group_and_child_nodes_update (old_parent_id,
+                                                         sg_id, false);
+
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_SCHED_GRP_LOG_ERR ("Failed to update the child and parent hierarchy "
+                               "information with old parent details.");
+        return sai_rc;
+    }
+
+    sai_rc = sai_qos_sched_group_and_child_nodes_update (new_parent_id,
+                                                         sg_id, true);
+    if (sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_SCHED_GRP_LOG_ERR ("Failed to update the child and parent hierarchy "
+                               "information with new parent details.");
+    }
+    return sai_rc;
+}
+
 static sai_status_t sai_qos_sched_group_attribute_set (sai_object_id_t sg_id,
                                                        const sai_attribute_t *p_attr)
 {
     sai_status_t                sai_rc = SAI_STATUS_SUCCESS;
     dn_sai_qos_sched_group_t    *p_sg_node = NULL;
-    uint_t                       attr_count = 1;
+    uint_t                      attr_count = 1;
 
     STD_ASSERT (p_attr != NULL);
 
@@ -592,7 +764,7 @@ static sai_status_t sai_qos_sched_group_attribute_set (sai_object_id_t sg_id,
                              p_attr->id, sg_id);
 
     if (! sai_is_obj_id_scheduler_group (sg_id)) {
-        SAI_SCHED_GRP_LOG_ERR ("%"PRIx64" is not a valid Scheduler group obj id.",
+        SAI_SCHED_GRP_LOG_ERR ("0x%"PRIx64" is not a valid Scheduler group obj id.",
                                sg_id);
 
         return SAI_STATUS_INVALID_OBJECT_TYPE;
@@ -630,22 +802,34 @@ static sai_status_t sai_qos_sched_group_attribute_set (sai_object_id_t sg_id,
 
         switch (p_attr->id)
         {
+            case SAI_SCHEDULER_GROUP_ATTR_PARENT_NODE:
+                sai_rc = sai_qos_sched_group_modify_parent(sg_id, p_sg_node,
+                                                           p_attr->value.oid);
+                if (sai_rc != SAI_STATUS_SUCCESS) {
+                    SAI_SCHED_GRP_LOG_ERR ("Error: Unable to set new parent: 0x%"PRIx64""
+                                           " for sg:0x%"PRIx64"",
+                                           p_attr->value.oid,
+                                           p_sg_node->key.sched_group_id);
+                }
+
+                break;
+
             case SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID:
-                sai_rc = sai_qos_sched_group_scheduler_set (p_sg_node, p_attr);
+                sai_rc = sai_qos_sched_group_scheduler_set(p_sg_node, p_attr);
+                if (sai_rc != SAI_STATUS_SUCCESS) {
+                    SAI_SCHED_GRP_LOG_ERR ("Error: Unable to set scheduler profile: 0x%"PRIx64""
+                                           " for sg:0x%"PRIx64"",
+                                           p_attr->value.oid,
+                                           p_sg_node->key.sched_group_id);
+                }
                 break;
 
             default:
-                sai_rc = sai_sched_group_npu_api_get()->sched_group_attribute_set(p_sg_node,
-                                                                                  attr_count,
-                                                                                  p_attr);
-                if (sai_rc != SAI_STATUS_SUCCESS) {
-                    SAI_SCHED_GRP_LOG_ERR ("Failed to set Scheduler group Attribute ID: %d "
-                                           "in NPU, Error: %d.", p_attr->id, sai_rc);
-                }
                 break;
         }
 
-        sai_qos_sched_group_attr_set (p_sg_node, attr_count, p_attr, SAI_OP_SET);
+        if (sai_rc == SAI_STATUS_SUCCESS)
+            sai_qos_sched_group_attr_set (p_sg_node, attr_count, p_attr, SAI_OP_SET);
 
     } while (0);
 
@@ -760,8 +944,8 @@ sai_status_t sai_qos_indexed_sched_group_id_get (sai_object_id_t port_id,
 
     SAI_SCHED_GRP_LOG_ERR ("Required scheduler group not exits in "
                            "port 0x%"PRIx64" and level %d, "
-                           "childidx %d sg present %d.",
-                           port_id, level, child_idx, sg_count);
+                           "childidx %d.",
+                           port_id, level, child_idx);
     return SAI_STATUS_FAILURE;
 }
 
@@ -811,97 +995,61 @@ sai_status_t sai_qos_sched_group_id_list_per_level_get (sai_object_id_t port_id,
     return SAI_STATUS_SUCCESS;
 }
 
-sai_status_t sai_qos_port_sched_groups_init (sai_object_id_t port_id)
+sai_status_t sai_qos_port_sched_group_create (sai_object_id_t port_id,
+                                                 sai_object_id_t parent_id,
+                                                 uint_t level,
+                                                 uint_t max_childs,
+                                                 sai_object_id_t *sg_id)
 {
     sai_status_t     sai_rc = SAI_STATUS_SUCCESS;
-    uint_t           level = 0;
     uint_t           attr_count = 0;
-    uint_t           max_childs = 0;
-    uint_t           max_groups_per_level = 0;
-    uint_t           num_groups = 0;
-    sai_attribute_t  attr_list[SAI_SCHED_GROUP_MANDATORY_ATTR_COUNT];
-    sai_object_id_t  sg_id = SAI_NULL_OBJECT_ID;
-    dn_sai_qos_port_t *p_qos_port_node = NULL;
-    dn_sai_qos_hierarchy_t *p_default_hqos = NULL;
+    sai_attribute_t  attr_list[SAI_QOS_SCHED_GROUP_DFLT_ATTR_COUNT] = {{0}};
 
-    if(sai_is_obj_id_cpu_port(port_id)){
-        p_default_hqos = sai_qos_default_cpu_hqos_get();
-    }else {
-        p_default_hqos = sai_qos_default_hqos_get();
-    }
-
-    SAI_SCHED_GRP_LOG_TRACE ("Port 0x%"PRIx64" Scheduler Groups Init.", port_id);
-
-    p_qos_port_node = sai_qos_port_node_get (port_id);
-
-    if (NULL == p_qos_port_node) {
-        SAI_SCHED_GRP_LOG_ERR ("Port 0x%"PRIx64" does not exist in tree.",
-                               port_id);
-
-        return SAI_STATUS_INVALID_OBJECT_ID;
-    }
-
-    SAI_SCHED_GRP_LOG_TRACE ("Root Scheduler Group Init for port 0x%"PRIx64".",
+    SAI_SCHED_GRP_LOG_TRACE ("Port 0x%"PRIx64" Scheduler Group Init and create.",
                              port_id);
 
-    sai_rc = sai_sched_group_npu_api_get()->root_sched_group_init (port_id);
+    attr_count = 0;
+
+    attr_list[attr_count].id = SAI_SCHEDULER_GROUP_ATTR_PORT_ID;
+    attr_list[attr_count].value.oid = port_id;
+    attr_count ++;
+
+    attr_list[attr_count].id = SAI_SCHEDULER_GROUP_ATTR_LEVEL;
+    attr_list[attr_count].value.u32 = level;
+    attr_count ++;
+
+    attr_list[attr_count].id = SAI_SCHEDULER_GROUP_ATTR_MAX_CHILDS;
+    attr_list[attr_count].value.u32 = max_childs;
+    attr_count ++;
+
+    attr_list[attr_count].id = SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID;
+    attr_list[attr_count].value.oid = sai_qos_default_sched_id_get();
+    attr_count ++;
+
+    attr_list[attr_count].id = SAI_SCHEDULER_GROUP_ATTR_PARENT_NODE;
+    attr_list[attr_count].value.oid = parent_id;
+    attr_count ++;
+
+    sai_rc = sai_qos_sched_group_create_internal (sg_id, SAI_DEFAULT_SWITCH_ID,
+                                         attr_count, &attr_list[0]);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
-        SAI_SCHED_GRP_LOG_ERR ("ROOT Scheduler groups init failed "
-                               "for port 0x%"PRIx64".", port_id);
+        SAI_SCHED_GRP_LOG_ERR ("Failed to create scheduler "
+                               "groups for port 0x%"PRIx64" level %d.",
+                               port_id, level);
         return sai_rc;
     }
 
-    /* Create 1 scheduler group at each level other than the leaf.
-     * Leaf level, NPU suport seperate unicast and multicast queues
-     * on port create logical pairs */
-    for (level = 0; level < sai_switch_max_hierarchy_levels_get(); level++) {
-
-        max_groups_per_level = p_default_hqos->level_info[level].num_sg_groups;
-
-        SAI_SCHED_GRP_LOG_TRACE ("Create Scheduler Groups for port 0x%"PRIx64""
-                                 " level %d Number of groups %d", port_id,
-                                 level, max_groups_per_level);
-
-        for(num_groups = 0; num_groups < max_groups_per_level; num_groups ++){
-            max_childs = p_default_hqos->level_info[level].
-                sg_info[num_groups].num_children;
-            attr_count = 0;
-
-            attr_list[attr_count].id = SAI_SCHEDULER_GROUP_ATTR_PORT_ID;
-            attr_list[attr_count].value.oid = port_id;
-            attr_count ++;
-
-            attr_list[attr_count].id = SAI_SCHEDULER_GROUP_ATTR_LEVEL;
-            attr_list[attr_count].value.u32 = level;
-            attr_count ++;
-
-            attr_list[attr_count].id = SAI_SCHEDULER_GROUP_ATTR_MAX_CHILDS;
-            attr_list[attr_count].value.u32 = max_childs;
-            attr_count ++;
-
-            sg_id = 0;
-
-            SAI_SCHED_GRP_LOG_TRACE ("Scheduler group %d max_childs %d",
-                                    num_groups, max_childs);
-
-            sai_rc = sai_qos_sched_group_create (&sg_id, attr_count, &attr_list[0]);
-            if (sai_rc != SAI_STATUS_SUCCESS) {
-                SAI_SCHED_GRP_LOG_ERR ("Failed to create scheduler "
-                                       "groups for port 0x%"PRIx64" level %d.",
-                                       port_id, level);
-                return sai_rc;
-            }
-
-            SAI_SCHED_GRP_LOG_TRACE ("Created Scheduler Group 0x%"PRIx64" for "
-                                     "port 0x%"PRIx64" level %d",
-                                     sg_id, port_id, level);
-        }
-    }
-
-    SAI_SCHED_GRP_LOG_INFO ("Port 0x%"PRIx64" Scheduler groups Init success.", port_id);
+    SAI_SCHED_GRP_LOG_TRACE ("Created Scheduler Group 0x%"PRIx64" for "
+                             "port 0x%"PRIx64" level %d",
+                             *sg_id, port_id, level);
 
     return sai_rc;
+}
+
+sai_status_t sai_qos_port_sched_group_remove(sai_object_id_t sg_id)
+{
+    return sai_qos_sched_group_remove_internal(sg_id);
 }
 
 sai_status_t sai_qos_port_sched_groups_deinit (sai_object_id_t port_id)
@@ -933,7 +1081,7 @@ sai_status_t sai_qos_port_sched_groups_deinit (sai_object_id_t port_id)
 
             p_next_sg_node = sai_qos_port_get_next_sched_group (p_qos_port_node,
                                                                      p_sg_node);
-            sai_rc = sai_qos_sched_group_remove (p_sg_node->key.sched_group_id);
+            sai_rc = sai_qos_sched_group_remove_internal (p_sg_node->key.sched_group_id);
 
             if (sai_rc != SAI_STATUS_SUCCESS) {
                 SAI_SCHED_GRP_LOG_ERR ("Scheduler group remove failed "
@@ -950,14 +1098,43 @@ sai_status_t sai_qos_port_sched_groups_deinit (sai_object_id_t port_id)
     return sai_rc;
 }
 
+static sai_status_t sai_qos_sched_group_create_api (
+                          sai_object_id_t *sg_obj_id,
+                          sai_object_id_t switch_id,
+                          uint32_t attr_count,
+                          const sai_attribute_t *attr_list)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    if (sai_qos_is_fixed_hierarchy_qos () == true) {
+        return SAI_STATUS_NOT_SUPPORTED;
+    }
+
+    sai_qos_lock();
+    sai_rc = sai_qos_sched_group_create_internal(sg_obj_id, switch_id, attr_count, attr_list);
+    sai_qos_unlock();
+    return sai_rc;
+}
+
+static sai_status_t sai_qos_sched_group_remove_api (sai_object_id_t sg_id)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    if (sai_qos_is_fixed_hierarchy_qos () == true) {
+        return SAI_STATUS_NOT_SUPPORTED;
+    }
+
+    sai_qos_lock();
+    sai_rc = sai_qos_sched_group_remove_internal(sg_id);
+    sai_qos_unlock();
+    return sai_rc;
+}
 
 static sai_scheduler_group_api_t sai_qos_sched_group_method_table = {
-    sai_qos_sched_group_create,
-    sai_qos_sched_group_remove,
+    sai_qos_sched_group_create_api,
+    sai_qos_sched_group_remove_api,
     sai_qos_sched_group_attribute_set,
     sai_qos_sched_group_attribute_get,
-    sai_add_child_object_to_group,
-    sai_remove_child_object_from_group,
 };
 
 sai_scheduler_group_api_t *sai_qos_sched_group_api_query (void)

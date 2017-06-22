@@ -368,8 +368,8 @@ static sai_status_t sai_acl_rule_populate(sai_acl_table_t *acl_table,
 
                 if(attr_value.aclaction.enable){
                     policer_type = sai_get_type_from_npu_object(attr_value.aclaction.parameter.oid);
-                    if((policer_type != SAI_POLICER_MODE_Sr_TCM) &&
-                       (policer_type != SAI_POLICER_MODE_Tr_TCM)){
+                    if((policer_type != SAI_POLICER_MODE_SR_TCM) &&
+                       (policer_type != SAI_POLICER_MODE_TR_TCM)){
                        return sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTR_VALUE_0,
                                                       attribute_count);
                     }
@@ -496,6 +496,7 @@ static sai_status_t sai_install_acl_rule(sai_acl_table_t *acl_table,
 }
 
 sai_status_t sai_create_acl_rule(sai_object_id_t *acl_rule_id,
+                                 sai_object_id_t switch_id,
                                  uint32_t attr_count,
                                  const sai_attribute_t *attr_list)
 {

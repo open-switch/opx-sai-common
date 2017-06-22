@@ -43,7 +43,7 @@ TEST_F (saiTunnelTest, create_and_remove_tunnel_object)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -73,7 +73,7 @@ TEST_F (saiTunnelTest, create_and_remove_tunnel_term_entry)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -88,13 +88,13 @@ TEST_F (saiTunnelTest, create_and_remove_tunnel_term_entry)
                                                 SAI_TUNNEL_TERM_TABLE_ENTRY_ATTR_VR_ID,
                                                 dflt_vr_id,
                                                 SAI_TUNNEL_TERM_TABLE_ENTRY_ATTR_TYPE,
-                                                SAI_TUNNEL_TERM_TABLE_ENTRY_P2P,
+                                                SAI_TUNNEL_TERM_TABLE_ENTRY_TYPE_P2P,
                                                 SAI_TUNNEL_TERM_TABLE_ENTRY_ATTR_DST_IP,
                                                 ip4_af, tunnel_sip,
                                                 SAI_TUNNEL_TERM_TABLE_ENTRY_ATTR_SRC_IP,
                                                 ip4_af, tunnel_dip,
                                                 SAI_TUNNEL_TERM_TABLE_ENTRY_ATTR_TUNNEL_TYPE,
-                                                SAI_TUNNEL_IPINIP,
+                                                SAI_TUNNEL_TYPE_IPINIP,
                                                 SAI_TUNNEL_TERM_TABLE_ENTRY_ATTR_ACTION_TUNNEL_ID,
                                                 tunnel_id);
 
@@ -126,7 +126,7 @@ TEST_F (saiTunnelTest, create_and_remove_tunnel_encap_next_hop)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -198,7 +198,7 @@ TEST_F (saiTunnelTest, overlay_ip_route_with_tunnel_encap_next_hop)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -325,7 +325,7 @@ TEST_F (saiTunnelTest, overlay_next_hop_group_with_tunnel_encap_next_hop)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -382,7 +382,7 @@ TEST_F (saiTunnelTest, overlay_next_hop_group_with_tunnel_encap_next_hop)
                                                   saiL3Test::default_nh_group_attr_count,
                                                   SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                                   SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                                   nh_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
@@ -468,7 +468,7 @@ TEST_F (saiTunnelTest, tunnel_encap_next_hop_with_underlay_ecmp_group)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -570,7 +570,7 @@ TEST_F (saiTunnelTest, create_and_remove_tunnel_encap_next_hop_for_neighbor)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -669,7 +669,7 @@ TEST_F (saiTunnelTest, tunnel_encap_next_hop_without_underlay_route)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -778,7 +778,7 @@ TEST_F (saiTunnelTest, tunnel_encap_next_hop_underlay_route_nh_id_change)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -899,7 +899,7 @@ TEST_F (saiTunnelTest, tunnel_encap_nexthop_underlay_neighbor_attr)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -1012,7 +1012,7 @@ TEST_F (saiTunnelTest, overlay_next_hop_group_add_remove_next_hop)
 
     status = sai_test_tunnel_create (&tunnel_id, dflt_tunnel_obj_attr_count,
                                      SAI_TUNNEL_ATTR_TYPE,
-                                     SAI_TUNNEL_IPINIP,
+                                     SAI_TUNNEL_TYPE_IPINIP,
                                      SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE,
                                      dflt_port_rif_id,
                                      SAI_TUNNEL_ATTR_OVERLAY_INTERFACE,
@@ -1071,7 +1071,7 @@ TEST_F (saiTunnelTest, overlay_next_hop_group_add_remove_next_hop)
                                                   saiL3Test::default_nh_group_attr_count,
                                                   SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                                   SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                                   nh_count);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
@@ -1090,7 +1090,7 @@ TEST_F (saiTunnelTest, overlay_next_hop_group_add_remove_next_hop)
                                                   saiL3Test::default_nh_group_attr_count,
                                                   SAI_NEXT_HOP_GROUP_ATTR_TYPE,
                                                   SAI_NEXT_HOP_GROUP_TYPE_ECMP,
-                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_LIST,
+                                                  SAI_NEXT_HOP_GROUP_ATTR_NEXT_HOP_MEMBER_LIST,
                                                   nh_count_4);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);

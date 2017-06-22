@@ -46,6 +46,7 @@ static const struct {
     {SAI_ACL_TABLE_ATTR_FIELD_IN_PORT, "In Port"},
     {SAI_ACL_TABLE_ATTR_FIELD_OUT_PORTS, "Out Ports"},
     {SAI_ACL_TABLE_ATTR_FIELD_OUT_PORT, "Out Port"},
+    {SAI_ACL_TABLE_ATTR_FIELD_SRC_PORT, "Source Port"},
     {SAI_ACL_TABLE_ATTR_FIELD_OUTER_VLAN_ID, "Outer Vlan Id"},
     {SAI_ACL_TABLE_ATTR_FIELD_OUTER_VLAN_PRI, "Outer Vlan Priority"},
     {SAI_ACL_TABLE_ATTR_FIELD_OUTER_VLAN_CFI, "Outer Vlan CFI"},
@@ -62,8 +63,8 @@ static const struct {
     {SAI_ACL_TABLE_ATTR_FIELD_TOS, "TOS"},
     {SAI_ACL_TABLE_ATTR_FIELD_IP_FLAGS, "IP Flags"},
     {SAI_ACL_TABLE_ATTR_FIELD_TCP_FLAGS, "TCP Flags"},
-    {SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE, "IP Type"},
-    {SAI_ACL_TABLE_ATTR_FIELD_IP_FRAG, "IP Frag"},
+    {SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE, "IP Type"},
+    {SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_FRAG, "IP Frag"},
     {SAI_ACL_TABLE_ATTR_FIELD_IPv6_FLOW_LABEL, "IPv6 Flow Label"},
     {SAI_ACL_TABLE_ATTR_FIELD_TC, "TC"},
     {SAI_ACL_TABLE_ATTR_FIELD_ICMP_TYPE, "ICMPType"},
@@ -75,7 +76,9 @@ static const struct {
     {SAI_ACL_TABLE_ATTR_FIELD_VLAN_USER_META, "Vlan User MetaData"},
     {SAI_ACL_TABLE_ATTR_FIELD_ACL_USER_META, "ACL User MetaData"},
     {SAI_ACL_TABLE_ATTR_FIELD_FDB_NPU_META_DST_HIT, "FDB NPU MetaData"},
-    {SAI_ACL_TABLE_ATTR_FIELD_NEIGHBOR_NPU_META_DST_HIT, "L3 Neighbor NPU MetaData"}
+    {SAI_ACL_TABLE_ATTR_FIELD_NEIGHBOR_NPU_META_DST_HIT, "L3 Neighbor NPU MetaData"},
+    {SAI_ACL_TABLE_ATTR_FIELD_ROUTE_NPU_META_DST_HIT, "L3 Route NPU Metadata"},
+
 };
 
 static const size_t sai_acl_translate_field_to_string_size =
@@ -112,8 +115,8 @@ static const struct {
     {SAI_ACL_ENTRY_ATTR_FIELD_TOS, "TOS"},
     {SAI_ACL_ENTRY_ATTR_FIELD_IP_FLAGS, "IP Flags"},
     {SAI_ACL_ENTRY_ATTR_FIELD_TCP_FLAGS, "TCP Flags"},
-    {SAI_ACL_ENTRY_ATTR_FIELD_IP_TYPE, "IP Type"},
-    {SAI_ACL_ENTRY_ATTR_FIELD_IP_FRAG, "IP Frag"},
+    {SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_TYPE, "IP Type"},
+    {SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_FRAG, "IP Frag"},
     {SAI_ACL_ENTRY_ATTR_FIELD_IPv6_FLOW_LABEL, "IPv6 Flow Label"},
     {SAI_ACL_ENTRY_ATTR_FIELD_TC, "TC"},
     {SAI_ACL_ENTRY_ATTR_FIELD_ICMP_TYPE, "ICMPType"},
@@ -126,6 +129,7 @@ static const struct {
     {SAI_ACL_ENTRY_ATTR_FIELD_ACL_USER_META, "ACL User MetaData"},
     {SAI_ACL_ENTRY_ATTR_FIELD_FDB_NPU_META_DST_HIT, "FDB NPU MetaData"},
     {SAI_ACL_ENTRY_ATTR_FIELD_NEIGHBOR_NPU_META_DST_HIT, "L3 Neighbor NPU MetaData"},
+    {SAI_ACL_ENTRY_ATTR_FIELD_ROUTE_NPU_META_DST_HIT, "L3 Route NPU MetaData"},
     {SAI_ACL_ENTRY_ATTR_ACTION_REDIRECT, "Redirect Action"},
     {SAI_ACL_ENTRY_ATTR_ACTION_PACKET_ACTION, "Packet Action"},
     {SAI_ACL_ENTRY_ATTR_ACTION_FLOOD, "Flood Action"},
@@ -376,6 +380,73 @@ void sai_acl_dump_rule_action(sai_acl_rule_t *acl_rule)
         }
     }
 }
+void sai_acl_dump_counter(sai_object_id_t counter_id)
+{
+    acl_node_pt acl_node = NULL;
+    sai_acl_counter_t *acl_counter = NULL;
+
+    acl_node = sai_acl_get_acl_node();
+    acl_counter = sai_acl_cntr_find(acl_node->sai_acl_counter_tree,
+                                       counter_id);
+
+    if (acl_counter == NULL) {
+        SAI_DEBUG(" ACL Counter Id 0x%"PRIx64" not found", counter_id);
+        return;
+    }
+
+    SAI_DEBUG("\n ********** Dumping ACL Counter Id: 0x%"PRIx64" ********** \n", counter_id);
+
+    SAI_DEBUG("Counter Id: 0x%"PRIx64", Counter Table Id: 0x%"PRIx64" \n"
+              "Counter Type: %s, Counter Shared Count: %d",
+              acl_counter->counter_key.counter_id,
+              acl_counter->table_id,
+              (acl_counter->counter_type == SAI_ACL_COUNTER_BYTES ? "Bytes" :
+              acl_counter->counter_type == SAI_ACL_COUNTER_PACKETS ? "Packets" :
+              acl_counter->counter_type == SAI_ACL_COUNTER_BYTES_PACKETS ? "Bytes/Packets"
+              : "Unknown"), acl_counter->shared_count);
+
+    sai_acl_npu_api_get()->dump_acl_counter(acl_counter);
+
+    return;
+}
+
+void sai_acl_dump_all_counters(void)
+{
+    acl_node_pt acl_node = NULL;
+    sai_acl_counter_t *acl_counter = NULL;
+    rbtree_handle acl_counter_tree = NULL;
+
+    acl_node = sai_acl_get_acl_node();
+    if (acl_node == NULL)
+    {
+        SAI_DEBUG("ACL Parent Node not present");
+        return;
+    }
+
+    acl_counter_tree = acl_node->sai_acl_counter_tree;
+
+    if(acl_counter_tree == NULL)
+    {
+        SAI_DEBUG("ACL Counter not present");
+        return;
+    }
+
+
+    acl_counter = (sai_acl_counter_t *)std_rbtree_getfirst(acl_counter_tree);
+    if (acl_counter == NULL)
+    {
+        SAI_DEBUG("ACL Counter not present in the ACL Counter tree");
+        return;
+    }
+
+    for ( ; acl_counter != NULL; acl_counter = (sai_acl_counter_t *)
+          std_rbtree_getnext(acl_counter_tree, acl_counter))
+    {
+        sai_acl_dump_counter(acl_counter->counter_key.counter_id);
+    }
+
+    return;
+}
 
 void sai_acl_dump_rule(sai_object_id_t rule_id)
 {
@@ -416,6 +487,7 @@ void sai_acl_dump_rule(sai_object_id_t rule_id)
 
     sai_acl_npu_api_get()->dump_acl_rule(acl_rule);
 
+    sai_acl_dump_counter(acl_rule->counter_id);
     return;
 }
 
@@ -507,6 +579,7 @@ void sai_acl_dump_table(sai_object_id_t table_id)
 
     sai_acl_npu_api_get()->dump_acl_table(acl_table);
 
+    sai_acl_dump_all_rules_in_table(table_id);
     return;
 }
 
@@ -517,7 +590,7 @@ void sai_acl_dump_all_tables(void)
     rbtree_handle acl_table_tree = NULL;
 
     acl_node = sai_acl_get_acl_node();
-    if (!acl_node)
+    if (acl_node == NULL)
     {
         SAI_DEBUG("ACL Parent Node not present");
         return;
@@ -525,7 +598,7 @@ void sai_acl_dump_all_tables(void)
 
     acl_table_tree = acl_node->sai_acl_table_tree;
 
-    if(!acl_table_tree)
+    if(acl_table_tree == NULL)
     {
         SAI_DEBUG("ACL Table not present");
         return;
@@ -533,91 +606,27 @@ void sai_acl_dump_all_tables(void)
 
 
     acl_table = (sai_acl_table_t *)std_rbtree_getfirst(acl_table_tree);
-    if (!acl_table)
+    if (acl_table == NULL)
     {
         SAI_DEBUG("No ACL Table present in the ACL Table tree");
         return;
     }
 
-    for ( ; acl_table; acl_table = (sai_acl_table_t *)
-            std_rbtree_getnext(acl_table_tree,acl_table))
+    for ( ; acl_table != NULL; acl_table = (sai_acl_table_t *)
+          std_rbtree_getnext(acl_table_tree,acl_table))
     {
-        if (acl_table)
-        {
-            sai_acl_dump_table(acl_table->table_key.acl_table_id);
-        }
+        sai_acl_dump_table(acl_table->table_key.acl_table_id);
     }
 
     return;
 }
 
-void sai_acl_dump_counter(sai_object_id_t counter_id)
+void sai_acl_dump_counters()
 {
-    acl_node_pt acl_node = NULL;
-    sai_acl_counter_t *acl_counter = NULL;
-
-    acl_node = sai_acl_get_acl_node();
-    acl_counter = sai_acl_cntr_find(acl_node->sai_acl_counter_tree,
-                                       counter_id);
-
-    if (acl_counter == NULL) {
-        SAI_DEBUG(" ACL Counter Id 0x%"PRIx64" not found", counter_id);
-        return;
-    }
-
-    SAI_DEBUG("\n ********** Dumping ACL Counter Id: 0x%"PRIx64" ********** \n", counter_id);
-
-    SAI_DEBUG("Counter Id: 0x%"PRIx64", Counter Table Id: 0x%"PRIx64" \n"
-              "Counter Type: %s, Counter Shared Count: %d",
-              acl_counter->counter_key.counter_id,
-              acl_counter->table_id,
-              (acl_counter->counter_type == SAI_ACL_COUNTER_BYTES ? "Bytes" :
-              acl_counter->counter_type == SAI_ACL_COUNTER_PACKETS ? "Packets" :
-              acl_counter->counter_type == SAI_ACL_COUNTER_BYTES_PACKETS ? "Bytes/Packets"
-              : "Unknown"), acl_counter->shared_count);
-
-    sai_acl_npu_api_get()->dump_acl_counter(acl_counter);
-
-    return;
+  sai_acl_npu_api_get()->dump_all_counters();
 }
 
-void sai_acl_dump_all_counters(void)
+void sai_acl_dump_counter_per_entry(int eid)
 {
-    acl_node_pt acl_node = NULL;
-    sai_acl_counter_t *acl_counter = NULL;
-    rbtree_handle acl_counter_tree = NULL;
-
-    acl_node = sai_acl_get_acl_node();
-    if (!acl_node)
-    {
-        SAI_DEBUG("ACL Parent Node not present");
-        return;
-    }
-
-    acl_counter_tree = acl_node->sai_acl_counter_tree;
-
-    if(!acl_counter_tree)
-    {
-        SAI_DEBUG("ACL Counter not present");
-        return;
-    }
-
-
-    acl_counter = (sai_acl_counter_t *)std_rbtree_getfirst(acl_counter_tree);
-    if (!acl_counter)
-    {
-        SAI_DEBUG("ACL Counter not present in the ACL Counter tree");
-        return;
-    }
-
-    for ( ; acl_counter; acl_counter = (sai_acl_counter_t *)
-            std_rbtree_getnext(acl_counter_tree, acl_counter))
-    {
-        if (acl_counter)
-        {
-            sai_acl_dump_counter(acl_counter->counter_key.counter_id);
-        }
-    }
-
-    return;
+    sai_acl_npu_api_get()->dump_entry_counter(eid);
 }

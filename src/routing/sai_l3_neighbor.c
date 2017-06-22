@@ -365,6 +365,7 @@ static sai_status_t sai_fib_neighbor_port_id_resolve (sai_fib_nh_t *p_neighbor)
     sai_status_t                status;
     const uint_t                attr_count = 1;
     sai_attribute_t             fdb_port_attr;
+    char                        mac_str[SAI_FIB_MAX_BUFSZ] = {0};
 
     STD_ASSERT (p_neighbor != NULL);
 
@@ -403,13 +404,17 @@ static sai_status_t sai_fib_neighbor_port_id_resolve (sai_fib_nh_t *p_neighbor)
         if (status != SAI_STATUS_SUCCESS) {
 
             SAI_NEIGHBOR_LOG_TRACE ("Failure to get port id for Neighbor from "
-                                  "L2 FDB : %d.", status);
+                                    "L2 FDB entry mac: %s, vlan %d. Status code %d.",
+                                    std_mac_to_string((const hal_mac_addr_t *)&(fdb_entry.mac_address),
+                                    mac_str, sizeof(mac_str)), fdb_entry.vlan_id, status);
+            /*Set port as unresolved so that a blackhole egress object is created*/
+            p_neighbor->port_unresolved = true;
+            p_neighbor->port_id = SAI_NULL_OBJECT_ID;
 
-            return status;
+        } else {
+            p_neighbor->port_unresolved = false;
+            p_neighbor->port_id = fdb_port_attr.value.oid;
         }
-
-        p_neighbor->port_id = fdb_port_attr.value.oid;
-
         SAI_NEIGHBOR_LOG_TRACE ("Resolved port id 0x%"PRIx64" for Neighbor "
                                 "from L2 FDB", p_neighbor->port_id);
     }
@@ -664,6 +669,7 @@ static sai_status_t sai_fib_neighbor_create (
     sai_fib_nh_t      *p_nh_node = NULL;
     sai_fib_nh_t       nh_info;
     uint_t             attr_flag = 0;
+    bool               mac_inserted = false;
 
     SAI_NEIGHBOR_LOG_TRACE ("SAI Neighbor creation.");
 
@@ -705,13 +711,6 @@ static sai_status_t sai_fib_neighbor_create (
             break;
         }
 
-        /* Resolve Egress port Id for the Neighbor */
-        status = sai_fib_neighbor_port_id_resolve (p_nh_node);
-
-        if (status != SAI_STATUS_SUCCESS) {
-            break;
-        }
-
         /* Insert the Neighbor in a MAC based view to handle FDB events */
         status = sai_fib_neighbor_mac_entry_insert (p_nh_node);
 
@@ -719,6 +718,14 @@ static sai_status_t sai_fib_neighbor_create (
             break;
         }
 
+        mac_inserted = true;
+
+        /* Resolve Egress port Id for the Neighbor */
+        status = sai_fib_neighbor_port_id_resolve (p_nh_node);
+
+        if (status != SAI_STATUS_SUCCESS) {
+            break;
+        }
         /* Create the neighbor entry in NPU with filled attributes */
         status = sai_neighbor_npu_api_get()->neighbor_create (p_nh_node);
 
@@ -741,8 +748,9 @@ static sai_status_t sai_fib_neighbor_create (
 
         if (p_nh_node != NULL) {
 
-            sai_fib_neighbor_mac_entry_remove (p_nh_node);
-
+            if (mac_inserted) {
+                sai_fib_neighbor_mac_entry_remove (p_nh_node);
+            }
             sai_fib_neighbor_info_reset (p_nh_node);
 
             sai_fib_check_and_delete_ip_next_hop_node (p_nh_node->vrf_id,
@@ -1084,12 +1092,6 @@ static sai_status_t sai_fib_neighbor_port_id_set (const sai_fdb_entry_t *fdb_ent
 
     STD_ASSERT (fdb_entry != NULL);
 
-    if (port_id == SAI_NULL_OBJECT_ID) {
-        /* @TODO Handle this case after the Neighbor behavior is finalized */
-        SAI_NEIGHBOR_LOG_TRACE ("Not handling FDB entry remove/flush event.");
-
-        return status;
-    }
 
     /* Check if the MAC entry is present in Neighbor MAC entry tree */
     memset (&key, 0, sizeof (sai_fib_neighbor_mac_entry_key_t));
@@ -1124,12 +1126,29 @@ static sai_status_t sai_fib_neighbor_port_id_set (const sai_fdb_entry_t *fdb_ent
              memcpy (&nh_node_copy, p_nh_node, sizeof (sai_fib_nh_t));
 
              prev_port_id = p_nh_node->port_id;
-
              p_nh_node->port_id = port_id;
-
+             if(port_id == SAI_NULL_OBJECT_ID) {
+                 /* If FDB delete notification comes black hole the egress
+                    until the FDB learn notification comes */
+                 p_nh_node->port_unresolved = true;
+                 status = sai_neighbor_npu_api_get()->neighbor_attr_set (p_nh_node,
+                                                      SAI_FIB_NEIGHBOR_PKT_ACTION_ATTR_FLAG);
+             } else {
+                 if(p_nh_node->port_unresolved) {
+                     /*  If port was unresolved earlier and resolved now through
+                      *  FDB callback update MAC and PACKET ACTION flag to create
+                      *  new egress object
+                      */
+                     p_nh_node->port_unresolved = false;
+                     status = sai_neighbor_npu_api_get()->neighbor_attr_set (p_nh_node,
+                                                          (SAI_FIB_NEIGHBOR_DEST_MAC_ATTR_FLAG |
+                                                           SAI_FIB_NEIGHBOR_PKT_ACTION_ATTR_FLAG));
+                 } else {
+                     status = sai_neighbor_npu_api_get()->neighbor_attr_set (p_nh_node,
+                             SAI_FIB_NEIGHBOR_PORT_ID_ATTR_FLAG);
+                 }
+             }
              /* Set the port id for Neighbor in NPU */
-             status = sai_neighbor_npu_api_get()->neighbor_attr_set (
-                       p_nh_node, SAI_FIB_NEIGHBOR_PORT_ID_ATTR_FLAG);
 
              if (status != SAI_STATUS_SUCCESS) {
 
@@ -1165,7 +1184,7 @@ sai_status_t sai_neighbor_fdb_callback (uint_t num_upd,
                             num_upd);
 
     for (count = 0; count < num_upd; ++count) {
-
+        port_id = SAI_NULL_OBJECT_ID;
         if (fdb_upd [count].fdb_event == SAI_FDB_EVENT_LEARNED) {
             port_id = fdb_upd [count].port_id;
         }
@@ -1176,7 +1195,7 @@ sai_status_t sai_neighbor_fdb_callback (uint_t num_upd,
     return SAI_STATUS_SUCCESS;
 }
 
-static sai_status_t sai_fib_neighbor_remove_all_entries (void)
+static sai_status_t sai_fib_neighbor_remove_all_entries (sai_object_id_t switch_id)
 {
     return SAI_STATUS_NOT_IMPLEMENTED;
 }

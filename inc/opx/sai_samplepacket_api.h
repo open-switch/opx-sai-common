@@ -135,9 +135,12 @@ sai_status_t sai_samplepacket_remove_object (sai_object_list_t *portlist,
 rbtree_handle sai_samplepacket_sessions_db_get(void);
 
 /*
- * Dump all the samplepacket sessions
+ * Dump function for samplepacket session params
+ * param - samplepacket session Id
+ * param - all Set to dump 'all' or single session
+ * return - void
  */
-void sai_samplepacket_dump(void);
+void sai_samplepacket_dump(sai_object_id_t session_id, bool all);
 
 /*
  * Dump properties of a samplepacket session

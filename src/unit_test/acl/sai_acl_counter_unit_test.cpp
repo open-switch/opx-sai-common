@@ -129,13 +129,13 @@ void saiACLCounterTest ::SetUpTestCase (void)
 
     /* Create MAC Based Ingress ACL Table */
     sai_rc = sai_test_acl_table_create (&mac_table_id, 14,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
                                         SAI_ACL_TABLE_ATTR_FIELD_DST_MAC,
                                         SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
-                                        SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE,
+                                        SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI,
@@ -147,19 +147,19 @@ void saiACLCounterTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Ingress MAC ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Ingress MAC ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  mac_table_id);
     }
 
     /* Create MAC Based Egress ACL Table */
     sai_rc = sai_test_acl_table_create (&mac_egress_table_id, 11,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_EGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 1,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
                                         SAI_ACL_TABLE_ATTR_FIELD_DST_MAC,
                                         SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
-                                        SAI_ACL_TABLE_ATTR_FIELD_IP_TYPE,
+                                        SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_TYPE,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_ID,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_PRI,
                                         SAI_ACL_TABLE_ATTR_FIELD_INNER_VLAN_CFI,
@@ -168,13 +168,13 @@ void saiACLCounterTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Egress MAC ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Egress MAC ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  mac_egress_table_id);
     }
 
     /* Create IP Based Ingress ACL Table */
     sai_rc = sai_test_acl_table_create (&ip_table_id, 15,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 2,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_IP,
@@ -185,7 +185,7 @@ void saiACLCounterTest ::SetUpTestCase (void)
                                         SAI_ACL_TABLE_ATTR_FIELD_TCP_FLAGS,
                                         SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL,
                                         SAI_ACL_TABLE_ATTR_FIELD_TOS,
-                                        SAI_ACL_TABLE_ATTR_FIELD_IP_FRAG,
+                                        SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_FRAG,
                                         SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
                                         SAI_ACL_TABLE_ATTR_FIELD_IN_PORT,
                                         SAI_ACL_TABLE_ATTR_FIELD_IN_PORTS,
@@ -193,13 +193,13 @@ void saiACLCounterTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Ingress IP ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Ingress IP ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  ip_table_id);
     }
 
     /* Create IP Based Egress ACL Table */
     sai_rc = sai_test_acl_table_create (&ip_egress_table_id, 12,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_EGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 2,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_IP,
@@ -210,19 +210,19 @@ void saiACLCounterTest ::SetUpTestCase (void)
                                         SAI_ACL_TABLE_ATTR_FIELD_TCP_FLAGS,
                                         SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL,
                                         SAI_ACL_TABLE_ATTR_FIELD_TOS,
-                                        SAI_ACL_TABLE_ATTR_FIELD_IP_FRAG,
+                                        SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_FRAG,
                                         SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
                                         SAI_ACL_TABLE_ATTR_FIELD_OUT_PORT);
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Egress IP ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Egress IP ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  ip_egress_table_id);
     }
 
     /* Create IPv6 Based Ingress ACL Table */
     sai_rc = sai_test_acl_table_create (&ipv6_table_id, 15,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 3,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_IPv6,
@@ -233,7 +233,7 @@ void saiACLCounterTest ::SetUpTestCase (void)
                                         SAI_ACL_TABLE_ATTR_FIELD_TCP_FLAGS,
                                         SAI_ACL_TABLE_ATTR_FIELD_IP_PROTOCOL,
                                         SAI_ACL_TABLE_ATTR_FIELD_TOS,
-                                        SAI_ACL_TABLE_ATTR_FIELD_IP_FRAG,
+                                        SAI_ACL_TABLE_ATTR_FIELD_ACL_IP_FRAG,
                                         SAI_ACL_TABLE_ATTR_FIELD_ETHER_TYPE,
                                         SAI_ACL_TABLE_ATTR_FIELD_IN_PORT,
                                         SAI_ACL_TABLE_ATTR_FIELD_IN_PORTS,
@@ -241,13 +241,13 @@ void saiACLCounterTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Ingress IPv6 ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Ingress IPv6 ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  ipv6_table_id);
     }
 
     /* Create IPv6 Based Egress ACL Table */
     sai_rc = sai_test_acl_table_create (&ipv6_egress_table_id, 12,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_EGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 3,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_IPv6,
@@ -263,13 +263,13 @@ void saiACLCounterTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("Egress IPv6 ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("Egress IPv6 ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  ipv6_egress_table_id);
     }
 
     /* Create IP + MAC Based ACL Table */
     sai_rc = sai_test_acl_table_create (&ip_and_mac_table_id, 20,
-                                        SAI_ACL_TABLE_ATTR_STAGE,
+                                        SAI_ACL_TABLE_ATTR_ACL_STAGE,
                                         SAI_ACL_STAGE_INGRESS,
                                         SAI_ACL_TABLE_ATTR_PRIORITY, 4,
                                         SAI_ACL_TABLE_ATTR_FIELD_SRC_MAC,
@@ -293,7 +293,7 @@ void saiACLCounterTest ::SetUpTestCase (void)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
     if (sai_rc == SAI_STATUS_SUCCESS) {
-        printf ("IP + MAC ACL Table Successfully created with ID 0x%"PRIx64" \r\n",
+        printf ("IP + MAC ACL Table Successfully created with ID 0x%" PRIx64 " \r\n",
                  ip_and_mac_table_id);
     }
 
@@ -355,7 +355,7 @@ sai_object_id_t saiACLCounterTest ::sai_test_acl_rule_entry_create_with_counter 
                                        1, &dst_mac_data, &dst_mac_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_ETHER_TYPE,
                                        1, 34825, standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_IP_TYPE,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_TYPE,
                                        1, (unsigned long) SAI_ACL_IP_TYPE_ANY,
                                        standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_INNER_VLAN_ID,
@@ -391,7 +391,7 @@ sai_object_id_t saiACLCounterTest ::sai_test_acl_rule_entry_create_with_counter 
                                        1, 6 /* TCP */, standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_TOS,
                                        1, 32 , standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_IP_FRAG,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_FRAG,
                                        1, (unsigned long) SAI_ACL_IP_FRAG_NON_FRAG,
                                        standard_mask,
                                        SAI_ACL_ENTRY_ATTR_ACTION_PACKET_ACTION, true,
@@ -426,7 +426,7 @@ sai_object_id_t saiACLCounterTest ::sai_test_acl_rule_entry_create_with_counter 
                                        1, 6 /* TCP */, standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_TOS,
                                        1, 32 , standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_IP_FRAG,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_FRAG,
                                        1, (unsigned long) SAI_ACL_IP_FRAG_NON_FRAG,
                                        standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS,
@@ -487,7 +487,7 @@ sai_object_id_t saiACLCounterTest ::sai_test_acl_rule_entry_create_with_counter 
                                        1, &dst_mac_data, &dst_mac_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_ETHER_TYPE,
                                        1, 34825, standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_IP_TYPE,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_TYPE,
                                        1, (unsigned long) SAI_ACL_IP_TYPE_ANY,
                                        standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_INNER_VLAN_ID,
@@ -521,7 +521,7 @@ sai_object_id_t saiACLCounterTest ::sai_test_acl_rule_entry_create_with_counter 
                                        1, 6 /* TCP */, standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_TOS,
                                        1, 32 , standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_IP_FRAG,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_FRAG,
                                        1, (unsigned long) SAI_ACL_IP_FRAG_NON_FRAG,
                                        standard_mask,
                                        SAI_ACL_ENTRY_ATTR_ACTION_PACKET_ACTION, true,
@@ -554,7 +554,7 @@ sai_object_id_t saiACLCounterTest ::sai_test_acl_rule_entry_create_with_counter 
                                        1, 6 /* TCP */, standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_TOS,
                                        1, 32 , standard_mask,
-                                       SAI_ACL_ENTRY_ATTR_FIELD_IP_FRAG,
+                                       SAI_ACL_ENTRY_ATTR_FIELD_ACL_IP_FRAG,
                                        1, (unsigned long) SAI_ACL_IP_FRAG_NON_FRAG,
                                        standard_mask,
                                        SAI_ACL_ENTRY_ATTR_FIELD_IN_PORTS,

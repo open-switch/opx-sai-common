@@ -29,9 +29,6 @@ extern "C" {
 #include "saistp.h"
 #include "saitypes.h"
 
-void sai_port_evt_callback (uint32_t count,
-                            sai_port_event_notification_t *data);
-
 sai_status_t
 sai_lag_ut_create_virtual_router (sai_virtual_router_api_t *vrf_api_table,
                                   sai_object_id_t          *vrf_id);
@@ -53,10 +50,12 @@ sai_lag_ut_remove_virtual_router (sai_virtual_router_api_t *vrf_api_table,
                                   sai_object_id_t           vrf_id);
 
 sai_status_t
-sai_lag_ut_create_router_interface (sai_router_interface_api_t *router_intf_api_table,
+sai_lag_ut_create_router_interface (sai_lag_api_t              *lag_api,
+                                    sai_router_interface_api_t *router_intf_api_table,
                                     sai_vlan_api_t             *vlan_api_table,
                                     sai_object_id_t            *rif_id,
                                     sai_object_id_t             vrf_id,
+                                    sai_object_id_t             default_vlan_id,
                                     sai_object_id_t             port_id);
 
 sai_status_t
@@ -81,6 +80,7 @@ sai_status_t sai_lag_ut_set_lag_attr (sai_lag_api_t   *lag_api,
 
 extern uint32_t port_count;
 extern sai_object_id_t port_list[SAI_MAX_PORTS];
+static sai_object_id_t switch_id = 0;
 
 /*
  * API query is done while running the first test case and
@@ -94,37 +94,58 @@ class lagInit : public ::testing::Test
         static void SetUpTestCase()
         {
             sai_switch_api_t *p_sai_switch_api_tbl = NULL;
-            sai_switch_notification_t notification;
 
             /*
              * Query and populate the SAI Switch API Table.
              */
-            memset(&notification, 0, sizeof(notification));
             EXPECT_EQ (SAI_STATUS_SUCCESS, sai_api_query
-                       (SAI_API_SWITCH, (static_cast<void**>
-                                         (static_cast<void*>(&p_sai_switch_api_tbl)))));
+                    (SAI_API_SWITCH, (static_cast<void**>
+                                      (static_cast<void*>(&p_sai_switch_api_tbl)))));
 
             ASSERT_TRUE (p_sai_switch_api_tbl != NULL);
 
-            /*
-             * Switch Initialization.
-             * Fill in notification callback routines with stubs.
-             */
-            notification.on_switch_state_change = sai_switch_operstate_callback;
-            notification.on_fdb_event = sai_fdb_evt_callback;
-            notification.on_port_state_change = sai_port_state_evt_callback;
-            notification.on_switch_shutdown_request = sai_switch_shutdown_callback;
-            notification.on_packet_event = sai_packet_event_callback;
-            notification.on_port_event = sai_port_evt_callback;
 
-            ASSERT_TRUE(p_sai_switch_api_tbl->initialize_switch != NULL);
+            sai_attribute_t sai_attr_set[7];
+            uint32_t attr_count = 7;
+
+            memset(sai_attr_set,0, sizeof(sai_attr_set));
+
+            sai_attr_set[0].id = SAI_SWITCH_ATTR_INIT_SWITCH;
+            sai_attr_set[0].value.booldata = 1;
+
+            sai_attr_set[1].id = SAI_SWITCH_ATTR_SWITCH_PROFILE_ID;
+            sai_attr_set[1].value.u32 = 0;
+
+            sai_attr_set[2].id = SAI_SWITCH_ATTR_FDB_EVENT_NOTIFY;
+            sai_attr_set[2].value.ptr = (void *)sai_fdb_evt_callback;
+
+            sai_attr_set[3].id = SAI_SWITCH_ATTR_PORT_STATE_CHANGE_NOTIFY;
+            sai_attr_set[3].value.ptr = (void *)sai_port_state_evt_callback;
+
+            sai_attr_set[4].id = SAI_SWITCH_ATTR_PACKET_EVENT_NOTIFY;
+            sai_attr_set[4].value.ptr = (void *)sai_packet_event_callback;
+
+            sai_attr_set[5].id = SAI_SWITCH_ATTR_SWITCH_STATE_CHANGE_NOTIFY;
+            sai_attr_set[5].value.ptr = (void *)sai_switch_operstate_callback;
+
+            sai_attr_set[6].id = SAI_SWITCH_ATTR_SHUTDOWN_REQUEST_NOTIFY;
+            sai_attr_set[6].value.ptr = (void *)sai_switch_shutdown_callback;
+
+            ASSERT_TRUE(p_sai_switch_api_tbl->create_switch != NULL);
 
             EXPECT_EQ (SAI_STATUS_SUCCESS,
-                       (p_sai_switch_api_tbl->initialize_switch (0, NULL, NULL,
-                                                                 &notification)));
+                    (p_sai_switch_api_tbl->create_switch (&switch_id , attr_count,
+                                                          sai_attr_set)));
+
+            sai_attr_set[0].id = SAI_SWITCH_ATTR_DEFAULT_VLAN_ID;
+            EXPECT_EQ (SAI_STATUS_SUCCESS,
+                    (p_sai_switch_api_tbl->get_switch_attribute(switch_id, 1,
+                                                                &sai_attr_set[0])));
+
+            default_vlan_id = sai_attr_set[0].value.oid;
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_LAG,
-                                         (static_cast<void**>(static_cast<void*>(&sai_lag_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_lag_api_table)))));
 
             ASSERT_TRUE(sai_lag_api_table != NULL);
 
@@ -134,7 +155,7 @@ class lagInit : public ::testing::Test
             EXPECT_TRUE(sai_lag_api_table->get_lag_attribute != NULL);
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_VIRTUAL_ROUTER,
-                                         (static_cast<void**>(static_cast<void*>(&sai_vrf_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_vrf_api_table)))));
 
             ASSERT_TRUE(sai_vrf_api_table != NULL);
 
@@ -144,7 +165,7 @@ class lagInit : public ::testing::Test
             EXPECT_TRUE(sai_vrf_api_table->get_virtual_router_attribute != NULL);
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_VLAN,
-                                         (static_cast<void**>(static_cast<void*>(&sai_vlan_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_vlan_api_table)))));
 
             ASSERT_TRUE(sai_vlan_api_table != NULL);
 
@@ -152,12 +173,14 @@ class lagInit : public ::testing::Test
             EXPECT_TRUE(sai_vlan_api_table->remove_vlan != NULL);
             EXPECT_TRUE(sai_vlan_api_table->set_vlan_attribute != NULL);
             EXPECT_TRUE(sai_vlan_api_table->get_vlan_attribute != NULL);
-            EXPECT_TRUE(sai_vlan_api_table->add_ports_to_vlan != NULL);
-            EXPECT_TRUE(sai_vlan_api_table->remove_ports_from_vlan != NULL);
+            EXPECT_TRUE(sai_vlan_api_table->create_vlan_member != NULL);
+            EXPECT_TRUE(sai_vlan_api_table->remove_vlan_member != NULL);
             EXPECT_TRUE(sai_vlan_api_table->get_vlan_stats != NULL);
+            EXPECT_TRUE(sai_vlan_api_table->set_vlan_member_attribute != NULL);
+            EXPECT_TRUE(sai_vlan_api_table->get_vlan_member_attribute != NULL);
 
             ASSERT_EQ(NULL,sai_api_query(SAI_API_ROUTER_INTERFACE,
-                                         (static_cast<void**>(static_cast<void*>(&sai_router_intf_api_table)))));
+                        (static_cast<void**>(static_cast<void*>(&sai_router_intf_api_table)))));
 
             ASSERT_TRUE(sai_router_intf_api_table != NULL);
 
@@ -166,6 +189,18 @@ class lagInit : public ::testing::Test
             EXPECT_TRUE(sai_router_intf_api_table->set_router_interface_attribute != NULL);
             EXPECT_TRUE(sai_router_intf_api_table->get_router_interface_attribute != NULL);
 
+            sai_attribute_t sai_port_attr;
+            sai_status_t ret = SAI_STATUS_SUCCESS;
+
+            memset (&sai_port_attr, 0, sizeof (sai_port_attr));
+
+            sai_port_attr.id = SAI_SWITCH_ATTR_PORT_LIST;
+            sai_port_attr.value.objlist.count = SAI_MAX_PORTS;
+            sai_port_attr.value.objlist.list  = port_list;
+
+            ret = p_sai_switch_api_tbl->get_switch_attribute(0,1,&sai_port_attr);
+            port_count = sai_port_attr.value.objlist.count;
+            EXPECT_EQ(SAI_STATUS_SUCCESS,ret);
             ASSERT_TRUE(port_count!=0);
             port_id_1  = port_list[0];
             port_id_2  = port_list[2];
@@ -181,6 +216,7 @@ class lagInit : public ::testing::Test
         static sai_object_id_t  port_id_2;
         static sai_object_id_t  port_id_l3;
         static sai_object_id_t  port_id_invalid;
+        static sai_object_id_t  default_vlan_id;
 
     public:
         sai_lag_api_t *sai_lag_ut_get_lag_api () {return sai_lag_api_table;}

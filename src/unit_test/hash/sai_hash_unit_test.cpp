@@ -33,6 +33,7 @@ extern "C" {
 #include "saiudf.h"
 }
 
+static sai_object_id_t switch_id =0;
 /*
  * Validates Hash fields for Default ECMP Hash object
  */
@@ -47,7 +48,7 @@ TEST_F (saiHashTest, default_ecmp_hash_fields_get)
     /* Get the default ECMP Hash object id value */
     switch_attr.id = SAI_SWITCH_ATTR_ECMP_HASH;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &switch_attr);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -69,7 +70,7 @@ TEST_F (saiHashTest, default_lag_hash_fields_get)
     /* Get the default LAG Hash object id value */
     switch_attr.id = SAI_SWITCH_ATTR_LAG_HASH;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &switch_attr);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -95,14 +96,14 @@ TEST_F (saiHashTest, default_lag_hash_fields_set)
     /* Get the default LAG Hash object id value */
     switch_attr.id = SAI_SWITCH_ATTR_LAG_HASH;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &switch_attr);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Get the default Hash object fields */
     attr_list[0].value.s32list = native_list;
     status = sai_test_hash_attr_get (switch_attr.value.oid, attr_list, count,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -112,7 +113,7 @@ TEST_F (saiHashTest, default_lag_hash_fields_set)
     field_list[new_field_index] = SAI_NATIVE_HASH_FIELD_VLAN_ID;
 
     status = sai_test_hash_attr_set (switch_attr.value.oid, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -136,14 +137,14 @@ TEST_F (saiHashTest, default_ecmp_hash_fields_set)
     /* Get the default ECMP Hash object id value */
     switch_attr.id = SAI_SWITCH_ATTR_ECMP_HASH;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &switch_attr);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Get the default Hash object fields */
     attr_list[0].value.s32list = native_list;
     status = sai_test_hash_attr_get (switch_attr.value.oid, attr_list, count,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -154,7 +155,7 @@ TEST_F (saiHashTest, default_ecmp_hash_fields_set)
     native_list.list [native_list.count] = -1;
 
     status = sai_test_hash_attr_set (switch_attr.value.oid, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -166,7 +167,7 @@ TEST_F (saiHashTest, default_ecmp_hash_fields_set)
 
     /* ReSet the native fields list with default values */
     status = sai_test_hash_attr_set (switch_attr.value.oid, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 }
@@ -186,13 +187,13 @@ TEST_F (saiHashTest, default_lag_hash_all_fields_remove)
     /* Get the default ECMP Hash object id value */
     switch_attr.id = SAI_SWITCH_ATTR_ECMP_HASH;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &switch_attr);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Set the native fields list with empty list */
     status = sai_test_hash_attr_set (switch_attr.value.oid, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -204,7 +205,7 @@ TEST_F (saiHashTest, default_lag_hash_all_fields_remove)
 
     /* ReSet the native fields list with default values */
     status = sai_test_hash_attr_set (switch_attr.value.oid, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -224,7 +225,7 @@ TEST_F (saiHashTest, default_hash_object_remove)
     switch_attr.id        = SAI_SWITCH_ATTR_LAG_HASH;
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_NE (SAI_STATUS_SUCCESS, status);
 
@@ -232,7 +233,7 @@ TEST_F (saiHashTest, default_hash_object_remove)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH;
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_NE (SAI_STATUS_SUCCESS, status);
 }
@@ -253,7 +254,7 @@ TEST_F (saiHashTest, hash_object_create_remove_native_fields)
     sai_s32_list_t     native_list = {field_count, field_list};
 
     status = sai_test_hash_create (&hash_id, &native_list, NULL, attr_count,
-                                   SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                   SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -284,7 +285,7 @@ TEST_F (saiHashTest, ipv4_ecmp_hash_object)
     sai_s32_list_t     native_list = {field_count, field_list};
 
     status = sai_test_hash_create (&hash_id, &native_list, NULL, attr_count,
-                                   SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                   SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -295,7 +296,7 @@ TEST_F (saiHashTest, ipv4_ecmp_hash_object)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV4;
     switch_attr.value.oid = hash_id;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -303,7 +304,7 @@ TEST_F (saiHashTest, ipv4_ecmp_hash_object)
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
     switch_attr.id = SAI_SWITCH_ATTR_ECMP_HASH_IPV4;
 
-    status = switch_api_tbl_get()->get_switch_attribute (attr_count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,attr_count, &switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -318,14 +319,14 @@ TEST_F (saiHashTest, ipv4_ecmp_hash_object)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV4;
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Verify IPV4 ECMP Hash object is set to NULL value */
     switch_attr.id = SAI_SWITCH_ATTR_ECMP_HASH_IPV4;
 
-    status = switch_api_tbl_get()->get_switch_attribute (attr_count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,attr_count, &switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -355,7 +356,7 @@ TEST_F (saiHashTest, ipv4_ecmp_hash_object_set_attr)
     sai_s32_list_t     native_list = {field_count, field_list};
 
     status = sai_test_hash_create (&hash_id, &native_list, NULL, attr_count,
-                                   SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                   SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -366,7 +367,7 @@ TEST_F (saiHashTest, ipv4_ecmp_hash_object_set_attr)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV4;
     switch_attr.value.oid = hash_id;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -375,7 +376,7 @@ TEST_F (saiHashTest, ipv4_ecmp_hash_object_set_attr)
     native_list.list [field_count] = SAI_NATIVE_HASH_FIELD_IN_PORT;
 
     status = sai_test_hash_attr_set (hash_id, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -386,7 +387,7 @@ TEST_F (saiHashTest, ipv4_ecmp_hash_object_set_attr)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV4;
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -414,7 +415,7 @@ TEST_F (saiHashTest, ipv6_ecmp_hash_object)
     sai_s32_list_t     native_list = {field_count, field_list};
 
     status = sai_test_hash_create (&hash_id, &native_list, NULL, attr_count,
-                                   SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                   SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -425,7 +426,7 @@ TEST_F (saiHashTest, ipv6_ecmp_hash_object)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV6;
     switch_attr.value.oid = hash_id;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -433,7 +434,7 @@ TEST_F (saiHashTest, ipv6_ecmp_hash_object)
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
     switch_attr.id = SAI_SWITCH_ATTR_ECMP_HASH_IPV6;
 
-    status = switch_api_tbl_get()->get_switch_attribute (attr_count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,attr_count, &switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -448,14 +449,14 @@ TEST_F (saiHashTest, ipv6_ecmp_hash_object)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV6;
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Verify IPV4 ECMP Hash object is set to NULL value */
     switch_attr.id = SAI_SWITCH_ATTR_ECMP_HASH_IPV6;
 
-    status = switch_api_tbl_get()->get_switch_attribute (attr_count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,attr_count, &switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -485,7 +486,7 @@ TEST_F (saiHashTest, ipv6_ecmp_hash_object_set_attr)
     sai_s32_list_t     native_list = {field_count, field_list};
 
     status = sai_test_hash_create (&hash_id, &native_list, NULL, attr_count,
-                                   SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                   SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -496,7 +497,7 @@ TEST_F (saiHashTest, ipv6_ecmp_hash_object_set_attr)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV6;
     switch_attr.value.oid = hash_id;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -505,7 +506,7 @@ TEST_F (saiHashTest, ipv6_ecmp_hash_object_set_attr)
     native_list.list [field_count] = SAI_NATIVE_HASH_FIELD_IN_PORT;
 
     status = sai_test_hash_attr_set (hash_id, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -516,7 +517,7 @@ TEST_F (saiHashTest, ipv6_ecmp_hash_object_set_attr)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV6;
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -626,7 +627,7 @@ TEST_F (saiHashTest, ipv4_lag_hash_object_udf_field)
     switch_attr.id        = SAI_SWITCH_ATTR_LAG_HASH_IPV4;
     switch_attr.value.oid = hash_id;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -634,7 +635,7 @@ TEST_F (saiHashTest, ipv4_lag_hash_object_udf_field)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV4;
     switch_attr.value.oid = hash_id;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -642,7 +643,7 @@ TEST_F (saiHashTest, ipv4_lag_hash_object_udf_field)
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
     switch_attr.id = SAI_SWITCH_ATTR_LAG_HASH_IPV4;
 
-    status = switch_api_tbl_get()->get_switch_attribute (attr_count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,attr_count, &switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -652,7 +653,7 @@ TEST_F (saiHashTest, ipv4_lag_hash_object_udf_field)
     switch_attr.id        = SAI_SWITCH_ATTR_ECMP_HASH_IPV4;
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -660,7 +661,7 @@ TEST_F (saiHashTest, ipv4_lag_hash_object_udf_field)
     switch_attr.id        = SAI_SWITCH_ATTR_LAG_HASH_IPV4;
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -703,13 +704,13 @@ TEST_F (saiHashTest, default_ecmp_udf_hash_fields_set)
     /* Get the default ECMP Hash object id value */
     switch_attr.id = SAI_SWITCH_ATTR_ECMP_HASH;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &switch_attr);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Remove the native fields list in the Hash object */
     status = sai_test_hash_attr_set (switch_attr.value.oid, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -745,7 +746,7 @@ TEST_F (saiHashTest, default_ecmp_udf_hash_fields_set)
 
     /* ReSet the native fields list with default values */
     status = sai_test_hash_attr_set (switch_attr.value.oid, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -788,7 +789,7 @@ TEST_F (saiHashTest, ipv4_hash_object_native_and_udf_field)
 
     status = sai_test_hash_create (&hash_id, &native_list, &udf_group_list,
                                    attr_count,
-                                   SAI_HASH_ATTR_NATIVE_FIELD_LIST,
+                                   SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST,
                                    SAI_HASH_ATTR_UDF_GROUP_LIST);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
@@ -800,7 +801,7 @@ TEST_F (saiHashTest, ipv4_hash_object_native_and_udf_field)
     switch_attr.id        = SAI_SWITCH_ATTR_LAG_HASH_IPV4;
     switch_attr.value.oid = hash_id;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -814,7 +815,7 @@ TEST_F (saiHashTest, ipv4_hash_object_native_and_udf_field)
     /* Remove the Native fields */
     native_list.count = 0;
     status = sai_test_hash_attr_set (hash_id, &native_list, NULL,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -825,7 +826,7 @@ TEST_F (saiHashTest, ipv4_hash_object_native_and_udf_field)
     switch_attr.id        = SAI_SWITCH_ATTR_LAG_HASH_IPV4;
     switch_attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    status = switch_api_tbl_get()->set_switch_attribute (&switch_attr);
+    status = switch_api_tbl_get()->set_switch_attribute (switch_id,&switch_attr);
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
@@ -920,14 +921,14 @@ TEST_F (saiHashTest, hash_field_list_get_buffer_overflow)
     /* Get the default ECMP Hash object id value */
     switch_attr.id = SAI_SWITCH_ATTR_ECMP_HASH;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &switch_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &switch_attr);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS, status);
 
     /* Get the default Hash object fields */
     attr_list[0].value.s32list.count = 0;
     status = sai_test_hash_attr_get (switch_attr.value.oid, attr_list, attr_count,
-                                     SAI_HASH_ATTR_NATIVE_FIELD_LIST);
+                                     SAI_HASH_ATTR_NATIVE_HASH_FIELD_LIST);
 
     ASSERT_EQ (SAI_STATUS_BUFFER_OVERFLOW, status);
 
@@ -946,28 +947,28 @@ TEST_F (saiHashTest, default_hash_seed_algorithm_get)
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = SAI_SWITCH_ATTR_ECMP_DEFAULT_HASH_ALGORITHM;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &get_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &get_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
     EXPECT_EQ (get_attr.value.s32, SAI_HASH_ALGORITHM_CRC);
 
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = SAI_SWITCH_ATTR_LAG_DEFAULT_HASH_ALGORITHM;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &get_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &get_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
     EXPECT_EQ (get_attr.value.s32, SAI_HASH_ALGORITHM_CRC);
 
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = SAI_SWITCH_ATTR_ECMP_DEFAULT_HASH_SEED;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &get_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &get_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
     EXPECT_EQ (get_attr.value.u32, 0);
 
     memset(&get_attr, 0, sizeof(get_attr));
     get_attr.id = SAI_SWITCH_ATTR_LAG_DEFAULT_HASH_SEED;
 
-    status = switch_api_tbl_get()->get_switch_attribute (count, &get_attr);
+    status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &get_attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, status);
     EXPECT_EQ (get_attr.value.u32, 0);
 }
@@ -1001,42 +1002,42 @@ TEST_F (saiHashTest, default_hash_seed_algorithm_set)
         set_attr.id = get_attr.id = algorithm_attr [index];
 
         set_attr.value.s32 = SAI_HASH_ALGORITHM_CRC;
-        status = switch_api_tbl_get()->set_switch_attribute (&set_attr);
+        status = switch_api_tbl_get()->set_switch_attribute (switch_id,&set_attr);
         EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
-        status = switch_api_tbl_get()->get_switch_attribute (count, &get_attr);
+        status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &get_attr);
         EXPECT_EQ (get_attr.value.s32, SAI_HASH_ALGORITHM_CRC);
 
         set_attr.value.s32 = SAI_HASH_ALGORITHM_XOR;
-        status = switch_api_tbl_get()->set_switch_attribute (&set_attr);
+        status = switch_api_tbl_get()->set_switch_attribute (switch_id,&set_attr);
         EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
-        status = switch_api_tbl_get()->get_switch_attribute (count, &get_attr);
+        status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &get_attr);
         EXPECT_EQ (get_attr.value.s32, SAI_HASH_ALGORITHM_XOR);
 
         set_attr.value.s32 = SAI_HASH_ALGORITHM_RANDOM;
-        status = switch_api_tbl_get()->set_switch_attribute (&set_attr);
+        status = switch_api_tbl_get()->set_switch_attribute (switch_id,&set_attr);
         EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
         /* Reset back to default value */
         set_attr.value.s32 = SAI_HASH_ALGORITHM_CRC;
-        status = switch_api_tbl_get()->set_switch_attribute (&set_attr);
+        status = switch_api_tbl_get()->set_switch_attribute (switch_id,&set_attr);
         EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
-        status = switch_api_tbl_get()->get_switch_attribute (count, &get_attr);
+        status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &get_attr);
         EXPECT_EQ (get_attr.value.s32, SAI_HASH_ALGORITHM_CRC);
 
         set_attr.id = get_attr.id = seed_attr [index];
         set_attr.value.u32 = 12345;
-        status = switch_api_tbl_get()->set_switch_attribute (&set_attr);
+        status = switch_api_tbl_get()->set_switch_attribute (switch_id,&set_attr);
         EXPECT_EQ (SAI_STATUS_SUCCESS, status);
 
-        status = switch_api_tbl_get()->get_switch_attribute (count, &get_attr);
+        status = switch_api_tbl_get()->get_switch_attribute (switch_id,count, &get_attr);
         EXPECT_EQ (get_attr.value.u32, 12345);
 
         /* Reset back to default value */
         set_attr.value.u32 = 0;
-        status = switch_api_tbl_get()->set_switch_attribute (&set_attr);
+        status = switch_api_tbl_get()->set_switch_attribute (switch_id,&set_attr);
         EXPECT_EQ (SAI_STATUS_SUCCESS, status);
     }
 }

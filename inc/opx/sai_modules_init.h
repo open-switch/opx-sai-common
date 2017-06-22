@@ -26,13 +26,16 @@
 
 #include "saistatus.h"
 #include "sai_oid_utils.h"
+#include "sai_switch_common.h"
 
 /* Switch Initialization config file handler */
-sai_status_t sai_switch_init_config(sai_switch_id_t switch_id, const char *sai_cfg_file);
+sai_status_t sai_switch_init_config(sai_switch_info_t *sai_switch_info, const char *sai_cfg_file);
 
 sai_status_t sai_port_init(void);
 
 sai_status_t sai_port_init_event_notification(void);
+
+void sai_ports_linkscan_enable(void);
 
 sai_status_t sai_fdb_init(void);
 

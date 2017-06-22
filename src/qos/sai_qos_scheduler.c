@@ -143,7 +143,7 @@ static void sai_qos_scheduler_attr_set (dn_sai_qos_scheduler_t *p_sched_node,
 
         switch (p_attr->id)
         {
-            case SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM:
+            case SAI_SCHEDULER_ATTR_SCHEDULING_TYPE:
                 p_sched_node->sched_algo = p_attr->value.s32;
                 break;
 
@@ -151,7 +151,7 @@ static void sai_qos_scheduler_attr_set (dn_sai_qos_scheduler_t *p_sched_node,
                 p_sched_node->weight = p_attr->value.u8;
                 break;
 
-            case SAI_SCHEDULER_ATTR_SHAPER_TYPE:
+            case SAI_SCHEDULER_ATTR_METER_TYPE:
                 p_sched_node->shape_type = p_attr->value.s32;
                 break;
 
@@ -230,7 +230,7 @@ static bool sai_qos_scheduler_is_duplicate_set (dn_sai_qos_scheduler_t *p_sched_
 
     switch (p_attr->id)
     {
-        case SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM:
+        case SAI_SCHEDULER_ATTR_SCHEDULING_TYPE:
             if (p_sched_node->sched_algo == p_attr->value.s32)
                 return true;
             break;
@@ -240,7 +240,7 @@ static bool sai_qos_scheduler_is_duplicate_set (dn_sai_qos_scheduler_t *p_sched_
                 return true;
             break;
 
-        case SAI_SCHEDULER_ATTR_SHAPER_TYPE:
+        case SAI_SCHEDULER_ATTR_METER_TYPE:
             if (p_sched_node->shape_type == p_attr->value.s32)
                 return true;
             break;
@@ -274,7 +274,8 @@ static bool sai_qos_scheduler_is_duplicate_set (dn_sai_qos_scheduler_t *p_sched_
 }
 
 
-static sai_status_t sai_qos_scheduler_create (sai_object_id_t *sched_id,
+static sai_status_t sai_qos_scheduler_create_internal (sai_object_id_t *sched_id,
+                                              sai_object_id_t switch_id,
                                               uint32_t attr_count,
                                               const sai_attribute_t *attr_list)
 {
@@ -293,8 +294,6 @@ static sai_status_t sai_qos_scheduler_create (sai_object_id_t *sched_id,
                            "Scheduler creation.");
         return sai_rc;
     }
-
-    sai_qos_lock ();
 
     do {
         p_sched_node = sai_qos_scheduler_node_alloc ();
@@ -337,13 +336,28 @@ static sai_status_t sai_qos_scheduler_create (sai_object_id_t *sched_id,
         sai_qos_scheduler_free_resources (p_sched_node, is_sched_set_in_npu);
     }
 
-    sai_qos_unlock ();
+    return sai_rc;
+}
+
+static sai_status_t sai_qos_scheduler_create (sai_object_id_t *sched_id,
+                                              sai_object_id_t switch_id,
+                                              uint32_t attr_count,
+                                              const sai_attribute_t *attr_list)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    sai_qos_lock();
+
+    sai_rc = sai_qos_scheduler_create_internal(sched_id, switch_id, attr_count,
+                                               attr_list);
+
+    sai_qos_unlock();
 
     return sai_rc;
 }
 
 
-static sai_status_t sai_qos_scheduler_remove (sai_object_id_t sched_id)
+static sai_status_t sai_qos_scheduler_remove_internal (sai_object_id_t sched_id)
 {
     sai_status_t            sai_rc = SAI_STATUS_SUCCESS;
     dn_sai_qos_scheduler_t  *p_sched_node = NULL;
@@ -356,8 +370,6 @@ static sai_status_t sai_qos_scheduler_remove (sai_object_id_t sched_id)
 
         return SAI_STATUS_INVALID_OBJECT_TYPE;
     }
-
-    sai_qos_lock ();
 
     do {
         p_sched_node = sai_qos_scheduler_node_get (sched_id);
@@ -390,13 +402,24 @@ static sai_status_t sai_qos_scheduler_remove (sai_object_id_t sched_id)
 
     } while (0);
 
-    sai_qos_unlock ();
-
     if (sai_rc == SAI_STATUS_SUCCESS) {
         SAI_SCHED_LOG_INFO ("Scheduler 0x%"PRIx64" removed.", sched_id);
     } else {
         SAI_SCHED_LOG_ERR ("Failed to remove Scheduler 0x%"PRIx64".", sched_id);
     }
+
+    return sai_rc;
+}
+
+static sai_status_t sai_qos_scheduler_remove (sai_object_id_t sched_id)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+
+    sai_qos_lock();
+
+    sai_rc = sai_qos_scheduler_remove_internal (sched_id);
+
+    sai_qos_unlock();
 
     return sai_rc;
 }
@@ -570,6 +593,8 @@ static sai_status_t sai_qos_scheduler_queue_list_update (dn_sai_qos_queue_t *p_q
                               &p_queue_node->scheduler_dll_glue);
     }
 
+    p_queue_node->scheduler_id = new_sched_id;
+
     return SAI_STATUS_SUCCESS;
 }
 
@@ -603,6 +628,7 @@ static sai_status_t sai_qos_scheduler_sched_group_list_update (
                         &p_sg_node->scheduler_dll_glue);
     }
 
+
     if ((new_sched_id != SAI_NULL_OBJECT_ID) &&
         (new_sched_id != sai_qos_default_sched_id_get())){
 
@@ -618,6 +644,8 @@ static sai_status_t sai_qos_scheduler_sched_group_list_update (
         std_dll_insertatback (&p_sched_node->sched_group_dll_head,
                               &p_sg_node->scheduler_dll_glue);
     }
+
+    p_sg_node->scheduler_id = new_sched_id;
 
     return SAI_STATUS_SUCCESS;
 }
@@ -665,6 +693,7 @@ static sai_status_t sai_qos_scheduler_port_list_update (dn_sai_qos_port_t  *p_qo
         std_dll_insertatback (&p_sched_node->port_dll_head,
                               &p_qos_port_node->scheduler_dll_glue);
     }
+    p_qos_port_node->scheduler_id = new_sched_id;
 
     return SAI_STATUS_SUCCESS;
 }
@@ -674,19 +703,33 @@ sai_status_t sai_qos_queue_scheduler_set (dn_sai_qos_queue_t *p_queue_node,
 {
     sai_status_t              sai_rc = SAI_STATUS_SUCCESS;
     sai_object_id_t           sched_id = SAI_NULL_OBJECT_ID;
+    sai_object_id_t           old_sched_id = SAI_NULL_OBJECT_ID;
     sai_object_id_t           queue_id = SAI_NULL_OBJECT_ID;
     dn_sai_qos_scheduler_t    *p_sched_node = NULL;
+    dn_sai_qos_scheduler_t    *p_old_sched_node = NULL;
 
     STD_ASSERT(p_attr != NULL);
     STD_ASSERT(p_queue_node != NULL);
 
     sched_id = p_attr->value.oid;
     queue_id =  p_queue_node->key.queue_id;
+    old_sched_id = p_queue_node->scheduler_id;
+
+    SAI_SCHED_LOG_TRACE ("New Scheduler 0x%"PRIx64" Old Scheduler 0x%"PRIx64" set on QID 0x%"PRIx64"",
+                         sched_id, old_sched_id, queue_id);
 
     if(sched_id == SAI_NULL_OBJECT_ID) {
         sched_id = sai_qos_default_sched_id_get();
     }
-    SAI_SCHED_LOG_TRACE ("Scheduler 0x%"PRIx64" set on queue id 0x%"PRIx64"",
+
+    if (old_sched_id == sched_id) {
+        SAI_SCHED_LOG_TRACE ("Duplicate Update, Old Scheduler 0x%"PRIx64" "
+                             "Scheduler 0x%"PRIx64" set on QID 0x%"PRIx64"",
+                             old_sched_id, sched_id, queue_id);
+        return SAI_STATUS_SUCCESS;
+    }
+
+    SAI_SCHED_LOG_TRACE ("Scheduler 0x%"PRIx64" set on QID 0x%"PRIx64"",
                          sched_id, queue_id);
 
     p_sched_node = sai_qos_scheduler_node_get (sched_id);
@@ -697,7 +740,18 @@ sai_status_t sai_qos_queue_scheduler_set (dn_sai_qos_queue_t *p_queue_node,
         return SAI_STATUS_INVALID_OBJECT_ID;
     }
 
-    sai_rc = sai_scheduler_npu_api_get()->scheduler_set (queue_id, NULL, p_sched_node);
+    if (old_sched_id != SAI_NULL_OBJECT_ID) {
+        p_old_sched_node = sai_qos_scheduler_node_get (old_sched_id);
+
+        if (NULL == p_old_sched_node) {
+            SAI_SCHED_LOG_ERR ("Scheduler 0x%"PRIx64" does not exist in tree.",
+                               old_sched_id);
+            return SAI_STATUS_INVALID_OBJECT_ID;
+        }
+    }
+
+    sai_rc = sai_scheduler_npu_api_get()->scheduler_set (queue_id, p_old_sched_node,
+                                                         p_sched_node);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
         SAI_SCHED_LOG_ERR("Scheduler set for queue id 0x%"PRIx64" failed with err %d",
@@ -740,20 +794,23 @@ sai_status_t sai_qos_sched_group_scheduler_set (dn_sai_qos_sched_group_t *p_sg_n
 
     sched_id = p_attr->value.oid;
     sg_id =  p_sg_node->key.sched_group_id;
+    old_sched_id = p_sg_node->scheduler_id;
+    SAI_SCHED_LOG_TRACE ("New Scheduler 0x%"PRIx64" Old Scheduler 0x%"PRIx64" set on SGID 0x%"PRIx64"",
+                         sched_id, old_sched_id, sg_id);
 
     if(sched_id == SAI_NULL_OBJECT_ID) {
         sched_id = sai_qos_default_sched_id_get();
     }
 
-    if(p_sg_node->scheduler_id == SAI_NULL_OBJECT_ID) {
-        old_sched_id = sai_qos_default_sched_id_get();
-    }
-    else{
-        old_sched_id = p_sg_node->scheduler_id;
+    if (old_sched_id == sched_id) {
+        SAI_SCHED_LOG_TRACE ("Duplicate Update, Old Scheduler 0x%"PRIx64" "
+                             "Scheduler 0x%"PRIx64" set on SGID 0x%"PRIx64"",
+                             old_sched_id, sched_id, sg_id);
+        return SAI_STATUS_SUCCESS;
     }
 
     SAI_SCHED_LOG_TRACE ("Scheduler 0x%"PRIx64" set on SGID 0x%"PRIx64"",
-                         sched_id, sg_id);
+                          sched_id, sg_id);
 
     p_sched_node = sai_qos_scheduler_node_get (sched_id);
 
@@ -762,12 +819,15 @@ sai_status_t sai_qos_sched_group_scheduler_set (dn_sai_qos_sched_group_t *p_sg_n
                 sched_id);
         return SAI_STATUS_INVALID_OBJECT_ID;
     }
-    p_old_sched_node = sai_qos_scheduler_node_get (old_sched_id);
 
-    if (NULL == p_old_sched_node) {
-        SAI_SCHED_LOG_ERR ("Scheduler 0x%"PRIx64" does not exist in tree.",
-                           old_sched_id);
-        return SAI_STATUS_INVALID_OBJECT_ID;
+    if (old_sched_id != SAI_NULL_OBJECT_ID) {
+        p_old_sched_node = sai_qos_scheduler_node_get (old_sched_id);
+
+        if (NULL == p_old_sched_node) {
+            SAI_SCHED_LOG_ERR ("Scheduler 0x%"PRIx64" does not exist in tree.",
+                               old_sched_id);
+            return SAI_STATUS_INVALID_OBJECT_ID;
+        }
     }
 
     sai_rc = sai_scheduler_npu_api_get()->scheduler_set (sg_id, p_old_sched_node, p_sched_node);
@@ -782,7 +842,7 @@ sai_status_t sai_qos_sched_group_scheduler_set (dn_sai_qos_sched_group_t *p_sg_n
      *  prev_id =
         ((op_type == SAI_OP_CREATE) ? SAI_NULL_OBJECT_ID : p_sg_node->scheduler_id); */
     sai_rc = sai_qos_scheduler_sched_group_list_update (p_sg_node,
-                                                        p_sg_node->scheduler_id,
+                                                        old_sched_id,
                                                         sched_id);
 
     if (sai_rc != SAI_STATUS_SUCCESS) {
@@ -816,52 +876,60 @@ sai_status_t sai_qos_port_scheduler_set (sai_object_id_t port_id,
 
     SAI_SCHED_LOG_TRACE ("Scheduler 0x%"PRIx64" set on port id 0x%"PRIx64"",
                          sched_id, port_id);
+    sai_qos_lock();
 
-    p_qos_port_node = sai_qos_port_node_get (port_id);
-    if (p_qos_port_node == NULL){
-        SAI_SCHED_LOG_ERR ("Qos Port 0x%"PRIx64" does not exist in tree.",
-                           port_id);
-        return SAI_STATUS_INVALID_OBJECT_ID;
-    }
+    do {
 
-    if (p_qos_port_node->scheduler_id == sched_id) {
-        SAI_SCHED_LOG_TRACE("Scheduler id already exits on port");
-        return SAI_STATUS_ITEM_ALREADY_EXISTS;
-    }
+        p_qos_port_node = sai_qos_port_node_get (port_id);
+        if (p_qos_port_node == NULL){
+            SAI_SCHED_LOG_ERR ("Qos Port 0x%"PRIx64" does not exist in tree.",
+                               port_id);
+            sai_rc = SAI_STATUS_INVALID_OBJECT_ID;
+            break;
+        }
 
-    p_sched_node = sai_qos_scheduler_node_get (sched_id);
+        if (p_qos_port_node->scheduler_id == sched_id) {
+            SAI_SCHED_LOG_TRACE("Scheduler id already exits on port");
+            sai_rc = SAI_STATUS_SUCCESS;
+            break;
+        }
 
-    if (NULL == p_sched_node) {
-        SAI_SCHED_LOG_ERR ("Scheduler 0x%"PRIx64" does not exist in tree.",
-                sched_id);
-        return SAI_STATUS_INVALID_OBJECT_ID;
-    }
+        p_sched_node = sai_qos_scheduler_node_get (sched_id);
 
-    sai_rc = sai_scheduler_npu_api_get()->scheduler_set (port_id, NULL, p_sched_node);
+        if (NULL == p_sched_node) {
+            SAI_SCHED_LOG_ERR ("Scheduler 0x%"PRIx64" does not exist in tree.",
+                    sched_id);
+            sai_rc = SAI_STATUS_INVALID_OBJECT_ID;
+            break;
+        }
 
-    if (sai_rc != SAI_STATUS_SUCCESS) {
-        SAI_SCHED_LOG_ERR("Scheduler set for port 0x%"PRIx64" failed with err %d",
-                          port_id, sai_rc);
-        return sai_rc;
-    }
+        sai_rc = sai_scheduler_npu_api_get()->scheduler_set (port_id, NULL, p_sched_node);
 
-    /*  Port Create with scheduler profile is not supported. In that case
-     *  prev_id =
-        ((op_type == SAI_OP_CREATE) ? SAI_NULL_OBJECT_ID : p_qos_port_node->scheduler_id); */
-    sai_rc = sai_qos_scheduler_port_list_update (p_qos_port_node,
-                                                 p_qos_port_node->scheduler_id,
-                                                 sched_id);
-    if (sai_rc != SAI_STATUS_SUCCESS) {
-        SAI_SCHED_LOG_ERR ("Failed to update port in scheduler node.");
-        STD_ASSERT(sai_rc != SAI_STATUS_SUCCESS);
-        return sai_rc;
-    }
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_SCHED_LOG_ERR("Scheduler set for port 0x%"PRIx64" failed with err %d",
+                              port_id, sai_rc);
+            break;
+        }
 
-    p_qos_port_node->scheduler_id = sched_id;
-    SAI_SCHED_LOG_TRACE ("Qos Scheduler 0x%"PRIx64" set success on port 0x%"PRIx64"",
-                         sched_id, port_id);
+        /*  Port Create with scheduler profile is not supported. In that case
+         *  prev_id =
+            ((op_type == SAI_OP_CREATE) ? SAI_NULL_OBJECT_ID : p_qos_port_node->scheduler_id); */
+        sai_rc = sai_qos_scheduler_port_list_update (p_qos_port_node,
+                                                     p_qos_port_node->scheduler_id,
+                                                     sched_id);
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_SCHED_LOG_ERR ("Failed to update port in scheduler node.");
+            break;
+        }
 
-    return sai_rc;
+        p_qos_port_node->scheduler_id = sched_id;
+        SAI_SCHED_LOG_TRACE ("Qos Scheduler 0x%"PRIx64" set success on port 0x%"PRIx64"",
+                             sched_id, port_id);
+   } while(0);
+
+   sai_qos_unlock();
+
+   return sai_rc;
 }
 
 sai_status_t sai_qos_create_default_scheduler(sai_object_id_t *default_sched_id)
@@ -873,7 +941,7 @@ sai_status_t sai_qos_create_default_scheduler(sai_object_id_t *default_sched_id)
     uint32_t attr_count = 0;
     sai_attribute_t attr[2];
 
-    attr[attr_count].id = SAI_SCHEDULER_ATTR_SCHEDULING_ALGORITHM;
+    attr[attr_count].id = SAI_SCHEDULER_ATTR_SCHEDULING_TYPE;
     attr[attr_count].value.s32 = SAI_SCHEDULING_TYPE_WRR;
 
     attr_count ++;
@@ -883,7 +951,8 @@ sai_status_t sai_qos_create_default_scheduler(sai_object_id_t *default_sched_id)
 
     attr_count ++;
 
-    sai_rc = sai_qos_scheduler_create(default_sched_id, attr_count, &attr[0]);
+    sai_rc = sai_qos_scheduler_create_internal (default_sched_id, sai_switch_id_get(),
+                                      attr_count, &attr[0]);
 
     return sai_rc;
 }
@@ -897,7 +966,7 @@ sai_status_t sai_qos_remove_default_scheduler()
 
     if (default_sched_id != SAI_NULL_OBJECT_ID) {
 
-        sai_rc = sai_qos_scheduler_remove(default_sched_id);
+        sai_rc = sai_qos_scheduler_remove_internal (default_sched_id);
 
         if (sai_rc == SAI_STATUS_SUCCESS)
             sai_qos_default_sched_id_set(SAI_NULL_OBJECT_ID);

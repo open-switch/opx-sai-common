@@ -34,7 +34,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static acl_node_pt acl_node = NULL;
 static sai_acl_table_id_node_t sai_acl_table_id_generator[SAI_ACL_TABLE_ID_MAX];
 static std_mutex_lock_create_static_init_fast(acl_lock);
 static sai_acl_api_t sai_acl_method_table =
@@ -50,7 +49,20 @@ static sai_acl_api_t sai_acl_method_table =
     sai_create_acl_counter,
     sai_delete_acl_counter,
     sai_set_acl_cntr,
-    sai_get_acl_cntr
+    sai_get_acl_cntr,
+    sai_create_acl_range,
+    sai_delete_acl_range,
+    sai_set_acl_range,
+    sai_get_acl_range,
+    sai_acl_table_group_create,
+    sai_acl_table_group_delete,
+    sai_acl_table_group_attribute_set,
+    sai_acl_table_group_attribute_get,
+    sai_acl_table_group_member_create,
+    sai_acl_table_group_member_delete,
+    sai_acl_table_group_member_attribute_set,
+    sai_acl_table_group_member_attribute_get,
+
 };
 
 /**************************************************************************
@@ -60,13 +72,6 @@ static sai_acl_api_t sai_acl_method_table =
 sai_acl_api_t* sai_acl_api_query(void)
 {
     return (&sai_acl_method_table);
-}
-
-acl_node_pt sai_acl_get_acl_node(void)
-{
-    STD_ASSERT(acl_node != NULL);
-
-    return acl_node;
 }
 
 sai_acl_table_id_node_t *sai_acl_get_table_id_gen(void)
@@ -97,9 +102,10 @@ static void sai_acl_table_id_generate(void)
     }
 }
 
-static void sai_acl_node_free(acl_node_pt acl_node)
+static void sai_acl_cleanup(void)
 {
-    STD_ASSERT(acl_node != NULL);
+    acl_node_pt acl_node = sai_acl_get_acl_node();
+
     if (acl_node->sai_acl_table_tree) {
             std_rbtree_destroy(acl_node->sai_acl_table_tree);
     }
@@ -112,24 +118,25 @@ static void sai_acl_node_free(acl_node_pt acl_node)
         std_rbtree_destroy(acl_node->sai_acl_counter_tree);
     }
 
-    free(acl_node);
-}
+    if (acl_node->sai_acl_table_group_tree) {
+        std_rbtree_destroy(acl_node->sai_acl_table_group_tree);
+    }
 
-static acl_node_pt sai_acl_node_alloc(void)
-{
-    return ((acl_node_pt)calloc(1,sizeof(sai_acl_node_t)));
+    if (acl_node->sai_acl_table_group_member_tree) {
+        std_rbtree_destroy(acl_node->sai_acl_table_group_member_tree);
+    }
+
+    if (acl_node->sai_acl_range_tree) {
+        std_rbtree_destroy(acl_node->sai_acl_range_tree);
+    }
+
+    memset(acl_node, 0, sizeof(sai_acl_node_t));
 }
 
 sai_status_t sai_acl_init(void)
 {
     sai_status_t rc = SAI_STATUS_SUCCESS;
-    acl_node = sai_acl_node_alloc();
-
-    if (acl_node == NULL) {
-        SAI_ACL_LOG_CRIT ("Allocation of Memory failed for "
-                         "ACL Node during ACL Init");
-        return SAI_STATUS_NO_MEMORY;
-    }
+    acl_node_pt acl_node = sai_acl_get_acl_node();
 
     do {
         acl_node->sai_acl_table_tree = std_rbtree_create_simple(
@@ -164,17 +171,56 @@ sai_status_t sai_acl_init(void)
             rc = SAI_STATUS_UNINITIALIZED;
             break;
         }
+        acl_node->sai_acl_table_group_tree = std_rbtree_create_simple(
+                             "acl_table_group_tree",
+                              STD_STR_OFFSET_OF(sai_acl_table_group_t, acl_table_group_id),
+                              STD_STR_SIZE_OF(sai_acl_table_group_t, acl_table_group_id));
+
+        if (acl_node->sai_acl_table_group_tree == NULL) {
+            SAI_ACL_LOG_CRIT ("Creation of ACL table group tree node failed");
+            rc = SAI_STATUS_UNINITIALIZED;
+            break;
+        }
+        acl_node->sai_acl_table_group_member_tree = std_rbtree_create_simple(
+                             "acl_table_group_member_tree",
+                              STD_STR_OFFSET_OF(sai_acl_table_group_member_t,
+                                                acl_table_group_member_id),
+                              STD_STR_SIZE_OF(sai_acl_table_group_member_t,
+                                              acl_table_group_member_id));
+
+        if (acl_node->sai_acl_table_group_member_tree == NULL) {
+            SAI_ACL_LOG_CRIT ("Creation of ACL table group member tree node failed");
+            rc = SAI_STATUS_UNINITIALIZED;
+            break;
+        }
+
+        acl_node->sai_acl_range_tree = std_rbtree_create_simple(
+                             "acl_table_range_tree",
+                              STD_STR_OFFSET_OF(sai_acl_range_t,
+                                               acl_range_id),
+                              STD_STR_SIZE_OF(sai_acl_range_t,
+                                              acl_range_id));
+
+        if (acl_node->sai_acl_range_tree == NULL) {
+            SAI_ACL_LOG_CRIT ("Creation of ACL range tree failed");
+            rc = SAI_STATUS_UNINITIALIZED;
+            break;
+        }
 
         sai_acl_table_id_generate();
 
+        sai_acl_table_group_init();
+
+        sai_acl_table_group_member_init();
+
+        sai_acl_range_init();
     } while(0);
 
     if (rc != SAI_STATUS_SUCCESS) {
-        sai_acl_node_free(acl_node);
+        sai_acl_cleanup();
     }
 
     SAI_ACL_LOG_INFO ("SAI ACL Data structures Init complete");
 
     return rc;
 }
-
