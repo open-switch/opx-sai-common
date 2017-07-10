@@ -303,6 +303,7 @@ class saiL3Test : public ::testing::Test
         static sai_fdb_api_t              *p_sai_fdb_api_table;
         static unsigned int                port_count;
         static sai_object_id_t             port_list[SAI_TEST_MAX_PORTS];
+        static sai_object_id_t             default_vlan_id;
         static sai_l3_test_nh_grp_info_2_member_t _nh_grp_info_2_member;
         static sai_l3_test_member_2_nh_grp_info_t _nh_member_2_grp_info;
 };
