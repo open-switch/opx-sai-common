@@ -7,4 +7,4 @@ This repository contains the common code for the switch abstraction interface (S
 
 See [Architecture](https://github.com/open-switch/opx-docs/wiki/Architecture) for more information on the SAI common module.
 
-(c) 2017 Dell
+© 2017 Dell EMC
