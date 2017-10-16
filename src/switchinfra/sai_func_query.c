@@ -171,9 +171,20 @@ sai_status_t sai_api_query(sai_api_t sai_api_id, void** api_method_table)
             *api_method_table = sai_tunnel_api_query();
             break;
 
+        case SAI_API_BRIDGE:
+            *api_method_table = sai_bridge_api_query();
+            break;
+
+        case SAI_API_L2MC:
+            *api_method_table = sai_l2mc_entry_api_query();
+            break;
+
+        case SAI_API_L2MC_GROUP:
+            *api_method_table = sai_l2mc_group_api_query();
+            break;
         case SAI_API_UNSPECIFIED:
         default:
-            if (sai_api_id > SAI_API_CUSTOM_RANGE_START) {
+            if (sai_api_id >= SAI_API_CUSTOM_RANGE_START) {
                 return (sai_extn_module_api_query (sai_api_id, api_method_table));
             }
             SAI_SWITCH_LOG_TRACE("Method table for api-id %d",sai_api_id);

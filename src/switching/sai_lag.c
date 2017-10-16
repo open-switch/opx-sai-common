@@ -185,8 +185,8 @@ static sai_status_t sai_l2_remove_lag(sai_object_id_t lag_id)
     }
 
     sai_lag_port_count_get(lag_id, &port_count);
-    if(port_count != 0 ) {
-        SAI_LAG_LOG_ERR("Error LAG id 0x%"PRIx64" has %d members", lag_id, port_count);
+    if((port_count != 0 ) || (sai_is_lag_in_use(lag_id))) {
+        SAI_LAG_LOG_ERR("Error LAG id 0x%"PRIx64" in use", lag_id);
         sai_lag_unlock();
         return SAI_STATUS_OBJECT_IN_USE;
     }
@@ -651,8 +651,8 @@ static sai_status_t sai_l2_get_lag_member_attribute(sai_object_id_t  member_id,
 }
 static sai_status_t sai_l2_bulk_lag_member_create(sai_object_id_t switch_id,
                                                   uint32_t object_count,
-                                                  uint32_t *attr_count,
-                                                  sai_attribute_t **attrs,
+                                                  const uint32_t *attr_count,
+                                                  const sai_attribute_t **attrs,
                                                   sai_bulk_op_type_t type,
                                                   sai_object_id_t *object_id,
                                                   sai_status_t *object_statuses)
@@ -661,7 +661,7 @@ static sai_status_t sai_l2_bulk_lag_member_create(sai_object_id_t switch_id,
 }
 
 static sai_status_t sai_l2_bulk_lag_member_remove(uint32_t object_count,
-                                                  sai_object_id_t *object_id,
+                                                  const sai_object_id_t *object_id,
                                                   sai_bulk_op_type_t type,
                                                   sai_status_t *object_statuses)
 {

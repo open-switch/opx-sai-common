@@ -7,5 +7,5 @@ opx/sai_tunnel_api_utils.h opx/sai_common_infra.h opx/sai_hostif_main.h opx/sai_
 opx/sai_samplepacket_api.h opx/sai_udf_api_utils.h opx/sai_fdb_main.h \
 opx/sai_l3_api_utils.h opx/sai_port_main.h opx/sai_shell_common.h \
 opx/sai_l3_next_hop_group_utl.h opx/sai_lag_debug.h opx/sai_qos_debug.h \
-opx/sai_stp_debug.h opx/sai_vlan_debug.h  
-
+opx/sai_stp_debug.h opx/sai_vlan_debug.h \
+opx/sai_bridge_main.h

@@ -29,6 +29,7 @@
 #include "sai_port_utils.h"
 #include "sai_qos_mem.h"
 #include "sai_common_infra.h"
+#include "sai_qos_port_util.h"
 
 #include "saistatus.h"
 
@@ -38,6 +39,43 @@
 #include <inttypes.h>
 #include <stdlib.h>
 
+static const dn_sai_attribute_entry_t sai_port_pool_attr_table[] = {
+    {SAI_PORT_POOL_ATTR_PORT_ID,                true, true, false, true, true, true},
+    {SAI_PORT_POOL_ATTR_BUFFER_POOL_ID,         true, true, false, true, true, true},
+    {SAI_PORT_POOL_ATTR_QOS_WRED_PROFILE_ID,   false, true,  true, true, true, true},
+};
+
+static dn_sai_id_gen_info_t port_pool_obj_gen_info;
+
+bool sai_is_port_pool_id_in_use(uint64_t obj_id)
+{
+    sai_object_id_t port_pool_oid =
+        sai_uoid_create(SAI_OBJECT_TYPE_PORT_POOL,obj_id);
+
+    if(sai_qos_port_pool_node_get_from_obj_id(port_pool_oid) != NULL) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static sai_object_id_t sai_port_pool_id_create(void)
+{
+    if(SAI_STATUS_SUCCESS ==
+            dn_sai_get_next_free_id(&port_pool_obj_gen_info)) {
+        return (sai_uoid_create(SAI_OBJECT_TYPE_PORT_POOL,
+                    port_pool_obj_gen_info.cur_id));
+    }
+    return SAI_NULL_OBJECT_ID;
+}
+
+void sai_qos_port_pool_oid_gen_init(void)
+{
+    port_pool_obj_gen_info.cur_id = 0;
+    port_pool_obj_gen_info.is_wrappped = false;
+    port_pool_obj_gen_info.mask = SAI_UOID_NPU_OBJ_ID_MASK;
+    port_pool_obj_gen_info.is_id_in_use = sai_is_port_pool_id_in_use;
+}
 static sai_status_t sai_qos_port_node_insert_into_port_db (sai_object_id_t port_id,
                                                 dn_sai_qos_port_t *p_qos_port_node)
 {
@@ -118,6 +156,7 @@ static sai_status_t sai_qos_port_node_init (dn_sai_qos_port_t *p_qos_port_node)
 
     std_dll_init (&p_qos_port_node->queue_dll_head);
     std_dll_init (&p_qos_port_node->pg_dll_head);
+    std_dll_init (&p_qos_port_node->port_pool_dll_head);
 
     sai_rc = sai_qos_port_sched_group_dll_head_init (p_qos_port_node);
 
@@ -136,12 +175,10 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
     uint_t           rev_map_type;
     uint_t           policer_type;
     uint_t           rev_policer_type;
-    sai_object_id_t  wred_id;
     sai_object_id_t  buffer_profile_id;
     sai_object_id_t  maps_id [SAI_QOS_MAX_QOS_MAPS_TYPES];
     sai_object_id_t  policer_id [SAI_QOS_POLICER_TYPE_MAX];
     sai_attribute_t  set_attr;
-    bool             wred_removed = false;
     bool             buffer_profile_removed = false;
     bool             maps_removed = false;
     bool             policer_removed = false;
@@ -152,7 +189,6 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
     memcpy(maps_id, p_qos_port_node->maps_id, sizeof(maps_id[0])*SAI_QOS_MAX_QOS_MAPS_TYPES);
     memcpy(policer_id, p_qos_port_node->policer_id, sizeof(policer_id[0])*SAI_QOS_POLICER_TYPE_MAX);
     buffer_profile_id = p_qos_port_node->buffer_profile_id;
-    wred_id = p_qos_port_node->wred_id;
 
     do {
         if(p_qos_port_node->buffer_profile_id != SAI_NULL_OBJECT_ID) {
@@ -165,22 +201,6 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
             }
             p_qos_port_node->buffer_profile_id = SAI_NULL_OBJECT_ID;
             buffer_profile_removed = true;
-        }
-
-        if(p_qos_port_node->wred_id != SAI_NULL_OBJECT_ID) {
-            set_attr.id = SAI_PORT_ATTR_QOS_WRED_PROFILE_ID;
-            set_attr.value.oid = SAI_NULL_OBJECT_ID;
-
-            sai_rc = sai_port_attr_wred_profile_set_internal (p_qos_port_node->port_id, &set_attr);
-
-
-            if(sai_rc != SAI_STATUS_SUCCESS) {
-                SAI_QOS_LOG_ERR ("Error: Unable to remove WRED profile from qos_port:0x%"PRIx64"",
-                        p_qos_port_node->port_id);
-                break;
-            }
-            p_qos_port_node->wred_id = SAI_NULL_OBJECT_ID;
-            wred_removed = true;
         }
 
         for (map_type = 0; map_type < SAI_QOS_MAX_QOS_MAPS_TYPES; map_type++) {
@@ -232,22 +252,6 @@ static sai_status_t sai_qos_port_remove_configs (dn_sai_qos_port_t *p_qos_port_n
                         " Error %d",p_qos_port_node->port_id, rev_sai_rc);
             } else {
                 p_qos_port_node->buffer_profile_id = buffer_profile_id;
-            }
-        }
-
-        /* Reverting wred profile */
-        if (wred_removed) {
-            set_attr.id = SAI_PORT_ATTR_QOS_WRED_PROFILE_ID;
-            set_attr.value.oid = wred_id;
-
-            rev_sai_rc = sai_port_attr_wred_profile_set_internal (p_qos_port_node->port_id, &set_attr);
-
-
-            if(rev_sai_rc != SAI_STATUS_SUCCESS) {
-                SAI_QOS_LOG_ERR ("Error: Unable to revert WRED profile on port:0x%"PRIx64""
-                        " Error %d", p_qos_port_node->port_id, rev_sai_rc);
-            } else {
-                p_qos_port_node->wred_id = wred_id;
             }
         }
 
@@ -702,6 +706,28 @@ static sai_status_t sai_qos_non_default_configs_remove (sai_object_id_t port_id)
     }
     SAI_SCHED_LOG_TRACE ("Port 0x%"PRIx64"  non default configs remove "
                          "success.", port_id);
+    return sai_rc;
+}
+
+/* Function to remove all Port Pool objects associated with the QOS Port */
+static sai_status_t sai_qos_port_deinit_wred(sai_object_id_t port_id)
+{
+    dn_sai_qos_port_t       *p_port_node = NULL;
+    dn_sai_qos_port_pool_t  *p_port_pool_node = NULL;
+    sai_status_t            sai_rc = SAI_STATUS_SUCCESS;
+
+    p_port_node = sai_qos_port_node_get(port_id);
+    if(NULL == p_port_node) {
+        return SAI_STATUS_FAILURE;
+    }
+
+    while((p_port_pool_node = sai_qos_port_pool_get_first_node(p_port_node)) != NULL) {
+        sai_rc = sai_qos_port_remove_port_pool(p_port_pool_node->port_pool_id);
+
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
+    }
 
     return sai_rc;
 }
@@ -729,6 +755,12 @@ static sai_status_t sai_qos_port_deinit_internal (sai_object_id_t port_id)
                              port_id);
 
             sai_rc = SAI_STATUS_INVALID_OBJECT_ID;
+            break;
+        }
+
+        sai_rc = sai_qos_port_deinit_wred(port_id);
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_QOS_LOG_ERR ("Failed to remove WRED Port Pool objects for QOS port 0x%"PRIx64".", port_id);
             break;
         }
 
@@ -911,4 +943,262 @@ sai_status_t sai_qos_port_buffer_profile_set (sai_object_id_t port_id,
 
     sai_qos_unlock();
     return sai_rc;
+}
+
+static inline void sai_qos_port_pool_attr_table_get(const dn_sai_attribute_entry_t **p_attr_table,
+        uint_t *p_attr_count)
+{
+    *p_attr_table = &sai_port_pool_attr_table[0];
+
+    *p_attr_count = (sizeof(sai_port_pool_attr_table)) /
+        (sizeof(sai_port_pool_attr_table[0]));
+}
+
+static sai_status_t sai_port_pool_validate_attribute(const sai_attribute_t *attr_list,
+        uint_t attr_count,
+        dn_sai_operations_t op_type)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    uint_t max_vendor_attr_count = 0;
+    const dn_sai_attribute_entry_t *p_vendor_attr = NULL;
+
+    sai_qos_port_pool_attr_table_get(&p_vendor_attr, &max_vendor_attr_count);
+
+    STD_ASSERT(p_vendor_attr != NULL);
+    STD_ASSERT(max_vendor_attr_count != 0);
+
+    sai_rc = sai_attribute_validate(attr_count, attr_list, p_vendor_attr, op_type, max_vendor_attr_count);
+
+    return sai_rc;
+}
+
+sai_status_t sai_qos_port_create_port_pool(
+        sai_object_id_t *port_pool_id,
+        sai_object_id_t switch_id,
+        uint32_t attr_count,
+        const sai_attribute_t *attr_list)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    dn_sai_qos_port_pool_t port_pool_node, *p_port_pool_node = NULL;
+    sai_object_id_t wred_id = SAI_NULL_OBJECT_ID;
+    uint_t iter = 0;
+
+    memset(&port_pool_node, 0, sizeof(dn_sai_qos_port_pool_t));
+
+    sai_rc = sai_port_pool_validate_attribute(attr_list, attr_count, SAI_OP_CREATE);
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_PORT_LOG_ERR("Port pool CREATE attribute validation failed, sai_rc %d", sai_rc);
+        return sai_rc;
+    }
+
+    for(iter = 0; iter < attr_count;  iter++) {
+        switch(attr_list[iter].id) {
+            case SAI_PORT_POOL_ATTR_PORT_ID:
+                if(!sai_is_obj_id_logical_port(attr_list[iter].value.oid)) {
+                    sai_rc = sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTR_VALUE_0, iter);
+                } else {
+                    port_pool_node.port_id = attr_list[iter].value.oid;
+                }
+                break;
+            case SAI_PORT_POOL_ATTR_BUFFER_POOL_ID:
+                port_pool_node.pool_id = attr_list[iter].value.oid;
+                break;
+            case SAI_PORT_POOL_ATTR_QOS_WRED_PROFILE_ID:
+                wred_id = attr_list[iter].value.oid;
+                break;
+            default:
+                sai_rc = sai_get_indexed_ret_val(SAI_STATUS_UNKNOWN_ATTRIBUTE_0, iter);
+                SAI_PORT_LOG_ERR("Unknown Port pool attribute id %d",attr_list[iter].id);
+                break;
+        }
+
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+            return sai_rc;
+        }
+    }
+
+    p_port_pool_node = sai_qos_port_pool_node_get(port_pool_node.port_id, port_pool_node.pool_id);
+    if(p_port_pool_node != NULL) {
+        SAI_PORT_LOG_ERR("Attempted to CREATE port pool 0x%"PRIx64" that already exist",p_port_pool_node->port_pool_id);
+        return SAI_STATUS_ITEM_ALREADY_EXISTS;
+    }
+
+    port_pool_node.port_pool_id = sai_port_pool_id_create();
+
+    sai_rc = sai_qos_add_port_pool_node(&port_pool_node);
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_PORT_LOG_ERR("Port pool node insert failed, sai_rc %d", sai_rc);
+        return sai_rc;
+    }
+
+    p_port_pool_node = sai_qos_port_pool_node_get_from_obj_id(port_pool_node.port_pool_id);
+    if(p_port_pool_node != NULL) {
+        if(SAI_NULL_OBJECT_ID != wred_id) {
+            if((sai_rc = sai_qos_wred_link_set(p_port_pool_node->port_pool_id,
+                            wred_id,
+                            DN_SAI_QOS_WRED_LINK_PORT)) == SAI_STATUS_SUCCESS) {
+                p_port_pool_node->wred_id = wred_id;
+            }
+        }
+    } else {
+        SAI_PORT_LOG_ERR("Port pool 0x%"PRIx64" not found in DB.",port_pool_node.port_pool_id);
+        return SAI_STATUS_FAILURE;
+    }
+
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        sai_qos_remove_port_pool_node(port_pool_node.port_pool_id);
+    } else {
+        *port_pool_id = port_pool_node.port_pool_id;
+    }
+
+    return sai_rc;
+}
+
+sai_status_t sai_qos_port_remove_port_pool(
+        sai_object_id_t port_pool_id)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    dn_sai_qos_port_pool_t *p_port_pool_node = NULL;
+
+    if(!sai_is_obj_id_port_pool(port_pool_id)) {
+        return SAI_STATUS_INVALID_OBJECT_TYPE;
+    }
+
+    p_port_pool_node = sai_qos_port_pool_node_get_from_obj_id(port_pool_id);
+    if(NULL == p_port_pool_node) {
+        SAI_PORT_LOG_ERR("Attempted REMOVE of pool 0x%"PRIx64" that doesn't exist.",port_pool_id);
+        return SAI_STATUS_INVALID_OBJECT_ID;
+    }
+
+    if(SAI_NULL_OBJECT_ID != p_port_pool_node->wred_id) {
+        sai_rc = sai_qos_wred_link_set(p_port_pool_node->port_pool_id,
+                SAI_NULL_OBJECT_ID,
+                DN_SAI_QOS_WRED_LINK_PORT);
+    }
+
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_PORT_LOG_ERR("Port pool node WRED reset failed, sai_rc %d", sai_rc);
+        return sai_rc;
+    } else {
+        sai_rc = sai_qos_remove_port_pool_node(p_port_pool_node->port_pool_id);
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_PORT_LOG_ERR("Port pool node remove failed, sai_rc %d", sai_rc);
+            return sai_rc;
+        }
+    }
+
+    return sai_rc;
+}
+
+sai_status_t sai_qos_port_set_port_pool_attribute(
+        sai_object_id_t port_pool_id,
+        const sai_attribute_t *attr)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    dn_sai_qos_port_pool_t *p_port_pool_node = NULL;
+
+    if(!sai_is_obj_id_port_pool(port_pool_id)) {
+        return SAI_STATUS_INVALID_OBJECT_TYPE;
+    }
+
+    p_port_pool_node = sai_qos_port_pool_node_get_from_obj_id(port_pool_id);
+    if(NULL == p_port_pool_node) {
+        SAI_PORT_LOG_ERR("Attempted SET attribute for port pool 0x%"PRIx64" that doesn't exist.",port_pool_id);
+        return SAI_STATUS_INVALID_OBJECT_ID;
+    }
+
+    sai_rc = sai_port_pool_validate_attribute(attr, 1, SAI_OP_SET);
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_PORT_LOG_ERR("Port pool SET attribute id %d validation failed, sai_rc %d",attr->id,sai_rc);
+        return sai_rc;
+    }
+
+    switch(attr->id) {
+        case SAI_PORT_POOL_ATTR_PORT_ID:
+            sai_rc = SAI_STATUS_INVALID_ATTRIBUTE_0;
+            break;
+        case SAI_PORT_POOL_ATTR_BUFFER_POOL_ID:
+            sai_rc = SAI_STATUS_INVALID_ATTRIBUTE_0;
+            break;
+        case SAI_PORT_POOL_ATTR_QOS_WRED_PROFILE_ID:
+            if((sai_rc = sai_qos_wred_link_set(p_port_pool_node->port_pool_id,
+                    attr->value.oid,
+                    DN_SAI_QOS_WRED_LINK_PORT)) == SAI_STATUS_SUCCESS) {
+                p_port_pool_node->wred_id = attr->value.oid;
+            }
+            break;
+        default:
+            sai_rc = SAI_STATUS_UNKNOWN_ATTRIBUTE_0;
+            SAI_PORT_LOG_ERR("Unknown Port pool attribute id %d", attr->id);
+            break;
+    }
+
+    return sai_rc;
+}
+
+sai_status_t sai_qos_port_get_port_pool_attribute(
+        sai_object_id_t port_pool_id,
+        uint32_t attr_count,
+        sai_attribute_t *attr_list)
+{
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    dn_sai_qos_port_pool_t *p_port_pool_node = NULL;
+    uint_t iter = 0;
+
+    if(!sai_is_obj_id_port_pool(port_pool_id)) {
+        return SAI_STATUS_INVALID_OBJECT_TYPE;
+    }
+
+    sai_rc = sai_port_pool_validate_attribute(attr_list, attr_count, SAI_OP_GET);
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        SAI_PORT_LOG_ERR("Port pool GET attribute validation failed, sai_rc %d", sai_rc);
+        return sai_rc;
+    }
+
+    p_port_pool_node = sai_qos_port_pool_node_get_from_obj_id(port_pool_id);
+    if(NULL == p_port_pool_node) {
+        SAI_PORT_LOG_ERR("Attempted GET attribute for port pool 0x%"PRIx64" that doesn't exist.",port_pool_id);
+        return SAI_STATUS_INVALID_OBJECT_ID;
+    }
+
+    for(iter = 0; iter < attr_count;  iter++) {
+        switch(attr_list[iter].id) {
+            case SAI_PORT_POOL_ATTR_PORT_ID:
+                attr_list[iter].value.oid = p_port_pool_node->port_id;
+                break;
+            case SAI_PORT_POOL_ATTR_BUFFER_POOL_ID:
+                attr_list[iter].value.oid = p_port_pool_node->pool_id;
+                break;
+            case SAI_PORT_POOL_ATTR_QOS_WRED_PROFILE_ID:
+                attr_list[iter].value.oid = p_port_pool_node->wred_id;
+                break;
+            default:
+                sai_rc = sai_get_indexed_ret_val(SAI_STATUS_UNKNOWN_ATTRIBUTE_0, iter);
+                SAI_PORT_LOG_ERR("Unknown Port pool attribute id %d",attr_list[iter].id);
+                break;
+        }
+
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
+    }
+
+    return sai_rc;
+}
+
+sai_status_t sai_qos_port_get_port_pool_stats(
+        sai_object_id_t port_pool_id,
+        uint32_t number_of_counters,
+        const sai_port_pool_stat_t *counter_ids,
+        uint64_t *counters)
+{
+    return SAI_STATUS_NOT_SUPPORTED;
+}
+
+sai_status_t sai_qos_port_clear_port_pool_stats(
+        sai_object_id_t port_pool_id,
+        uint32_t number_of_counters,
+        const sai_port_pool_stat_t *counter_ids)
+{
+    return SAI_STATUS_NOT_SUPPORTED;
 }

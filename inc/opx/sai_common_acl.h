@@ -77,6 +77,14 @@ static inline bool sai_acl_table_field_attr_range(sai_attr_id_t id)
     return false;
 }
 
+static inline bool sai_acl_table_action_attr_range(sai_acl_action_type_t id)
+{
+    if ((id >= SAI_ACL_ACTION_TYPE_REDIRECT) &&
+        (id <= SAI_ACL_ACTION_TYPE_SET_DO_NOT_LEARN)) {
+        return true;
+    }
+    return false;
+}
 static inline bool sai_acl_rule_valid_attr_range(sai_attr_id_t id)
 {
     if ((id >= SAI_ACL_ENTRY_ATTR_START) &&
@@ -149,7 +157,6 @@ static inline void sai_acl_table_group_member_free
  *                     Function Prototypes
  **************************************************************************/
 
-acl_node_pt sai_acl_get_acl_node(void);
 sai_acl_table_id_node_t *sai_acl_get_table_id_gen(void);
 sai_status_t sai_attach_cntr_to_acl_rule(sai_acl_rule_t *acl_rule);
 sai_status_t sai_detach_cntr_from_acl_rule(sai_acl_rule_t *acl_rule);
@@ -187,6 +194,7 @@ sai_status_t  sai_acl_rule_policer_update(sai_acl_rule_t *acl_rule_modify,
                                           sai_acl_rule_t *acl_rule_present);
 sai_status_t sai_attach_policer_to_acl_rule(sai_acl_rule_t *acl_rule);
 sai_status_t sai_detach_policer_from_acl_rule(sai_acl_rule_t *acl_rule);
+void sai_acl_counter_init(void);
 sai_status_t sai_acl_table_group_member_create(sai_object_id_t *acl_table_group_mem_id,
         sai_object_id_t switch_id,
         uint32_t attr_count,

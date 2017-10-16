@@ -30,7 +30,7 @@ static std_code_text_t sai_stp_port_state_str_tbl[]={
     {SAI_STP_PORT_STATE_BLOCKING, "BLOCKING"}
 };
 
-inline const char *sai_stp_port_state_to_str(sai_stp_port_state_t stp_port_state)
+static inline const char *sai_stp_port_state_to_str(sai_stp_port_state_t stp_port_state)
 {
     const char *stp_port_state_str = NULL;
 

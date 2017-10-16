@@ -52,95 +52,130 @@
  * used to invoke all registered internal modules notification function */
 static sai_port_event_internal_notf_t port_event_list[SAI_MODULE_MAX];
 
-static sai_status_t sai_port_set_drop_untagged (sai_object_id_t port_id,
-                                                const sai_attribute_t *in_attr)
+static const struct {
+    sai_port_attr_t attr_id;
+    char *string;
+} sai_port_attr_to_string[] = {
+    {SAI_PORT_ATTR_TYPE,    "SAI_PORT_ATTR_TYPE"},
+    {SAI_PORT_ATTR_OPER_STATUS,    "SAI_PORT_ATTR_OPER_STATUS"},
+    {SAI_PORT_ATTR_SUPPORTED_BREAKOUT_MODE_TYPE,    "SAI_PORT_ATTR_SUPPORTED_BREAKOUT_MODE_TYPE"},
+    {SAI_PORT_ATTR_CURRENT_BREAKOUT_MODE_TYPE,    "SAI_PORT_ATTR_CURRENT_BREAKOUT_MODE_TYPE"},
+    {SAI_PORT_ATTR_QOS_NUMBER_OF_QUEUES,    "SAI_PORT_ATTR_QOS_NUMBER_OF_QUEUES"},
+    {SAI_PORT_ATTR_QOS_QUEUE_LIST,    "SAI_PORT_ATTR_QOS_QUEUE_LIST"},
+    {SAI_PORT_ATTR_QOS_NUMBER_OF_SCHEDULER_GROUPS,    "SAI_PORT_ATTR_QOS_NUMBER_OF_SCHEDULER_GROUPS"},
+    {SAI_PORT_ATTR_QOS_SCHEDULER_GROUP_LIST,    "SAI_PORT_ATTR_QOS_SCHEDULER_GROUP_LIST"},
+    {SAI_PORT_ATTR_SUPPORTED_SPEED,    "SAI_PORT_ATTR_SUPPORTED_SPEED"},
+    {SAI_PORT_ATTR_SUPPORTED_FEC_MODE,    "SAI_PORT_ATTR_SUPPORTED_FEC_MODE"},
+    {SAI_PORT_ATTR_SUPPORTED_HALF_DUPLEX_SPEED,    "SAI_PORT_ATTR_SUPPORTED_HALF_DUPLEX_SPEED"},
+    {SAI_PORT_ATTR_SUPPORTED_AUTO_NEG_MODE,    "SAI_PORT_ATTR_SUPPORTED_AUTO_NEG_MODE"},
+    {SAI_PORT_ATTR_SUPPORTED_FLOW_CONTROL_MODE,    "SAI_PORT_ATTR_SUPPORTED_FLOW_CONTROL_MODE"},
+    {SAI_PORT_ATTR_SUPPORTED_ASYMMETRIC_PAUSE_MODE,    "SAI_PORT_ATTR_SUPPORTED_ASYMMETRIC_PAUSE_MODE"},
+    {SAI_PORT_ATTR_SUPPORTED_MEDIA_TYPE,    "SAI_PORT_ATTR_SUPPORTED_MEDIA_TYPE"},
+    {SAI_PORT_ATTR_REMOTE_ADVERTISED_SPEED,    "SAI_PORT_ATTR_REMOTE_ADVERTISED_SPEED"},
+    {SAI_PORT_ATTR_REMOTE_ADVERTISED_FEC_MODE,    "SAI_PORT_ATTR_REMOTE_ADVERTISED_FEC_MODE"},
+    {SAI_PORT_ATTR_REMOTE_ADVERTISED_HALF_DUPLEX_SPEED,    "SAI_PORT_ATTR_REMOTE_ADVERTISED_HALF_DUPLEX_SPEED"},
+    {SAI_PORT_ATTR_REMOTE_ADVERTISED_AUTO_NEG_MODE,    "SAI_PORT_ATTR_REMOTE_ADVERTISED_AUTO_NEG_MODE"},
+    {SAI_PORT_ATTR_REMOTE_ADVERTISED_FLOW_CONTROL_MODE,    "SAI_PORT_ATTR_REMOTE_ADVERTISED_FLOW_CONTROL_MODE"},
+    {SAI_PORT_ATTR_REMOTE_ADVERTISED_ASYMMETRIC_PAUSE_MODE,    "SAI_PORT_ATTR_REMOTE_ADVERTISED_ASYMMETRIC_PAUSE_MODE"},
+    {SAI_PORT_ATTR_REMOTE_ADVERTISED_MEDIA_TYPE,    "SAI_PORT_ATTR_REMOTE_ADVERTISED_MEDIA_TYPE"},
+    {SAI_PORT_ATTR_NUMBER_OF_INGRESS_PRIORITY_GROUPS,    "SAI_PORT_ATTR_NUMBER_OF_INGRESS_PRIORITY_GROUPS"},
+    {SAI_PORT_ATTR_INGRESS_PRIORITY_GROUP_LIST,    "SAI_PORT_ATTR_INGRESS_PRIORITY_GROUP_LIST"},
+    {SAI_PORT_ATTR_HW_LANE_LIST,    "SAI_PORT_ATTR_HW_LANE_LIST"},
+    {SAI_PORT_ATTR_SPEED,    "SAI_PORT_ATTR_SPEED"},
+    {SAI_PORT_ATTR_FULL_DUPLEX_MODE,    "SAI_PORT_ATTR_FULL_DUPLEX_MODE"},
+    {SAI_PORT_ATTR_AUTO_NEG_MODE,    "SAI_PORT_ATTR_AUTO_NEG_MODE"},
+    {SAI_PORT_ATTR_ADMIN_STATE,    "SAI_PORT_ATTR_ADMIN_STATE"},
+    {SAI_PORT_ATTR_MEDIA_TYPE,    "SAI_PORT_ATTR_MEDIA_TYPE"},
+    {SAI_PORT_ATTR_ADVERTISED_SPEED,    "SAI_PORT_ATTR_ADVERTISED_SPEED"},
+    {SAI_PORT_ATTR_ADVERTISED_FEC_MODE,    "SAI_PORT_ATTR_ADVERTISED_FEC_MODE"},
+    {SAI_PORT_ATTR_ADVERTISED_HALF_DUPLEX_SPEED,    "SAI_PORT_ATTR_ADVERTISED_HALF_DUPLEX_SPEED"},
+    {SAI_PORT_ATTR_ADVERTISED_AUTO_NEG_MODE,    "SAI_PORT_ATTR_ADVERTISED_AUTO_NEG_MODE"},
+    {SAI_PORT_ATTR_ADVERTISED_FLOW_CONTROL_MODE,    "SAI_PORT_ATTR_ADVERTISED_FLOW_CONTROL_MODE"},
+    {SAI_PORT_ATTR_ADVERTISED_ASYMMETRIC_PAUSE_MODE,    "SAI_PORT_ATTR_ADVERTISED_ASYMMETRIC_PAUSE_MODE"},
+    {SAI_PORT_ATTR_ADVERTISED_MEDIA_TYPE,    "SAI_PORT_ATTR_ADVERTISED_MEDIA_TYPE"},
+    {SAI_PORT_ATTR_PORT_VLAN_ID,    "SAI_PORT_ATTR_PORT_VLAN_ID"},
+    {SAI_PORT_ATTR_DEFAULT_VLAN_PRIORITY,    "SAI_PORT_ATTR_DEFAULT_VLAN_PRIORITY"},
+    {SAI_PORT_ATTR_INGRESS_FILTERING,    "SAI_PORT_ATTR_INGRESS_FILTERING"},
+    {SAI_PORT_ATTR_DROP_UNTAGGED,    "SAI_PORT_ATTR_DROP_UNTAGGED"},
+    {SAI_PORT_ATTR_DROP_TAGGED,    "SAI_PORT_ATTR_DROP_TAGGED"},
+    {SAI_PORT_ATTR_INTERNAL_LOOPBACK_MODE,    "SAI_PORT_ATTR_INTERNAL_LOOPBACK_MODE"},
+    {SAI_PORT_ATTR_FEC_MODE,    "SAI_PORT_ATTR_FEC_MODE"},
+    {SAI_PORT_ATTR_FDB_LEARNING_MODE,    "SAI_PORT_ATTR_FDB_LEARNING_MODE"},
+    {SAI_PORT_ATTR_UPDATE_DSCP,    "SAI_PORT_ATTR_UPDATE_DSCP"},
+    {SAI_PORT_ATTR_MTU,    "SAI_PORT_ATTR_MTU"},
+    {SAI_PORT_ATTR_FLOOD_STORM_CONTROL_POLICER_ID,    "SAI_PORT_ATTR_FLOOD_STORM_CONTROL_POLICER_ID"},
+    {SAI_PORT_ATTR_BROADCAST_STORM_CONTROL_POLICER_ID,    "SAI_PORT_ATTR_BROADCAST_STORM_CONTROL_POLICER_ID"},
+    {SAI_PORT_ATTR_MULTICAST_STORM_CONTROL_POLICER_ID,    "SAI_PORT_ATTR_MULTICAST_STORM_CONTROL_POLICER_ID"},
+    {SAI_PORT_ATTR_GLOBAL_FLOW_CONTROL_MODE,    "SAI_PORT_ATTR_GLOBAL_FLOW_CONTROL_MODE"},
+    {SAI_PORT_ATTR_MAX_LEARNED_ADDRESSES,    "SAI_PORT_ATTR_MAX_LEARNED_ADDRESSES"},
+    {SAI_PORT_ATTR_FDB_LEARNING_LIMIT_VIOLATION_PACKET_ACTION,    "SAI_PORT_ATTR_FDB_LEARNING_LIMIT_VIOLATION_PACKET_ACTION"},
+    {SAI_PORT_ATTR_INGRESS_ACL,    "SAI_PORT_ATTR_INGRESS_ACL"},
+    {SAI_PORT_ATTR_EGRESS_ACL,    "SAI_PORT_ATTR_EGRESS_ACL"},
+    {SAI_PORT_ATTR_INGRESS_MIRROR_SESSION,    "SAI_PORT_ATTR_INGRESS_MIRROR_SESSION"},
+    {SAI_PORT_ATTR_EGRESS_MIRROR_SESSION,    "SAI_PORT_ATTR_EGRESS_MIRROR_SESSION"},
+    {SAI_PORT_ATTR_INGRESS_SAMPLEPACKET_ENABLE,    "SAI_PORT_ATTR_INGRESS_SAMPLEPACKET_ENABLE"},
+    {SAI_PORT_ATTR_EGRESS_SAMPLEPACKET_ENABLE,    "SAI_PORT_ATTR_EGRESS_SAMPLEPACKET_ENABLE"},
+    {SAI_PORT_ATTR_POLICER_ID,    "SAI_PORT_ATTR_POLICER_ID"},
+    {SAI_PORT_ATTR_QOS_DEFAULT_TC,    "SAI_PORT_ATTR_QOS_DEFAULT_TC"},
+    {SAI_PORT_ATTR_QOS_DOT1P_TO_TC_MAP,    "SAI_PORT_ATTR_QOS_DOT1P_TO_TC_MAP"},
+    {SAI_PORT_ATTR_QOS_DOT1P_TO_COLOR_MAP,    "SAI_PORT_ATTR_QOS_DOT1P_TO_COLOR_MAP"},
+    {SAI_PORT_ATTR_QOS_DOT1P_TO_TC_AND_COLOR_MAP,    "SAI_PORT_ATTR_QOS_DOT1P_TO_TC_AND_COLOR_MAP"},
+    {SAI_PORT_ATTR_QOS_DSCP_TO_TC_MAP,    "SAI_PORT_ATTR_QOS_DSCP_TO_TC_MAP"},
+    {SAI_PORT_ATTR_QOS_DSCP_TO_COLOR_MAP,    "SAI_PORT_ATTR_QOS_DSCP_TO_COLOR_MAP"},
+    {SAI_PORT_ATTR_QOS_DSCP_TO_TC_AND_COLOR_MAP,    "SAI_PORT_ATTR_QOS_DSCP_TO_TC_AND_COLOR_MAP"},
+    {SAI_PORT_ATTR_QOS_TC_TO_QUEUE_MAP,    "SAI_PORT_ATTR_QOS_TC_TO_QUEUE_MAP"},
+    {SAI_PORT_ATTR_QOS_TC_AND_COLOR_TO_DOT1P_MAP,    "SAI_PORT_ATTR_QOS_TC_AND_COLOR_TO_DOT1P_MAP"},
+    {SAI_PORT_ATTR_QOS_TC_AND_COLOR_TO_DSCP_MAP,    "SAI_PORT_ATTR_QOS_TC_AND_COLOR_TO_DSCP_MAP"},
+    {SAI_PORT_ATTR_QOS_TC_TO_PRIORITY_GROUP_MAP,    "SAI_PORT_ATTR_QOS_TC_TO_PRIORITY_GROUP_MAP"},
+    {SAI_PORT_ATTR_QOS_PFC_PRIORITY_TO_PRIORITY_GROUP_MAP,    "SAI_PORT_ATTR_QOS_PFC_PRIORITY_TO_PRIORITY_GROUP_MAP"},
+    {SAI_PORT_ATTR_QOS_PFC_PRIORITY_TO_QUEUE_MAP,    "SAI_PORT_ATTR_QOS_PFC_PRIORITY_TO_QUEUE_MAP"},
+    {SAI_PORT_ATTR_QOS_SCHEDULER_PROFILE_ID,    "SAI_PORT_ATTR_QOS_SCHEDULER_PROFILE_ID"},
+    {SAI_PORT_ATTR_QOS_INGRESS_BUFFER_PROFILE_LIST,    "SAI_PORT_ATTR_QOS_INGRESS_BUFFER_PROFILE_LIST"},
+    {SAI_PORT_ATTR_QOS_EGRESS_BUFFER_PROFILE_LIST,    "SAI_PORT_ATTR_QOS_EGRESS_BUFFER_PROFILE_LIST"},
+    {SAI_PORT_ATTR_PRIORITY_FLOW_CONTROL,    "SAI_PORT_ATTR_PRIORITY_FLOW_CONTROL"},
+    {SAI_PORT_ATTR_META_DATA,    "SAI_PORT_ATTR_META_DATA"},
+    {SAI_PORT_ATTR_EGRESS_BLOCK_PORT_LIST,    "SAI_PORT_ATTR_EGRESS_BLOCK_PORT_LIST"},
+    {SAI_PORT_ATTR_HW_PROFILE_ID,    "SAI_PORT_ATTR_HW_PROFILE_ID"},
+    {SAI_PORT_ATTR_EEE_ENABLE,    "SAI_PORT_ATTR_EEE_ENABLE"},
+    {SAI_PORT_ATTR_EEE_IDLE_TIME,    "SAI_PORT_ATTR_EEE_IDLE_TIME"},
+    {SAI_PORT_ATTR_EEE_WAKE_TIME,    "SAI_PORT_ATTR_EEE_WAKE_TIME"},
+    {SAI_PORT_ATTR_LOCATION_LED,    "SAI_PORT_ATTR_LOCATION_LED"},
+    {SAI_PORT_ATTR_REMOTE_ADVERTISED_OUI_CODE,    "SAI_PORT_ATTR_REMOTE_ADVERTISED_OUI_CODE"},
+    {SAI_PORT_ATTR_ADVERTISED_OUI_CODE,    "SAI_PORT_ATTR_ADVERTISED_OUI_CODE"}
+};
+static const size_t sai_port_attr_to_string_size =
+                    (sizeof(sai_port_attr_to_string)/
+                     sizeof(sai_port_attr_to_string[0]));
+
+
+static char *sai_port_attr_id_to_string (sai_attr_id_t id)
 {
-    sai_status_t    rc;
-    sai_attribute_t attr_drop_untag;
+    uint_t attr_id = 0;
 
-    /* Retrieve the old drop_untagged val to check if this is a duplicate set */
-    attr_drop_untag.id = SAI_PORT_ATTR_DROP_UNTAGGED;
-
-    rc = sai_port_attr_info_cache_get (port_id, &attr_drop_untag);
-
-    if (rc != SAI_STATUS_SUCCESS) {
-        SAI_PORT_LOG_ERR ("Port drop_untagged get from cache failed for "
-                          "port 0x%"PRIx64" with err: 0x%x", port_id, rc);
-        return rc;
+    for (attr_id = 0; attr_id < sai_port_attr_to_string_size; attr_id++) {
+        if (id == sai_port_attr_to_string[attr_id].attr_id) {
+            return sai_port_attr_to_string[attr_id].string;
     }
 
-    /* Value being set is same as the current value. So do nothing. */
-    if (attr_drop_untag.value.booldata == in_attr->value.booldata) {
-        SAI_PORT_LOG_TRACE ("Drop untagged (%d) same as old value for "
-                            "port 0x%"PRIx64"", in_attr->value.booldata,
-                            port_id);
-        return SAI_STATUS_SUCCESS;
     }
 
-    rc = sai_port_npu_api_get()->port_set_attribute (port_id, in_attr);
-
-    if (rc != SAI_STATUS_SUCCESS) {
-        SAI_PORT_LOG_ERR ("Drop untagged (%d) set failed in NPU for "
-                          "port id 0x%"PRIx64" with err 0x%x",
-                          in_attr->value.booldata, port_id, rc);
-
-        return rc;
+    return "Invalid ID";
     }
 
-    SAI_PORT_LOG_TRACE ("Drop untagged set of port 0x%"PRIx64" is %d",
-                        port_id, in_attr->value.booldata);
-
-    return SAI_STATUS_SUCCESS;
-}
-
-static sai_status_t sai_port_set_drop_tagged (sai_object_id_t port_id,
-                                              const sai_attribute_t *in_attr)
-{
-    sai_status_t    rc;
-    sai_attribute_t attr_drop_tag;
-
-    /* Retrieve the old drop_tagged val to check if this is a duplicate set */
-    attr_drop_tag.id = SAI_PORT_ATTR_DROP_TAGGED;
-
-    rc = sai_port_attr_info_cache_get (port_id, &attr_drop_tag);
-
-    if (rc != SAI_STATUS_SUCCESS) {
-        SAI_PORT_LOG_ERR ("Port drop_tagged get from cache failed for port "
-                          "0x%"PRIx64" with err: 0x%x", port_id, rc);
-        return rc;
-    }
-
-    /* Value being set is same as the current value. So do nothing. */
-    if (attr_drop_tag.value.booldata == in_attr->value.booldata) {
-        SAI_PORT_LOG_TRACE ("Drop tagged (%d) same as old value for port "
-                            "0x%"PRIx64"", in_attr->value.booldata, port_id);
-        return SAI_STATUS_SUCCESS;
-    }
-
-    rc = sai_port_npu_api_get()->port_set_attribute (port_id, in_attr);
-
-    if (rc != SAI_STATUS_SUCCESS) {
-        SAI_PORT_LOG_ERR ("Drop tagged (%d) set failed in NPU for "
-                          "port id 0x%"PRIx64" with err 0x%x",
-                          in_attr->value.booldata, port_id, rc);
-
-        return rc;
-    }
-
-    SAI_PORT_LOG_TRACE ("Drop tagged set of port 0x%"PRIx64" is %d",
-                        port_id, in_attr->value.booldata);
-
-    return SAI_STATUS_SUCCESS;
-}
 
 static sai_status_t sai_port_apply_attribute (sai_object_id_t port_id,
                                     const sai_attribute_t *attr)
 {
     sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_port_info_t *port_info = sai_port_info_get(port_id);
 
-    STD_ASSERT(!(attr == NULL));
+    if(attr == NULL)  {
+        SAI_PORT_LOG_TRACE("attr is %p for port 0x%"PRIx64" in apply attribute",attr, port_id);
+        return SAI_STATUS_INVALID_PARAMETER;
+    }
 
-    SAI_PORT_LOG_TRACE("Attribute %d set for port 0x%"PRIx64"", attr->id, port_id);
+    SAI_PORT_LOG_TRACE("Attribute set attr id %d(%s) val %d for port 0x%"PRIx64"", attr->id,
+                       sai_port_attr_id_to_string(attr->id),attr->value.u64, port_id);
 
     do {
         if(!sai_is_obj_id_port(port_id)) {
@@ -155,25 +190,13 @@ static sai_status_t sai_port_apply_attribute (sai_object_id_t port_id,
             break;
         }
 
+        /*
+         * Duplicate checks making problem in 4x10G,4x25G and 2x50G breakout
+         * ports not oper up during bootup and CLI, so removing the code now.
+         * This will be fixed later.
+         */
         switch (attr->id)
         {
-            case SAI_PORT_ATTR_DROP_UNTAGGED:
-                ret = sai_port_set_drop_untagged (port_id, attr);
-
-                if (ret != SAI_STATUS_SUCCESS) {
-                    SAI_PORT_LOG_ERR ("Drop Untagged set on port "
-                                      "id 0x%"PRIx64" failed", port_id);
-                }
-                break;
-
-            case SAI_PORT_ATTR_DROP_TAGGED:
-                ret = sai_port_set_drop_tagged (port_id, attr);
-
-                if (ret != SAI_STATUS_SUCCESS) {
-                    SAI_PORT_LOG_ERR ("Drop Tagged set on port "
-                                      "id 0x%"PRIx64" failed", port_id);
-                }
-                break;
 
             case SAI_PORT_ATTR_INGRESS_MIRROR_SESSION:
                 ret = sai_mirror_handle_per_port (port_id, attr,
@@ -255,22 +278,13 @@ static sai_status_t sai_port_apply_attribute (sai_object_id_t port_id,
                 }
                 break;
 
-            case SAI_PORT_ATTR_QOS_WRED_PROFILE_ID:
-                ret = sai_port_attr_wred_profile_set(port_id, attr);
-                if(ret != SAI_STATUS_SUCCESS)
-                {
-                    SAI_PORT_LOG_ERR("Wred set failed for %d on"
-                                     "portid 0x%"PRIx64"",attr->id, port_id);
-                }
-                break;
-
             case SAI_PORT_ATTR_INGRESS_ACL:
             case SAI_PORT_ATTR_EGRESS_ACL:
                 ret = SAI_STATUS_SUCCESS;
                 break;
 
             default:
-                ret = sai_port_npu_api_get()->port_set_attribute(port_id, attr);
+                ret = sai_port_npu_api_get()->port_set_attribute(port_id, port_info, attr);
                 if(ret != SAI_STATUS_SUCCESS) {
                     SAI_PORT_LOG_ERR("Attr set for port id 0x%"PRIx64" failed with err %d",
                                      port_id, ret);
@@ -284,7 +298,7 @@ static sai_status_t sai_port_apply_attribute (sai_object_id_t port_id,
         }
 
         /* Update the port attribute info cache with the new attribute value */
-        ret = sai_port_attr_info_cache_set(port_id, attr);
+        ret = sai_port_attr_info_cache_set(port_id, port_info, attr);
         if(ret != SAI_STATUS_SUCCESS) {
             SAI_PORT_LOG_ERR("Attr cache info update failed for port id 0x%"PRIx64" with err %d",
                              port_id, ret);
@@ -300,6 +314,7 @@ static sai_status_t sai_port_set_attribute(sai_object_id_t port_id,
                                     const sai_attribute_t *attr)
 {
     sai_status_t sai_rc = SAI_STATUS_FAILURE;
+    STD_ASSERT (attr != NULL);
     sai_port_lock();
 
     sai_rc = sai_port_apply_attribute(port_id, attr);
@@ -313,6 +328,8 @@ sai_status_t sai_port_get_attribute(sai_object_id_t port_id,
                                     sai_attribute_t *attr_list)
 {
     sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_port_info_t *sai_port_info = NULL;
+    uint_t           attr_id = 0;
 
     if(!attr_count) {
         SAI_PORT_LOG_ERR("Attr get: number of attributes is zero");
@@ -320,8 +337,10 @@ sai_status_t sai_port_get_attribute(sai_object_id_t port_id,
     }
     STD_ASSERT(!(attr_list ==NULL));
 
-    SAI_PORT_LOG_TRACE("Attribute get for %d attributes of port 0x%"PRIx64"",
-                       attr_count, port_id);
+    for (attr_id = 0; attr_id < attr_count; attr_id++) {
+        SAI_PORT_LOG_TRACE("Attribute get attr_Id %s attributes of port 0x%"PRIx64"",
+                            sai_port_attr_id_to_string(attr_list[attr_id].id), port_id);
+    }
 
     sai_port_lock();
     do {
@@ -337,7 +356,10 @@ sai_status_t sai_port_get_attribute(sai_object_id_t port_id,
             break;
         }
 
-        ret = sai_port_npu_api_get()->port_get_attribute(port_id, attr_count, attr_list);
+        sai_port_info = sai_port_info_get (port_id);
+
+        ret = sai_port_npu_api_get()->port_get_attribute(port_id, sai_port_info,
+                                                         attr_count, attr_list);
         if(ret != SAI_STATUS_SUCCESS) {
             SAI_PORT_LOG_TRACE("Attr get for port id 0x%"PRIx64" failed with err %d",
                                 port_id, ret);
@@ -355,6 +377,7 @@ sai_status_t sai_port_get_stats(sai_object_id_t port_id,
                                 uint64_t* counters)
 {
     sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_port_info_t *sai_port_info = NULL;
 
     if(number_of_counters == 0) {
         SAI_PORT_LOG_ERR("Stat get: number of counters is zero");
@@ -363,8 +386,6 @@ sai_status_t sai_port_get_stats(sai_object_id_t port_id,
     STD_ASSERT(!(counter_ids == NULL));
     STD_ASSERT(!(counters == NULL));
 
-    SAI_PORT_LOG_TRACE("Stats get for %d counters of port 0x%"PRIx64"",
-                       number_of_counters, port_id);
 
     sai_port_lock();
     do {
@@ -380,7 +401,9 @@ sai_status_t sai_port_get_stats(sai_object_id_t port_id,
             break;
         }
 
-        ret = sai_port_npu_api_get()->port_get_stats(port_id, counter_ids,
+        sai_port_info = sai_port_info_get(port_id);
+
+        ret = sai_port_npu_api_get()->port_get_stats(port_id, sai_port_info, counter_ids,
                                                      number_of_counters, counters);
         if(ret != SAI_STATUS_SUCCESS) {
             SAI_PORT_LOG_ERR("Stats get for port id 0x%"PRIx64" failed with err %d",
@@ -398,6 +421,7 @@ sai_status_t sai_port_clear_stats(sai_object_id_t port_id,
                                   uint32_t number_of_counters)
 {
     sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_port_info_t *sai_port_info = NULL;
 
     if(number_of_counters == 0) {
         SAI_PORT_LOG_ERR("Stat clear: number of counters is zero");
@@ -406,7 +430,6 @@ sai_status_t sai_port_clear_stats(sai_object_id_t port_id,
 
     STD_ASSERT(!(counter_ids == NULL));
 
-    SAI_PORT_LOG_TRACE("Clear Statistics counters of port 0x%"PRIx64"", port_id);
 
     sai_port_lock();
     do {
@@ -421,8 +444,9 @@ sai_status_t sai_port_clear_stats(sai_object_id_t port_id,
             ret = SAI_STATUS_INVALID_OBJECT_ID;
             break;
         }
+        sai_port_info = sai_port_info_get(port_id);
 
-        ret = sai_port_npu_api_get()->port_clear_stats(port_id, counter_ids,
+        ret = sai_port_npu_api_get()->port_clear_stats(port_id, sai_port_info, counter_ids,
                                                        number_of_counters);
         if(ret != SAI_STATUS_SUCCESS) {
             SAI_PORT_LOG_ERR("Stats clear for port id 0x%"PRIx64" failed with err %d",
@@ -438,6 +462,7 @@ sai_status_t sai_port_clear_stats(sai_object_id_t port_id,
 sai_status_t sai_port_clear_all_stats(sai_object_id_t port_id)
 {
     sai_status_t ret = SAI_STATUS_FAILURE;
+    sai_port_info_t *sai_port_info = NULL;
 
     SAI_PORT_LOG_TRACE("Clear Statistics counters of port 0x%"PRIx64"", port_id);
 
@@ -455,7 +480,8 @@ sai_status_t sai_port_clear_all_stats(sai_object_id_t port_id)
             break;
         }
 
-        ret = sai_port_npu_api_get()->port_clear_all_stats(port_id);
+        sai_port_info = sai_port_info_get(port_id);
+        ret = sai_port_npu_api_get()->port_clear_all_stats(port_id, sai_port_info);
         if(ret != SAI_STATUS_SUCCESS) {
             SAI_PORT_LOG_ERR("Stats clear for port id 0x%"PRIx64" failed with err %d",
                              port_id, ret);
@@ -470,16 +496,17 @@ sai_status_t sai_port_clear_all_stats(sai_object_id_t port_id)
 /* configure sai port with default value of attributes */
 static sai_status_t sai_port_set_attribute_default(sai_object_id_t sai_port_id)
 {
-    sai_port_attr_info_t *port_attr_info = NULL;
     sai_status_t ret = SAI_STATUS_FAILURE;
     sai_attribute_t sai_attr_set;
+    sai_port_info_t      *sai_port_info = sai_port_info_get(sai_port_id);
 
     if(sai_is_port_valid(sai_port_id) == false) {
         SAI_PORT_LOG_ERR("Port 0x%"PRIx64" is not valid port", sai_port_id);
         return SAI_STATUS_INVALID_OBJECT_ID;
     }
 
-    port_attr_info = sai_port_attr_info_get(sai_port_id);
+    const sai_port_attr_info_t *port_attr_info = sai_port_attr_info_read_only_get(sai_port_id,
+                                                                                  sai_port_info);
     STD_ASSERT(port_attr_info != NULL);
 
     memset(&sai_attr_set, 0, sizeof(sai_attribute_t));
@@ -663,7 +690,7 @@ void sai_port_init_event_notification(void)
      * all valid logical Ports. CPU port is not part of this event notification */
     for (port_info = sai_port_info_getfirst(); (port_info != NULL);
          port_info = sai_port_info_getnext(port_info)) {
-        if(sai_is_port_valid(port_info->sai_port_id)) {
+        if(port_info->port_valid) {
             data[count].port_id = port_info->sai_port_id;
             data[count].port_event = SAI_PORT_EVENT_ADD;
             SAI_PORT_LOG_NTC("SAI port 0x%"PRIx64" is Added", port_info->sai_port_id);
@@ -682,9 +709,9 @@ void sai_ports_linkscan_enable(void)
     sai_port_lock();
     for (port_info = sai_port_info_getfirst(); (port_info != NULL);
          port_info = sai_port_info_getnext(port_info)) {
-        if (sai_is_port_valid(port_info->sai_port_id)) {
+        if (port_info->port_valid) {
             if ((sai_port_npu_api_get()->linkscan_mode_set != NULL) &&
-                    (sai_port_npu_api_get()->linkscan_mode_set(port_info->sai_port_id, true)
+                    (sai_port_npu_api_get()->linkscan_mode_set(port_info->sai_port_id, port_info, true)
                             != SAI_STATUS_SUCCESS)) {
                 SAI_PORT_LOG_ERR("Failed to enable linkcan on port 0x%"PRIx64" in npu",
                                  port_info->sai_port_id);
@@ -692,25 +719,6 @@ void sai_ports_linkscan_enable(void)
         }
     }
     sai_port_unlock();
-}
-
-/* Validates the breakout mode and its corresponding lane count value */
-static inline sai_status_t sai_port_breakout_validate(sai_port_breakout_mode_type_t mode,
-                                                      uint_t count)
-{
-    sai_port_lane_count_t lane_count = 0;
-
-    if(mode >= SAI_PORT_BREAKOUT_MODE_TYPE_MAX) {
-        return SAI_STATUS_INVALID_ATTR_VALUE_0;
-    }
-
-    lane_count = sai_port_breakout_lane_count_get(mode);
-
-    if((count == 0) || (count < lane_count)) {
-        return SAI_STATUS_INVALID_ATTR_VALUE_0;
-    }
-
-    return SAI_STATUS_SUCCESS;
 }
 
 /* Get the list of valid logical ports in the switch */
@@ -787,6 +795,9 @@ sai_status_t sai_port_remove(sai_object_id_t port_id)
     sai_status_t sai_rc = SAI_STATUS_SUCCESS;
     sai_port_event_notification_t data;
     bool linkscan_set = false;
+    sai_port_info_t               *sai_port_info = NULL;
+
+    SAI_PORT_LOG_TRACE ("SAI port remove, port id 0x%"PRIx64"", port_id);
 
     memset (&data, 0, sizeof(data));
     sai_port_lock();
@@ -797,8 +808,9 @@ sai_status_t sai_port_remove(sai_object_id_t port_id)
             break;
         }
 
+        sai_port_info = sai_port_info_get(port_id);
         if (sai_port_npu_api_get()->linkscan_mode_set != NULL) {
-            if (sai_port_npu_api_get()->linkscan_mode_set(port_id, false)
+            if (sai_port_npu_api_get()->linkscan_mode_set(port_id, sai_port_info, false)
                       != SAI_STATUS_SUCCESS) {
                 SAI_PORT_LOG_ERR("Failed to disable linkscan on port 0x%"PRIx64" in npu",
                                  port_id);
@@ -821,14 +833,14 @@ sai_status_t sai_port_remove(sai_object_id_t port_id)
         data.port_id = port_id;
         data.port_event = SAI_PORT_EVENT_DELETE;
         sai_port_event_internal_notf (1,&data);
-        sai_port_validity_set (port_id, false);
+        sai_port_info->port_valid = false;
     } else if (linkscan_set) { /* Enable linkscan when port removal failed */
 
         /* Function pointer check is not required as the flag will be enabled
          * only when it is not NULL  and function call to disable linkscan is
          * successful
          */
-        if (sai_port_npu_api_get()->linkscan_mode_set(port_id, true)
+        if (sai_port_npu_api_get()->linkscan_mode_set(port_id, sai_port_info, true)
                       != SAI_STATUS_SUCCESS) {
             SAI_PORT_LOG_ERR("Failed to enable linkscan on port 0x%"PRIx64" in npu",
                              port_id);
@@ -846,6 +858,7 @@ sai_status_t sai_port_create(sai_object_id_t *port_id, sai_object_id_t switch_id
     bool sai_port_created = false;
     sai_port_event_notification_t data;
     sai_status_t sai_rc = SAI_STATUS_FAILURE;
+    SAI_PORT_LOG_TRACE("SAI port create Start ");
 
     sai_port_lock ();
     do {
@@ -861,7 +874,7 @@ sai_status_t sai_port_create(sai_object_id_t *port_id, sai_object_id_t switch_id
             sai_rc = SAI_STATUS_FAILURE;
             break;
         }
-        sai_port_validity_set (*port_id, true);
+        port_info->port_valid = true;
 
         for (attr_idx = 0; attr_idx < attr_count; attr_idx++) {
             if (attr_list[attr_idx].id != SAI_PORT_ATTR_HW_LANE_LIST) {
@@ -877,8 +890,8 @@ sai_status_t sai_port_create(sai_object_id_t *port_id, sai_object_id_t switch_id
 
     if(sai_rc != SAI_STATUS_SUCCESS) {
         if(sai_port_created) {
+            port_info->port_valid = false;
             sai_port_npu_api_get()->npu_port_remove(*port_id);
-            sai_port_validity_set (*port_id, false);
         }
     }
     sai_port_unlock();
@@ -890,12 +903,13 @@ sai_status_t sai_port_create(sai_object_id_t *port_id, sai_object_id_t switch_id
 
         sai_port_lock();
         if ((sai_port_npu_api_get()->linkscan_mode_set != NULL) &&
-                 (sai_port_npu_api_get()->linkscan_mode_set(*port_id, true)
+                 (sai_port_npu_api_get()->linkscan_mode_set(*port_id, port_info, true)
                       != SAI_STATUS_SUCCESS)) {
             SAI_PORT_LOG_ERR("Failed to enable linkcan on port 0x%"PRIx64" in npu",
                              *port_id);
         }
         sai_port_unlock();
+        SAI_PORT_LOG_TRACE("SAI Port create succcess, port id 0x%"PRIx64"", *port_id);
     }
 
     return sai_rc;
@@ -910,6 +924,12 @@ static sai_port_api_t sai_port_method_table =
     sai_port_get_stats,
     sai_port_clear_stats,
     sai_port_clear_all_stats,
+    sai_qos_port_create_port_pool,
+    sai_qos_port_remove_port_pool,
+    sai_qos_port_set_port_pool_attribute,
+    sai_qos_port_get_port_pool_attribute,
+    sai_qos_port_get_port_pool_stats,
+    sai_qos_port_clear_port_pool_stats
 };
 
 sai_port_api_t* sai_port_api_query(void)

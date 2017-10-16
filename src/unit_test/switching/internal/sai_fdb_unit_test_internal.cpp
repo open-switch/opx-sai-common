@@ -37,7 +37,7 @@ extern "C" {
 }
 
 #define MAX_FDB_NOTIFICATIONS 50
-sai_fdb_notification_data_t notification_data[MAX_FDB_NOTIFICATIONS];
+sai_fdb_internal_notification_data_t notification_data[MAX_FDB_NOTIFICATIONS];
 uint_t fdb_num_notifications;
 bool notification_wait = true;
 
@@ -49,11 +49,11 @@ static inline void sai_set_test_registered_entry(uint8_t last_octet,sai_fdb_entr
 }
 
 sai_status_t sai_fdb_test_internal_callback(uint_t num_notifications,
-                                                   sai_fdb_notification_data_t *data)
+                                                   sai_fdb_internal_notification_data_t *data)
 {
     fdb_num_notifications = num_notifications;
     printf("Received :%d notifications\r\n",num_notifications);
-    memcpy(notification_data, data, sizeof(sai_fdb_notification_data_t)*num_notifications);
+    memcpy(notification_data, data, sizeof(sai_fdb_internal_notification_data_t)*num_notifications);
     notification_wait = false;
     return SAI_STATUS_SUCCESS;
 }

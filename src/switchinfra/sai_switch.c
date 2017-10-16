@@ -46,6 +46,7 @@
 #include "sai_hash_api_utils.h"
 #include "sai_vlan_api.h"
 #include "sai_vlan_common.h"
+#include "sai_bridge_main.h"
 
 static const dn_sai_attribute_entry_t dn_sai_switch_attr[] = {
     {SAI_SWITCH_ATTR_PORT_NUMBER, false, false, false, true, true, true },
@@ -53,6 +54,7 @@ static const dn_sai_attribute_entry_t dn_sai_switch_attr[] = {
     {SAI_SWITCH_ATTR_PORT_MAX_MTU, false, false, false, true, true, true },
     {SAI_SWITCH_ATTR_CPU_PORT, false, false, false, true, true, true },
     {SAI_SWITCH_ATTR_MAX_VIRTUAL_ROUTERS, false, false, false, true, true, true },
+    {SAI_SWITCH_ATTR_DEFAULT_1Q_BRIDGE_ID, false, false, false, true, true, true },
     {SAI_SWITCH_ATTR_FDB_TABLE_SIZE, false, false, false, true, true, true },
     {SAI_SWITCH_ATTR_L3_NEIGHBOR_TABLE_SIZE, false, false, false, true, true, true },
     {SAI_SWITCH_ATTR_L3_ROUTE_TABLE_SIZE, false, false, false, true, true, true },
@@ -366,6 +368,9 @@ static sai_status_t sai_switch_get_gen_attribute(sai_attribute_t *attr)
         case SAI_SWITCH_ATTR_MAX_VIRTUAL_ROUTERS:
             ret_val = sai_switch_max_virtual_routers_get(&max_vrf);
             attr->value.u32 = max_vrf;
+            break;
+        case SAI_SWITCH_ATTR_DEFAULT_1Q_BRIDGE_ID:
+            ret_val = sai_bridge_default_id_get(&attr->value.oid);
             break;
         case SAI_SWITCH_ATTR_ON_LINK_ROUTE_SUPPORTED:
             break;
@@ -775,6 +780,10 @@ static sai_status_t sai_switch_modules_initialize(void)
         return ret_val;
     }
 
+    if((ret_val = sai_l2mc_init()) != SAI_STATUS_SUCCESS) {
+        SAI_SWITCH_LOG_CRIT("SAI L2MC init failed with err %d",ret_val);
+        return ret_val;
+    }
     if((ret_val = sai_lag_init()) != SAI_STATUS_SUCCESS) {
         SAI_SWITCH_LOG_CRIT("SAI LAG init failed with err %d",ret_val);
         return ret_val;
@@ -830,6 +839,11 @@ static sai_status_t sai_switch_modules_initialize(void)
 
     if ((ret_val = sai_tunnel_init()) != SAI_STATUS_SUCCESS) {
         SAI_SWITCH_LOG_CRIT("SAI Tunnel init failed with error %d", ret_val);
+        return ret_val;
+    }
+
+    if ((ret_val = sai_bridge_init()) != SAI_STATUS_SUCCESS) {
+        SAI_SWITCH_LOG_CRIT("SAI Bridge init failed with error %d", ret_val);
         return ret_val;
     }
     sai_port_init_event_notification();
@@ -1295,6 +1309,7 @@ sai_status_t sai_switch_get_attribute(sai_object_id_t switch_id,
             case SAI_SWITCH_ATTR_CPU_PORT:
             case SAI_SWITCH_ATTR_PORT_MAX_MTU:
             case SAI_SWITCH_ATTR_MAX_VIRTUAL_ROUTERS:
+            case SAI_SWITCH_ATTR_DEFAULT_1Q_BRIDGE_ID:
             case SAI_SWITCH_ATTR_ON_LINK_ROUTE_SUPPORTED:
             case SAI_SWITCH_ATTR_OPER_STATUS:
             case SAI_SWITCH_ATTR_MAX_TEMP:

@@ -236,13 +236,15 @@ static void sai_acl_table_free(sai_acl_table_t *acl_table)
     }
 
     free(acl_table->field_list);
+    free(acl_table->action_list);
     free (acl_table);
 }
 
 static sai_status_t sai_acl_table_validate_attributes(uint_t attr_count,
                                                const sai_attribute_t *attr_list,
                                                uint_t *num_fields,
-                                               uint_t *num_udf_fields)
+                                               uint_t *num_udf_fields,
+                                               uint_t *num_actions)
 {
     uint_t field_count = 0, attribute_count = 0;
     uint_t dup_index = 0, udf_field_count = 0;
@@ -251,11 +253,13 @@ static sai_status_t sai_acl_table_validate_attributes(uint_t attr_count,
     bool attr_stage_present = false, attr_prio_present = false;
     sai_acl_stage_t table_stage = SAI_ACL_STAGE_INGRESS;
     sai_status_t rc = SAI_STATUS_SUCCESS;
+    uint_t action_count = 0;
 
     STD_ASSERT(attr_count > 0);
     STD_ASSERT(attr_list != NULL);
     STD_ASSERT(num_fields != NULL);
     STD_ASSERT(num_udf_fields != NULL);
+    STD_ASSERT(num_actions != NULL);
 
     SAI_ACL_LOG_TRACE ("Validating table attributes");
 
@@ -322,6 +326,11 @@ static sai_status_t sai_acl_table_validate_attributes(uint_t attr_count,
                                                     attribute_count);
                 }
                 break;
+            case SAI_ACL_TABLE_ATTR_ACTION_LIST:
+                /* ACL Table Actions */
+                action_count = attribute_value.s32list.count;
+                SAI_ACL_LOG_TRACE ("Actions count : %d", action_count);
+                break;
             default:
                 if (sai_acl_table_field_attr_range(attribute_id)) {
                     if (sai_acl_table_udf_field_attr_range(attribute_id)) {
@@ -381,6 +390,7 @@ static sai_status_t sai_acl_table_validate_attributes(uint_t attr_count,
 
     *num_fields = field_count;
     *num_udf_fields = udf_field_count;
+    *num_actions = action_count;
 
     return SAI_STATUS_SUCCESS;
 }
@@ -419,13 +429,15 @@ static sai_status_t sai_acl_table_populate(sai_acl_table_t *acl_table,
                                            uint_t attr_count,
                                            const sai_attribute_t *attr_list,
                                            uint_t field_count,
-                                           uint_t udf_field_count)
+                                           uint_t udf_field_count,
+                                           uint_t action_count)
 {
     uint_t field_count_idx = 0, attribute_count = 0;
     uint_t udf_field_count_idx = 0;
     sai_attr_id_t attribute_id = 0;
     sai_attribute_value_t attribute_value = {0};
     sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    uint_t action_count_idx = 0, count = 0;
 
     STD_ASSERT(acl_table != NULL);
     STD_ASSERT(attr_list != NULL);
@@ -434,6 +446,7 @@ static sai_status_t sai_acl_table_populate(sai_acl_table_t *acl_table,
 
     SAI_ACL_LOG_TRACE ("Populating table attributes");
 
+    do {
     /* Allocate memory for field list in ACL table structure*/
     acl_table->field_list = (sai_acl_table_attr_t *)
         calloc(field_count, sizeof(sai_acl_table_attr_t));
@@ -441,8 +454,18 @@ static sai_status_t sai_acl_table_populate(sai_acl_table_t *acl_table,
     if (acl_table->field_list == NULL) {
         SAI_ACL_LOG_ERR ("Allocation of Memory "
                          "failed for ACL Table Field List");
+            sai_rc = SAI_STATUS_NO_MEMORY;
+            break;
+        }
 
-        return SAI_STATUS_NO_MEMORY;
+        /* Allocate memory for field list in ACL table structure*/
+        acl_table->action_list = (sai_acl_action_type_t *)
+            calloc(action_count, sizeof(sai_acl_action_type_t));
+        if (acl_table->action_list == NULL) {
+            SAI_ACL_LOG_ERR ("Allocation of Memory "
+                    "failed for ACL Table Action List");
+            sai_rc = SAI_STATUS_NO_MEMORY;
+            break;
     }
 
     if (udf_field_count != 0) {
@@ -454,9 +477,20 @@ static sai_status_t sai_acl_table_populate(sai_acl_table_t *acl_table,
         if (acl_table->udf_field_list == NULL) {
             SAI_ACL_LOG_ERR ("Allocation of Memory "
                              "failed for ACL Table Field List");
-            free (acl_table->field_list);
-            return SAI_STATUS_NO_MEMORY;
+                sai_rc = SAI_STATUS_NO_MEMORY;
+                break;
+            }
         }
+    } while (0);
+
+    if (sai_rc == SAI_STATUS_NO_MEMORY) {
+        if (acl_table->field_list) {
+            free (acl_table->field_list);
+        }
+        if (acl_table->action_list) {
+            free (acl_table->action_list);
+        }
+        return sai_rc;
     }
 
     acl_table->field_count = field_count;
@@ -479,6 +513,20 @@ static sai_status_t sai_acl_table_populate(sai_acl_table_t *acl_table,
             case SAI_ACL_TABLE_ATTR_GROUP_ID:
                 acl_table->table_group_id = attribute_value.oid;
                 acl_table->virtual_group_create = true;
+                break;
+            case SAI_ACL_TABLE_ATTR_ACTION_LIST:
+                if (attribute_value.s32list.count > 0) {
+                    for (count = 0; count <
+                         attribute_value.s32list.count; count++) {
+                        if (sai_acl_table_action_attr_range
+                            (attribute_value.s32list.list[count])) {
+                            acl_table->action_list[action_count_idx] =
+                                  attribute_value.s32list.list[count];
+                            action_count_idx++;
+                        }
+                    }
+                    acl_table->action_count = action_count_idx;
+                }
                 break;
             default:
                 if (sai_acl_table_field_attr_range(attribute_id)) {
@@ -552,6 +600,7 @@ sai_status_t sai_create_acl_table(sai_object_id_t *acl_table_id,
     sai_acl_table_t *acl_table = NULL;
     acl_node_pt acl_node = NULL;
     uint_t field_count = 0, udf_field_count = 0;
+    uint_t action_count = 0;
 
     if (attr_count == 0) {
         SAI_ACL_LOG_ERR ("Attr count is zero");
@@ -562,7 +611,8 @@ sai_status_t sai_create_acl_table(sai_object_id_t *acl_table_id,
     STD_ASSERT(acl_table_id != NULL);
 
     rc = sai_acl_table_validate_attributes(attr_count, attr_list,
-                                           &field_count, &udf_field_count);
+                                           &field_count, &udf_field_count,
+                                           &action_count);
 
     if (rc != SAI_STATUS_SUCCESS) {
         SAI_ACL_LOG_ERR ("ACL Table attribute "
@@ -585,7 +635,8 @@ sai_status_t sai_create_acl_table(sai_object_id_t *acl_table_id,
         sai_acl_table_init(acl_table);
 
         rc = sai_acl_table_populate(acl_table, attr_count, attr_list,
-                                    field_count, udf_field_count);
+                                    field_count, udf_field_count,
+                                    action_count);
 
         if (rc != SAI_STATUS_SUCCESS) {
             SAI_ACL_LOG_ERR ("ACL Table populate function"
@@ -793,6 +844,9 @@ sai_status_t sai_get_acl_table(sai_object_id_t table_id,
                      break;
                  case SAI_ACL_TABLE_ATTR_GROUP_ID:
                      attr_list[attribute_count].value.oid = acl_table->table_group_id;
+                     break;
+                 case SAI_ACL_TABLE_ATTR_ACTION_LIST:
+                     SAI_ACL_LOG_TRACE ("Nothing to get for ACL Table Actions");
                      break;
                  default:
                      if (sai_acl_table_field_attr_range(attribute_id)) {

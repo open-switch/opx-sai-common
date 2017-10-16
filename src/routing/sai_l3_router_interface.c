@@ -42,7 +42,8 @@
 static inline bool sai_fib_is_rif_type_valid (uint_t type)
 {
     return ((type == SAI_ROUTER_INTERFACE_TYPE_PORT) ||
-            (type == SAI_ROUTER_INTERFACE_TYPE_VLAN));
+            (type == SAI_ROUTER_INTERFACE_TYPE_VLAN) ||
+            (type == SAI_ROUTER_INTERFACE_TYPE_LOOPBACK));
 }
 
 static inline bool sai_fib_rif_is_admin_state_valid (bool state)
@@ -73,8 +74,10 @@ sai_fib_router_interface_t *p_rif_node)
 {
     if (p_rif_node->type == SAI_ROUTER_INTERFACE_TYPE_PORT) {
         return ((uint64_t) p_rif_node->attachment.port_id);
-    } else {
+    } else if (p_rif_node->type == SAI_ROUTER_INTERFACE_TYPE_VLAN) {
         return ((uint64_t) p_rif_node->attachment.vlan_id);
+    } else {
+        return 0;
     }
 }
 
@@ -150,6 +153,13 @@ sai_fib_router_interface_t *p_rif_node, uint_t type)
         return SAI_STATUS_INVALID_ATTR_VALUE_0;
     }
 
+    if((!sai_fib_is_mac_address_zero((const sai_mac_t *)&p_rif_node->src_mac)) &&
+       (type == SAI_ROUTER_INTERFACE_TYPE_LOOPBACK)) {
+        SAI_RIF_LOG_ERR ("Src MAC address cannot be specified on a Loopback "
+                         "Router Interface");
+        return SAI_STATUS_INVALID_ATTR_VALUE_0;
+    }
+
     p_rif_node->type = type;
 
     SAI_RIF_LOG_TRACE ("Router Interface Type attribute set to %d (%s).",
@@ -163,7 +173,8 @@ sai_fib_router_interface_t *p_rif_node, const sai_mac_t *p_mac)
 {
     char p_buf [SAI_FIB_MAX_BUFSZ];
 
-    if (sai_fib_is_mac_address_zero (p_mac)) {
+    if (sai_fib_is_mac_address_zero (p_mac) ||
+        p_rif_node->type == SAI_ROUTER_INTERFACE_TYPE_LOOPBACK) {
         SAI_RIF_LOG_ERR ("MAC address is not valid.");
 
         /*
@@ -317,7 +328,9 @@ static sai_status_t sai_fib_rif_create_attr_validate (sai_attr_id_t id,
 
         case SAI_ROUTER_INTERFACE_ATTR_TYPE:
             if (((*is_port_set) && (type == SAI_ROUTER_INTERFACE_TYPE_VLAN)) ||
-                ((*is_vlan_set) && (type == SAI_ROUTER_INTERFACE_TYPE_PORT))) {
+                ((*is_vlan_set) && (type == SAI_ROUTER_INTERFACE_TYPE_PORT)) ||
+                (((*is_port_set || *is_vlan_set) &&
+                  (type == SAI_ROUTER_INTERFACE_TYPE_LOOPBACK)))) {
                 /*
                  * Attribute index based return code will be recalculated by
                  * the caller of this function.
@@ -328,7 +341,8 @@ static sai_status_t sai_fib_rif_create_attr_validate (sai_attr_id_t id,
             break;
 
         case SAI_ROUTER_INTERFACE_ATTR_PORT_ID:
-            if ((*is_vlan_set) || (type == SAI_ROUTER_INTERFACE_TYPE_VLAN)) {
+            if ((*is_vlan_set) || (type == SAI_ROUTER_INTERFACE_TYPE_VLAN) ||
+                (type == SAI_ROUTER_INTERFACE_TYPE_LOOPBACK)) {
                 sai_rc = SAI_STATUS_INVALID_ATTRIBUTE_0;
             } else {
                 *is_port_set = true;
@@ -337,7 +351,8 @@ static sai_status_t sai_fib_rif_create_attr_validate (sai_attr_id_t id,
             break;
 
         case SAI_ROUTER_INTERFACE_ATTR_VLAN_ID:
-            if ((*is_port_set) || (type == SAI_ROUTER_INTERFACE_TYPE_PORT)) {
+            if ((*is_port_set) || (type == SAI_ROUTER_INTERFACE_TYPE_PORT) ||
+                (type == SAI_ROUTER_INTERFACE_TYPE_LOOPBACK)) {
                 sai_rc = SAI_STATUS_INVALID_ATTRIBUTE_0;
             } else {
                 *is_vlan_set = true;
@@ -536,6 +551,9 @@ static bool sai_fib_rif_is_duplicate (sai_fib_router_interface_t *p_rif_node)
     sai_fib_router_interface_t *p_db_rif_node;
 
     STD_ASSERT(p_rif_node != NULL);
+    if(p_rif_node->type == SAI_ROUTER_INTERFACE_TYPE_LOOPBACK) {
+        return false;
+    }
 
     rif_tree = sai_fib_access_global_config()->router_interface_tree;
 
@@ -607,7 +625,7 @@ const sai_attribute_t *attr_list)
                                                   &is_vrf_set);
 
             if (sai_rc != SAI_STATUS_SUCCESS) {
-                SAI_RIF_LOG_ERR ("Router Interface Type/Port/Vlan attribute "
+                SAI_RIF_LOG_ERR ("Router Interface Type/Port/Vlan/Loopback attribute "
                                  "validation failed.");
             } else {
                 sai_rc = sai_fib_rif_create_attr_set (p_rif_node, p_attr);
@@ -636,8 +654,8 @@ const sai_attribute_t *attr_list)
         }
     }
 
-    if (((!is_port_set) && (!is_vlan_set)) || (!is_vrf_set) ||
-        (type == SAI_FIB_RIF_TYPE_NONE)) {
+    if (((!is_port_set) && (!is_vlan_set) && (type != SAI_ROUTER_INTERFACE_TYPE_LOOPBACK)) ||
+        (!is_vrf_set) || (type == SAI_FIB_RIF_TYPE_NONE)) {
         SAI_RIF_LOG_ERR ("One or more Mandatory attributes are missing, "
                          "is_port_set: %d, is_vlan_set: %d, is_vrf_set: %d, "
                          "type: %s.", is_port_set, is_vlan_set, is_vrf_set,
@@ -807,7 +825,8 @@ sai_fib_router_interface_t *p_rif, bool is_set)
     sai_object_id_t     sai_oid = 0;
     sai_object_list_t   port_id_list;
 
-    if (p_rif->type == SAI_ROUTER_INTERFACE_TYPE_VLAN) {
+    if ((p_rif->type == SAI_ROUTER_INTERFACE_TYPE_VLAN) ||
+        (p_rif->type == SAI_ROUTER_INTERFACE_TYPE_LOOPBACK)){
         return status;
     }
 
@@ -972,8 +991,8 @@ const sai_attribute_t *attr_list)
                                        rif_hw_id);
 
         is_rif_set_in_npu = true;
-        p_rif_node->rif_id = *rif_obj_id;
         sai_fib_rif_log_trace (p_rif_node, "RIF created in NPU");
+        p_rif_node->rif_id = *rif_obj_id;
 
         /* Add the RIF node to VRF's Router interface list */
         sai_rc = sai_fib_vrf_rif_list_update (p_rif_node, true);

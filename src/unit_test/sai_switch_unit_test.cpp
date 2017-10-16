@@ -102,7 +102,7 @@ void kv_populate(void)
     kvpair["SAI_L3_NEIGHBOR_TABLE_SIZE"] = "16384";
     kvpair["SAI_L3_ROUTE_TABLE_SIZE"] = "131072";
     kvpair["SAI_NUM_CPU_QUEUES"] = "43";
-    kvpair["SAI_INIT_CONFIG_FILE"] = "/etc/opx/sai/init.xml";
+    kvpair["SAI_INIT_CONFIG_FILE"] = "/etc/opt/dell/os10/sai/init.xml";
     kvpair["SAI_NUM_ECMP_MEMBERS"] = "64";
 }
 

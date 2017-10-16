@@ -41,8 +41,6 @@
 #define SAI_QOS_POLICER_MAX_ATTR_COUNT            (11)
 #define SAI_QOS_POLICER_TYPE_INVALID              (-1)
 #define SAI_QOS_WRED_MAX_ATTR_COUNT               (14)
-#define SAI_WRED_INVALID_COLOR                    (-1)
-#define SAI_MAX_WRED_DROP_PROBABILITY             (100)
 
 sai_status_t sai_qos_port_all_init (void);
 
@@ -141,14 +139,8 @@ sai_status_t sai_port_attr_storm_control_policer_set(sai_object_id_t port_id,
 sai_status_t sai_port_attr_storm_control_policer_set_internal(sai_object_id_t port_id,
                                                      const sai_attribute_t *attr);
 
-sai_status_t sai_qos_wred_set_on_queue(sai_object_id_t queue_id,
-                                       const sai_attribute_t *attr);
-
-sai_status_t sai_port_attr_wred_profile_set(sai_object_id_t port_id,
-                                            const sai_attribute_t *attr);
-
-sai_status_t sai_port_attr_wred_profile_set_internal(sai_object_id_t port_id,
-                                            const sai_attribute_t *attr);
+sai_status_t sai_qos_wred_link_set(sai_object_id_t wred_link_id,
+        sai_object_id_t wred_id, dn_sai_qos_wred_link_t dn_wred_link);
 
 sai_status_t sai_switch_set_qos_default_tc(uint_t default_tc);
 
@@ -200,10 +192,9 @@ sai_status_t sai_qos_update_buffer_pool_node (dn_sai_qos_buffer_pool_t
                                              *p_buf_pool_node,
                                               uint32_t attr_count,
                                               const sai_attribute_t *attr_list);
-sai_status_t sai_qos_read_buffer_pool_node (dn_sai_qos_buffer_pool_t
-                                            *p_buf_pool_node,
-                                            uint32_t attr_count,
-                                            sai_attribute_t *attr_list);
+sai_status_t sai_qos_validate_shared_buffer_pool_size(
+                                  dn_sai_qos_buffer_pool_t  *p_old_buf_pool_node,
+                                  dn_sai_qos_buffer_pool_t  *p_buf_pool_node);
 
 sai_status_t sai_qos_update_buffer_profile_node (dn_sai_qos_buffer_profile_t
                                                  *p_buf_profile_node,
@@ -280,4 +271,70 @@ sai_status_t sai_get_port_attr_from_storm_control_type(dn_sai_qos_policer_type_t
 sai_status_t sai_qos_sched_group_remove_configs (dn_sai_qos_sched_group_t *p_sg_node);
 
 sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node);
+/**
+ * @brief Resets the Egress Pool based WRED and caches the current value,
+ * if the input queue is the last unicast queue to be removed from the buffer pool.
+ *
+ * @param[in] queue_id SAI object id of type queue
+ * @return SAI_STATUS_SUCCESS or appropriate SAI error
+ */
+sai_status_t sai_qos_wred_link_update_cache(sai_object_id_t queue_id);
+
+/**
+ * @brief Sets the Egress Pool based WRED to the cached value,
+ * if the input queue is an unicast queue added to the buffer pool.
+ *
+ * @param[in] queue_id SAI object id of type queue
+ * @return SAI_STATUS_SUCCESS or appropriate SAI error
+ */
+sai_status_t sai_qos_wred_link_apply_cache(sai_object_id_t queue_id);
+
+/**
+ * @brief Function init SAI OID gen utility
+ */
+void sai_qos_port_pool_oid_gen_init(void);
+
+/**
+ * @brief SAI CREATE function for Port Pool Object
+ */
+sai_status_t sai_qos_port_create_port_pool(
+        sai_object_id_t *port_pool_id,
+        sai_object_id_t switch_id,
+        uint32_t attr_count,
+        const sai_attribute_t *attr_list);
+
+/**
+ * @brief SAI REMOVE function for Port Pool Object
+ */
+sai_status_t sai_qos_port_remove_port_pool(sai_object_id_t port_pool_id);
+
+/**
+ * @brief SAI SET function for Port Pool Object
+ */
+sai_status_t sai_qos_port_set_port_pool_attribute(sai_object_id_t port_pool_id, const sai_attribute_t *attr);
+
+/**
+ * @brief SAI GET function for Port Pool Object
+ */
+sai_status_t sai_qos_port_get_port_pool_attribute(
+        sai_object_id_t port_pool_id,
+        uint32_t attr_count,
+        sai_attribute_t *attr_list);
+
+/**
+ * @brief SAI GET STATS function for Port Pool Object
+ */
+sai_status_t sai_qos_port_get_port_pool_stats(
+        sai_object_id_t port_pool_id,
+        uint32_t number_of_counters,
+        const sai_port_pool_stat_t *counter_ids,
+        uint64_t *counters);
+
+/**
+ * @brief SAI CLEAR STATS function for Port Pool Object
+ */
+sai_status_t sai_qos_port_clear_port_pool_stats(
+        sai_object_id_t port_pool_id,
+        uint32_t number_of_counters,
+        const sai_port_pool_stat_t *counter_ids);
 #endif /* __SAI_QOS_API_UTILS_H__ */

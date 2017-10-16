@@ -124,7 +124,14 @@ static inline bool sai_fib_next_hop_rif_validate (
                                              sai_object_id_t rif_id)
 {
     /* Get the RIF node */
-    return ((sai_fib_router_interface_node_get (rif_id)) ? true : false);
+    sai_fib_router_interface_t *p_rif_node =
+                       sai_fib_router_interface_node_get(rif_id);
+
+    if((p_rif_node != NULL) &&
+       (p_rif_node->type != SAI_ROUTER_INTERFACE_TYPE_LOOPBACK)) {
+        return true;
+    }
+    return false;
 }
 
 sai_status_t sai_fib_next_hop_ip_address_validate (
@@ -406,13 +413,19 @@ static sai_status_t sai_fib_next_hop_info_fill (sai_fib_nh_t *p_nh_info,
         }
     }
 
-    if (p_tunnel_id_attr != NULL) {
+    if (p_nh_info->key.nh_type == SAI_NEXT_HOP_TYPE_TUNNEL_ENCAP) {
 
-        return (sai_fib_encap_next_hop_tunnel_id_set (p_nh_info,
-                               tunnel_id_attr_index, p_tunnel_id_attr));
+        if ((is_create_req) && (p_tunnel_id_attr == NULL)) {
+            SAI_NEXTHOP_LOG_ERR ("Mandatory Tunnel attribute missing.");
+
+            return SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING;
     }
 
-    return SAI_STATUS_SUCCESS;
+        status = sai_fib_encap_next_hop_tunnel_id_set (p_nh_info,
+                                      tunnel_id_attr_index, p_tunnel_id_attr);
+    }
+
+    return status;
 }
 
 static sai_status_t sai_fib_insert_nh_node_in_vrf_database (
@@ -673,7 +686,7 @@ static inline bool sai_fib_is_next_hop_in_nh_group (sai_fib_nh_t *p_next_hop)
     return ((p_group_link_node != NULL) ? true : false);
 }
 
-static sai_status_t sai_fib_ip_next_hop_create (sai_fib_nh_t *p_nh_info,
+sai_status_t sai_fib_ip_next_hop_create (sai_fib_nh_t *p_nh_info,
                                             sai_fib_nh_t **p_out_next_hop_node)
 {
     sai_status_t          status;
@@ -686,7 +699,8 @@ static sai_status_t sai_fib_ip_next_hop_create (sai_fib_nh_t *p_nh_info,
     /* Get an existing next hop node */
     p_nh_node = sai_fib_ip_next_hop_node_get (p_nh_info->key.nh_type,
                                          p_nh_info->key.rif_id,
-                                         sai_fib_next_hop_ip_addr (p_nh_info));
+                                         sai_fib_next_hop_ip_addr (p_nh_info),
+                                         p_nh_info->key.tunnel_type);
 
     if (p_nh_node) {
 
@@ -748,7 +762,7 @@ static sai_status_t sai_fib_ip_next_hop_create (sai_fib_nh_t *p_nh_info,
     return SAI_STATUS_SUCCESS;
 }
 
-static sai_status_t sai_fib_ip_next_hop_remove (sai_fib_nh_t *p_nh_node)
+sai_status_t sai_fib_ip_next_hop_remove (sai_fib_nh_t *p_nh_node)
 {
     sai_status_t  status;
 

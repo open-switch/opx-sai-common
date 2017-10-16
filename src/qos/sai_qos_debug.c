@@ -237,7 +237,6 @@ sai_status_t sai_dump_port_node(dn_sai_qos_port_t *port_node)
 
     SAI_DEBUG ("\nPort ID   : 0x%"PRIx64"", port_node->port_id);
     SAI_DEBUG ("---------------------------------------------");
-    SAI_DEBUG ("Wred ID          : 0x%"PRIx64"", port_node->wred_id);
     SAI_DEBUG ("Scheduler ID     : 0x%"PRIx64"", port_node->scheduler_id);
     SAI_DEBUG ("Buffer profile ID: 0x%"PRIx64"", port_node->buffer_profile_id);
     SAI_DEBUG ("is_app_hqos_init : %u", port_node->is_app_hqos_init);

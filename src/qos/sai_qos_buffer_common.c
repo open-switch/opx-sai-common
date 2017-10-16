@@ -137,11 +137,49 @@ sai_status_t sai_qos_buffer_profile_node_remove_from_tree (dn_sai_qos_buffer_pro
     return SAI_STATUS_SUCCESS;
 }
 
+sai_status_t sai_qos_validate_shared_buffer_pool_size(
+                              dn_sai_qos_buffer_pool_t  *p_old_buf_pool_node,
+                              dn_sai_qos_buffer_pool_t  *p_buf_pool_node)
+{
+    uint_t cur_size = 0;
+    uint_t cur_xoff_size = 0;
+    int    shared_size = 0;
+
+    STD_ASSERT(p_buf_pool_node != NULL);
+
+    if ((p_buf_pool_node->xoff_size > 0) &&
+        (p_buf_pool_node->pool_type != SAI_BUFFER_POOL_TYPE_INGRESS)) {
+        SAI_BUFFER_LOG_ERR("SAI_BUFFER_POOL_XOFF_SIZE valid only for pool type %d",
+                            p_buf_pool_node->pool_type);
+        return SAI_STATUS_INVALID_PARAMETER;
+    }
+
+    if (p_buf_pool_node->xoff_size > p_buf_pool_node->size)
+        return SAI_STATUS_INVALID_PARAMETER;
+
+    if (p_old_buf_pool_node != NULL) {
+        cur_size = p_old_buf_pool_node->size;
+        cur_xoff_size = p_old_buf_pool_node->xoff_size;
+    }
+
+    shared_size = p_buf_pool_node->shared_size + p_buf_pool_node->size - cur_size;
+    shared_size = shared_size - p_buf_pool_node->xoff_size + cur_xoff_size;
+
+    if (shared_size < 0) {
+        SAI_BUFFER_LOG_ERR("Insufficient memory in pool.");
+        return SAI_STATUS_INSUFFICIENT_RESOURCES;
+        }
+    p_buf_pool_node->shared_size = shared_size;
+    return SAI_STATUS_SUCCESS;
+}
+
 sai_status_t sai_qos_update_buffer_pool_node(dn_sai_qos_buffer_pool_t  *p_buf_pool_node,
                                              uint32_t attr_count,
                                              const sai_attribute_t *attr_list)
 {
     uint_t attr_idx;
+    bool   is_xoff_size_attr = false;
+    uint_t xoff_size_attr_idx = 0;
 
     STD_ASSERT(p_buf_pool_node != NULL);
     STD_ASSERT(attr_list != NULL);
@@ -153,9 +191,13 @@ sai_status_t sai_qos_update_buffer_pool_node(dn_sai_qos_buffer_pool_t  *p_buf_po
                 break;
 
             case SAI_BUFFER_POOL_ATTR_SIZE:
-                p_buf_pool_node->shared_size += (attr_list[attr_idx].value.u32
-                                                 - p_buf_pool_node->size);
                 p_buf_pool_node->size = attr_list[attr_idx].value.u32;
+                break;
+
+            case SAI_BUFFER_POOL_ATTR_XOFF_SIZE:
+                p_buf_pool_node->xoff_size = attr_list[attr_idx].value.u32;
+                is_xoff_size_attr = true;
+                xoff_size_attr_idx = attr_idx;
                 break;
 
             case SAI_BUFFER_POOL_ATTR_THRESHOLD_MODE:
@@ -165,43 +207,17 @@ sai_status_t sai_qos_update_buffer_pool_node(dn_sai_qos_buffer_pool_t  *p_buf_po
             case SAI_BUFFER_POOL_ATTR_SHARED_SIZE:
                 return sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTRIBUTE_0, attr_idx);
 
+            case SAI_BUFFER_POOL_ATTR_WRED_PROFILE_ID:
+                p_buf_pool_node->wred_id = attr_list[attr_idx].value.oid;
+                break;
+
             default:
                 return sai_get_indexed_ret_val(SAI_STATUS_UNKNOWN_ATTRIBUTE_0, attr_idx);
         }
     }
-    return SAI_STATUS_SUCCESS;
-}
 
-sai_status_t sai_qos_read_buffer_pool_node (dn_sai_qos_buffer_pool_t  *p_buf_pool_node,
-                                             uint32_t attr_count,
-                                             sai_attribute_t *attr_list)
-{
-    uint_t attr_idx;
-
-    STD_ASSERT(p_buf_pool_node != NULL);
-    STD_ASSERT(attr_list != NULL);
-
-    for(attr_idx = 0; attr_idx < attr_count; attr_idx++) {
-        switch(attr_list[attr_idx].id) {
-            case SAI_BUFFER_POOL_ATTR_TYPE:
-                attr_list[attr_idx].value.s32 = p_buf_pool_node->pool_type;
-                break;
-
-            case SAI_BUFFER_POOL_ATTR_SIZE:
-                attr_list[attr_idx].value.u32 = p_buf_pool_node->size;
-                break;
-
-            case SAI_BUFFER_POOL_ATTR_THRESHOLD_MODE:
-                attr_list[attr_idx].value.s32 = p_buf_pool_node->threshold_mode;
-                break;
-
-            case SAI_BUFFER_POOL_ATTR_SHARED_SIZE:
-                attr_list[attr_idx].value.u32 = p_buf_pool_node->shared_size;
-                break;
-
-            default:
-                return sai_get_indexed_ret_val(SAI_STATUS_UNKNOWN_ATTRIBUTE_0, attr_idx);
-        }
+    if (is_xoff_size_attr && (p_buf_pool_node->pool_type == SAI_BUFFER_POOL_TYPE_EGRESS)) {
+        return sai_get_indexed_ret_val(SAI_STATUS_INVALID_ATTRIBUTE_0, xoff_size_attr_idx);
     }
     return SAI_STATUS_SUCCESS;
 }
@@ -223,6 +239,7 @@ void sai_qos_init_buffer_pool_node(dn_sai_qos_buffer_pool_t  *p_buf_pool_node)
     p_buf_pool_node->size = 0;
     p_buf_pool_node->shared_size = 0;
     p_buf_pool_node->threshold_mode = SAI_BUFFER_POOL_THRESHOLD_MODE_DYNAMIC;
+    p_buf_pool_node->wred_id = SAI_NULL_OBJECT_ID;
 
     std_dll_init(&p_buf_pool_node->buffer_profile_dll_head);
 }

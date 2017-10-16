@@ -28,6 +28,7 @@ extern "C" {
 #include "saivlan.h"
 #include "saistp.h"
 #include "saitypes.h"
+#include "sairouter.h"
 
 sai_status_t
 sai_lag_ut_create_virtual_router (sai_virtual_router_api_t *vrf_api_table,

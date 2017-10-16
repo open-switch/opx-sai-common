@@ -81,9 +81,7 @@ static sai_status_t dn_sai_tunnel_term_tunnel_id_set (
                                     dn_sai_tunnel_term_entry_t *p_tunnel_term,
                                     const sai_attribute_t  *p_attr)
 {
-    sai_status_t status = sai_tunnel_object_id_validate (p_attr->value.oid);
-
-    if (status != SAI_STATUS_SUCCESS) {
+    if (dn_sai_tunnel_obj_get (p_attr->value.oid) == NULL) {
 
         SAI_TUNNEL_LOG_ERR ("Invalid Tunnel object Id: 0x%"PRIx64".",
                             p_attr->value.oid);
@@ -191,8 +189,12 @@ static sai_status_t dn_sai_tunnel_term_create (sai_object_id_t *tunnel_term_id,
                                                const sai_attribute_t *attr_list)
 {
     dn_sai_tunnel_term_entry_t *p_tunnel_term = NULL;
+    dn_sai_tunnel_t            *p_tunnel = NULL;
     sai_status_t                status;
     int                         tunnel_term_index;
+    char                        ip_addr_str[SAI_FIB_MAX_BUFSZ];
+    bool                        is_encap_nh_setup = false;
+    bool                        is_term_set_in_npu = false;
 
     STD_ASSERT (tunnel_term_id != NULL);
     STD_ASSERT (attr_list != NULL);
@@ -206,17 +208,6 @@ static sai_status_t dn_sai_tunnel_term_create (sai_object_id_t *tunnel_term_id,
         return status;
     }
 
-    tunnel_term_index = std_find_first_bit (dn_sai_tunnel_term_obj_id_bitmap(),
-                                            SAI_TUNNEL_TERM_OBJ_MAX_ID, 1);
-
-    if (tunnel_term_index < 0) {
-
-        SAI_TUNNEL_LOG_INFO ("No free index in tunnel term object index bitmap"
-                             " of size %d.", SAI_TUNNEL_TERM_OBJ_MAX_ID);
-
-        return SAI_STATUS_INSUFFICIENT_RESOURCES;
-    }
-
     p_tunnel_term = dn_sai_tunnel_term_object_alloc();
 
     if (p_tunnel_term == NULL) {
@@ -226,7 +217,21 @@ static sai_status_t dn_sai_tunnel_term_create (sai_object_id_t *tunnel_term_id,
         return SAI_STATUS_NO_MEMORY;
     }
 
+    dn_sai_tunnel_lock();
+
     do {
+    tunnel_term_index = std_find_first_bit (dn_sai_tunnel_term_obj_id_bitmap(),
+                                            SAI_TUNNEL_TERM_OBJ_MAX_ID, 1);
+
+    if (tunnel_term_index < 0) {
+
+        SAI_TUNNEL_LOG_INFO ("No free index in tunnel term object index bitmap"
+                             " of size %d.", SAI_TUNNEL_TERM_OBJ_MAX_ID);
+
+            status = SAI_STATUS_INSUFFICIENT_RESOURCES;
+            break;
+    }
+
         /* Validate and fill the attribute values passed in the list */
         status = dn_sai_tunnel_term_attr_set (p_tunnel_term, attr_count, attr_list);
 
@@ -234,6 +239,25 @@ static sai_status_t dn_sai_tunnel_term_create (sai_object_id_t *tunnel_term_id,
             SAI_TUNNEL_LOG_ERR ("SAI Tunnel Term entry attribute error.");
 
             break;
+        }
+
+        /* For vxlan underlay next hop needs to be setup when remote ip
+         * is provided in the tunnel termination entry*/
+        if (p_tunnel_term->tunnel_type == SAI_TUNNEL_TYPE_VXLAN) {
+
+            p_tunnel = dn_sai_tunnel_obj_get(p_tunnel_term->tunnel_id);
+            status = sai_tunnel_encap_nh_setup(&p_tunnel_term->src_ip,
+                                               p_tunnel);
+
+            if (status != SAI_STATUS_SUCCESS) {
+                SAI_TUNNEL_LOG_ERR ("Failed to set up VXLAN underlay nexthop for ip"
+                                    " address %s on tunnel id %"PRIx64"",
+                                    sai_ip_addr_to_str(&p_tunnel_term->src_ip,
+                                    ip_addr_str, sizeof(ip_addr_str)),
+                                    p_tunnel_term->tunnel_id);
+                break;
+            }
+            is_encap_nh_setup = true;
         }
 
         /* Create the tunnel object in NPU */
@@ -244,6 +268,7 @@ static sai_status_t dn_sai_tunnel_term_create (sai_object_id_t *tunnel_term_id,
 
             break;
         }
+        is_term_set_in_npu = true;
 
         p_tunnel_term->term_entry_id =
                            sai_uoid_create (SAI_OBJECT_TYPE_TUNNEL_TERM_TABLE_ENTRY,
@@ -267,7 +292,15 @@ static sai_status_t dn_sai_tunnel_term_create (sai_object_id_t *tunnel_term_id,
 
     } while (0);
 
+    dn_sai_tunnel_unlock();
     if (status != SAI_STATUS_SUCCESS) {
+        if(is_term_set_in_npu) {
+            sai_tunnel_npu_api_get()->tunnel_term_entry_remove (p_tunnel_term);
+        }
+
+        if(is_encap_nh_setup) {
+            sai_tunnel_encap_nh_teardown(&p_tunnel_term->src_ip, p_tunnel);
+        }
 
         dn_sai_tunnel_term_object_free (p_tunnel_term);
 
@@ -287,7 +320,9 @@ static sai_status_t dn_sai_tunnel_term_create (sai_object_id_t *tunnel_term_id,
 static sai_status_t dn_sai_tunnel_term_remove (sai_object_id_t tunnel_term_id)
 {
     sai_status_t               status = SAI_STATUS_FAILURE;
+    dn_sai_tunnel_t            *p_tunnel = NULL;
     dn_sai_tunnel_term_entry_t *p_tunnel_term = NULL;
+    char                        ip_addr_str[SAI_FIB_MAX_BUFSZ];
 
     SAI_TUNNEL_LOG_DEBUG ("Entering SAI Tunnel Termination entry remove.");
 
@@ -323,6 +358,23 @@ static sai_status_t dn_sai_tunnel_term_remove (sai_object_id_t tunnel_term_id)
             break;
         }
 
+        /* For vxlan underlay next hop needs to be setup when remote ip
+         * is provided in the tunnel termination entry*/
+        if (p_tunnel_term->tunnel_type == SAI_TUNNEL_TYPE_VXLAN) {
+
+            p_tunnel = dn_sai_tunnel_obj_get(p_tunnel_term->tunnel_id);
+            status = sai_tunnel_encap_nh_teardown(&p_tunnel_term->src_ip,
+                                                  p_tunnel);
+
+            if (status != SAI_STATUS_SUCCESS) {
+                SAI_TUNNEL_LOG_ERR ("Failed to teardown VXLAN underlay nexthop for ip"
+                                    " address %s on tunnel id %"PRIx64"",
+                                    sai_ip_addr_to_str(&p_tunnel_term->src_ip,
+                                    ip_addr_str, sizeof(ip_addr_str)),
+                                    p_tunnel_term->tunnel_id);
+                break;
+            }
+        }
         /* Remove the tunnel termination entry in NPU */
         status = sai_tunnel_npu_api_get()->tunnel_term_entry_remove (p_tunnel_term);
 

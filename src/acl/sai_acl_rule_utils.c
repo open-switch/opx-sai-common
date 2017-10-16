@@ -1599,7 +1599,7 @@ sai_status_t sai_acl_rule_udf_filter_populate (sai_acl_table_t *acl_table,
                                              sai_acl_filter_t *acl_filter)
 {
     sai_attr_id_t       group_attr_id = 0;
-    sai_object_id_t     udf_group_id = NULL;
+    sai_object_id_t     udf_group_id = SAI_NULL_OBJECT_ID;
     sai_npu_object_id_t udf_npu_id = 0;
     sai_status_t        sai_rc = SAI_STATUS_SUCCESS;
 

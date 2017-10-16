@@ -54,6 +54,8 @@ unsigned int sai_buffer_profile_test_size_4 = 4096;
 unsigned int sai_buffer_profile_test_size_5 = 5120;
 
 
+/* NOTE: For TH Set this to true and 4 */
+#define MAX_SWITCH_TILES 1
 /*
  * API query is done while running the first test case and
  * the method table is stored in sai_switch_api_table so
@@ -178,6 +180,7 @@ class qos_buffer : public ::testing::Test
                     sai_switch_api_table->get_switch_attribute(switch_id,1, &get_attr));
             sai_total_buffer_size = (get_attr.value.u32)*1024;
 
+            sai_total_buffer_size = sai_total_buffer_size/MAX_SWITCH_TILES;
             sai_buffer_pool_test_size_1 = (sai_total_buffer_size/10);
             sai_buffer_pool_test_size_2 = (sai_total_buffer_size/5);
             sai_buffer_pool_test_size_3 = 1023;
@@ -205,84 +208,14 @@ sai_port_api_t* qos_buffer ::sai_port_api_table = NULL;
 sai_queue_api_t* qos_buffer ::sai_queue_api_table = NULL;
 sai_qos_map_api_t* qos_buffer ::sai_qos_map_api_table = NULL;
 
-sai_status_t sai_create_buffer_pool(sai_buffer_api_t* buffer_api_table,
-                                    sai_object_id_t *pool_id, unsigned int size,
-                                    sai_buffer_pool_type_t type,
-                                    sai_buffer_pool_threshold_mode_t th_mode)
+sai_status_t sai_break_test()
 {
-    sai_status_t sai_rc;
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
 
-    sai_attribute_t attr[3];
-
-    attr[0].id = SAI_BUFFER_POOL_ATTR_TYPE;
-    attr[0].value.s32 = type;
-
-    attr[1].id = SAI_BUFFER_POOL_ATTR_SIZE;
-    attr[1].value.u32 = size;
-
-    attr[2].id = SAI_BUFFER_POOL_ATTR_THRESHOLD_MODE;
-    attr[2].value.s32 = th_mode;
-
-    sai_rc = buffer_api_table->create_buffer_pool(pool_id, switch_id, 3, attr);
+    printf ("SAI STATUS in sai_break_test %d", sai_rc);
     return sai_rc;
 }
 
-sai_status_t sai_create_buffer_profile(sai_buffer_api_t* buffer_api_table,
-                                       sai_object_id_t *profile_id, unsigned int attr_bmp,
-                                       sai_object_id_t pool_id, unsigned int size, int th_mode,
-                                       int dynamic_th, unsigned int static_th,
-                                       unsigned int xoff_th, unsigned int xon_th)
-{
-    sai_status_t sai_rc;
-
-    sai_attribute_t attr[7];
-    unsigned int attr_idx = 0;
-
-    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_POOL_ID)) {
-        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_POOL_ID;
-        attr[attr_idx].value.oid = pool_id;
-        attr_idx++;
-    }
-
-    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_BUFFER_SIZE)) {
-        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_BUFFER_SIZE;
-        attr[attr_idx].value.u32 = size;
-        attr_idx++;
-    }
-
-    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_THRESHOLD_MODE)) {
-        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_THRESHOLD_MODE;
-        attr[attr_idx].value.s32 = th_mode;
-        attr_idx++;
-    }
-
-    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_SHARED_DYNAMIC_TH)) {
-        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_SHARED_DYNAMIC_TH;
-        attr[attr_idx].value.s8 = dynamic_th;
-        attr_idx++;
-    }
-
-    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_SHARED_STATIC_TH)) {
-        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_SHARED_STATIC_TH;
-        attr[attr_idx].value.u32 = static_th;
-        attr_idx++;
-    }
-
-    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_XOFF_TH)) {
-        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_XOFF_TH;
-        attr[attr_idx].value.u32 = xoff_th;
-        attr_idx++;
-    }
-
-    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_XON_TH)) {
-        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_XON_TH;
-        attr[attr_idx].value.u32 = xon_th;
-        attr_idx++;
-    }
-
-    sai_rc = buffer_api_table->create_buffer_profile(profile_id, switch_id, attr_idx, attr);
-    return sai_rc;
-}
 
 TEST_F(qos_buffer, buffer_pool_create_test)
 {
@@ -786,35 +719,6 @@ TEST_F(qos_buffer, ing_buffer_profile_attr_test)
                sai_buffer_api_table->remove_buffer_pool (pool_id_4));
 }
 
-sai_status_t sai_qos_buffer_get_first_pg (sai_port_api_t* sai_port_api_table,
-                                          sai_object_id_t port_id, sai_object_id_t *pg_obj)
-{
-    unsigned int num_pg = 0;
-    sai_attribute_t get_attr[1];
-    sai_status_t sai_rc;
-
-    get_attr[0].id = SAI_PORT_ATTR_NUMBER_OF_INGRESS_PRIORITY_GROUPS;
-    sai_rc = sai_port_api_table->get_port_attribute (port_id, 1, get_attr);
-
-    if(sai_rc != SAI_STATUS_SUCCESS) {
-        return sai_rc;
-    }
-
-    num_pg = get_attr[0].value.u32;
-    sai_object_id_t pg_id[num_pg];
-
-    get_attr[0].id = SAI_PORT_ATTR_INGRESS_PRIORITY_GROUP_LIST;
-    get_attr[0].value.objlist.count = num_pg;
-    get_attr[0].value.objlist.list = pg_id;
-    sai_rc = sai_port_api_table->get_port_attribute (port_id, 1, get_attr);
-
-    if(sai_rc != SAI_STATUS_SUCCESS) {
-        return sai_rc;
-    }
-    *pg_obj = get_attr[0].value.objlist.list[0];
-    return SAI_STATUS_SUCCESS;
-}
-
 TEST_F(qos_buffer, buffer_profile_pg_basic_test)
 {
     sai_attribute_t set_attr;
@@ -898,6 +802,9 @@ TEST_F(qos_buffer, buffer_profile_pg_size_test)
     sai_object_id_t pool_id_2 = 0;
     sai_object_id_t port_id = sai_qos_port_id_get (0);
     sai_object_id_t pg_obj = SAI_NULL_OBJECT_ID;
+    int shared_size = sai_buffer_pool_test_size_1 * MAX_SWITCH_TILES;
+    int shared_size_2 = sai_buffer_pool_test_size_2 * MAX_SWITCH_TILES;
+    int shared_size_3 = sai_buffer_pool_test_size_3 * MAX_SWITCH_TILES;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_create_buffer_pool(sai_buffer_api_table, &pool_id_1,
               sai_buffer_pool_test_size_1, SAI_BUFFER_POOL_TYPE_INGRESS, SAI_BUFFER_POOL_THRESHOLD_MODE_DYNAMIC));
@@ -922,7 +829,7 @@ TEST_F(qos_buffer, buffer_profile_pg_size_test)
                get_buffer_pool_attr (pool_id_1, 1, get_attr));
 
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_1 - (sai_buffer_profile_test_size_2 + sai_buffer_profile_test_size_1)));
+              (shared_size - (sai_buffer_profile_test_size_2 + sai_buffer_profile_test_size_1)));
 
     /** Change size of PG */
     set_attr.id = SAI_BUFFER_PROFILE_ATTR_BUFFER_SIZE;
@@ -935,7 +842,7 @@ TEST_F(qos_buffer, buffer_profile_pg_size_test)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->get_buffer_pool_attr (
                                                pool_id_1, 1,  get_attr));
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_1 - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_1)));
+              (shared_size - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_1)));
 
     /** Change Xoff size of PG */
     set_attr.id = SAI_BUFFER_PROFILE_ATTR_XOFF_TH;
@@ -948,7 +855,7 @@ TEST_F(qos_buffer, buffer_profile_pg_size_test)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->get_buffer_pool_attr (
                                                pool_id_1, 1,  get_attr));
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_1 - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_2)));
+              (shared_size - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_2)));
 
     /** Move PG to a different pool, not vlaid */
     set_attr.id = SAI_BUFFER_PROFILE_ATTR_POOL_ID;
@@ -960,14 +867,14 @@ TEST_F(qos_buffer, buffer_profile_pg_size_test)
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->get_buffer_pool_attr (pool_id_1, 1, get_attr));
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_1 - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_2)));
+              (shared_size - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_2)));
 
 
     memset(get_attr, 0, sizeof(get_attr));
     get_attr[0].id = SAI_BUFFER_POOL_ATTR_SHARED_SIZE;
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->get_buffer_pool_attr (pool_id_2, 1, get_attr));
-    EXPECT_EQ (get_attr[0].value.u32,sai_buffer_pool_test_size_2);
+    EXPECT_EQ (get_attr[0].value.u32, shared_size_2);
 
     /** Change pool size */
     set_attr.id = SAI_BUFFER_POOL_ATTR_SIZE;
@@ -978,7 +885,7 @@ TEST_F(qos_buffer, buffer_profile_pg_size_test)
     get_attr[0].id = SAI_BUFFER_POOL_ATTR_SHARED_SIZE;
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->
                get_buffer_pool_attr (pool_id_2, 1, get_attr));
-    EXPECT_EQ (get_attr[0].value.u32, sai_buffer_pool_test_size_3);
+    EXPECT_EQ (get_attr[0].value.u32, shared_size_3);
 
     /** Remove PG from pool */
     set_attr.id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
@@ -990,7 +897,7 @@ TEST_F(qos_buffer, buffer_profile_pg_size_test)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->
                get_buffer_pool_attr (pool_id_1, 1, get_attr));
 
-    EXPECT_EQ (get_attr[0].value.u32, sai_buffer_pool_test_size_1);
+    EXPECT_EQ (get_attr[0].value.u32, shared_size);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->remove_buffer_profile (profile_id));
@@ -1008,6 +915,8 @@ TEST_F(qos_buffer, pg_buffer_profile_replace_test)
     sai_object_id_t pool_id[4] = {0};
     sai_object_id_t port_id = sai_qos_port_id_get (0);
     sai_object_id_t pg_obj = SAI_NULL_OBJECT_ID;
+    int shared_size_1 = sai_buffer_pool_test_size_1 * MAX_SWITCH_TILES;
+    int shared_size_2 = sai_buffer_pool_test_size_2 * MAX_SWITCH_TILES;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_create_buffer_pool(sai_buffer_api_table, &pool_id[0],
               sai_buffer_pool_test_size_1, SAI_BUFFER_POOL_TYPE_INGRESS, SAI_BUFFER_POOL_THRESHOLD_MODE_DYNAMIC));
@@ -1066,7 +975,7 @@ TEST_F(qos_buffer, pg_buffer_profile_replace_test)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->get_buffer_pool_attr (
                                                pool_id[0], 1,  get_attr));
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_1 - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_1)));
+              (shared_size_1 - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_1)));
 
     set_attr.value.oid = profile_id[2];
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->set_ingress_priority_group_attr
@@ -1076,14 +985,14 @@ TEST_F(qos_buffer, pg_buffer_profile_replace_test)
     get_attr[0].id = SAI_BUFFER_POOL_ATTR_SHARED_SIZE;
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->get_buffer_pool_attr (
                                                pool_id[0], 1,  get_attr));
-    EXPECT_EQ (get_attr[0].value.u32,sai_buffer_pool_test_size_1);
+    EXPECT_EQ (get_attr[0].value.u32, shared_size_1);
 
     memset(get_attr, 0, sizeof(get_attr));
     get_attr[0].id = SAI_BUFFER_POOL_ATTR_SHARED_SIZE;
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->get_buffer_pool_attr (pool_id[1], 1, get_attr));
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_2 - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_1)));
+              (shared_size_2 - (sai_buffer_profile_test_size_1 + sai_buffer_profile_test_size_1)));
 
     set_attr.id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
     set_attr.value.oid = SAI_NULL_OBJECT_ID;
@@ -1273,35 +1182,6 @@ TEST_F(qos_buffer, buffer_profile_pg_profile_th_test)
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->remove_buffer_pool (pool_id_2));
     printf("After removing pools pools \r\n");
-}
-
-sai_status_t sai_qos_buffer_get_first_queue (sai_port_api_t* sai_port_api_table,
-                                             sai_object_id_t port_id, sai_object_id_t *queue_obj)
-{
-    unsigned int num_queue = 0;
-    sai_attribute_t get_attr[1];
-    sai_status_t sai_rc;
-
-    get_attr[0].id = SAI_PORT_ATTR_QOS_NUMBER_OF_QUEUES;
-    sai_rc = sai_port_api_table->get_port_attribute (port_id, 1, get_attr);
-
-    if(sai_rc != SAI_STATUS_SUCCESS) {
-        return sai_rc;
-    }
-
-    num_queue = get_attr[0].value.u32;
-    sai_object_id_t queue_id[num_queue];
-
-    get_attr[0].id = SAI_PORT_ATTR_QOS_QUEUE_LIST;
-    get_attr[0].value.objlist.count = num_queue;
-    get_attr[0].value.objlist.list = queue_id;
-    sai_rc = sai_port_api_table->get_port_attribute (port_id, 1, get_attr);
-
-    if(sai_rc != SAI_STATUS_SUCCESS) {
-        return sai_rc;
-    }
-    *queue_obj = get_attr[0].value.objlist.list[0];
-    return SAI_STATUS_SUCCESS;
 }
 
 TEST_F(qos_buffer, buffer_profile_queue_basic_test)
@@ -1518,6 +1398,8 @@ TEST_F(qos_buffer, buffer_profile_queue_size_test)
     sai_object_id_t pool_id_2 = 0;
     sai_object_id_t port_id = sai_qos_port_id_get (0);
     sai_object_id_t queue_obj = SAI_NULL_OBJECT_ID;
+    int shared_size_2 = sai_buffer_pool_test_size_2 * MAX_SWITCH_TILES;
+    int shared_size_1 = sai_buffer_pool_test_size_1 * MAX_SWITCH_TILES;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_create_buffer_pool(sai_buffer_api_table, &pool_id_1,
               sai_buffer_pool_test_size_2, SAI_BUFFER_POOL_TYPE_EGRESS, SAI_BUFFER_POOL_THRESHOLD_MODE_DYNAMIC));
@@ -1540,7 +1422,7 @@ TEST_F(qos_buffer, buffer_profile_queue_size_test)
                get_buffer_pool_attr (pool_id_1, 1, get_attr));
 
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_2 - sai_buffer_profile_test_size_1));
+              (shared_size_2 - sai_buffer_profile_test_size_1));
 
     printf("Modify SAI_BUFFER_PROFILE_ATTR_BUFFER_SIZE to > 1MB  + 1  \r\n");
     /** Change size of QUEUE */
@@ -1554,7 +1436,7 @@ TEST_F(qos_buffer, buffer_profile_queue_size_test)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->get_buffer_pool_attr (
                                                pool_id_1, 1,  get_attr));
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_2 - sai_buffer_profile_test_size_2));
+              (shared_size_2 - sai_buffer_profile_test_size_2));
 
     /** Move QUEUE to a different pool */
     set_attr.id = SAI_BUFFER_PROFILE_ATTR_POOL_ID;
@@ -1566,13 +1448,13 @@ TEST_F(qos_buffer, buffer_profile_queue_size_test)
     get_attr[0].id = SAI_BUFFER_POOL_ATTR_SHARED_SIZE;
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->get_buffer_pool_attr (pool_id_1, 1, get_attr));
-    EXPECT_EQ (get_attr[0].value.u32, (sai_buffer_pool_test_size_2 - sai_buffer_profile_test_size_2));
+    EXPECT_EQ (get_attr[0].value.u32, (shared_size_2 - sai_buffer_profile_test_size_2));
 
     memset(get_attr, 0, sizeof(get_attr));
     get_attr[0].id = SAI_BUFFER_POOL_ATTR_SHARED_SIZE;
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->get_buffer_pool_attr (pool_id_2, 1, get_attr));
-    EXPECT_EQ (get_attr[0].value.u32, (sai_buffer_pool_test_size_1));
+    EXPECT_EQ (get_attr[0].value.u32, (shared_size_1));
 
     /** Change pool size */
     set_attr.id = SAI_BUFFER_POOL_ATTR_SIZE;
@@ -1583,7 +1465,7 @@ TEST_F(qos_buffer, buffer_profile_queue_size_test)
     get_attr[0].id = SAI_BUFFER_POOL_ATTR_SHARED_SIZE;
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->
                get_buffer_pool_attr (pool_id_2, 1, get_attr));
-    EXPECT_EQ (get_attr[0].value.u32, (sai_buffer_pool_test_size_2));
+    EXPECT_EQ (get_attr[0].value.u32, (shared_size_2));
 
     /** Remove QUEUE from pool */
     set_attr.id = SAI_QUEUE_ATTR_BUFFER_PROFILE_ID;
@@ -1595,7 +1477,7 @@ TEST_F(qos_buffer, buffer_profile_queue_size_test)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->
                get_buffer_pool_attr (pool_id_2, 1, get_attr));
 
-    EXPECT_EQ (get_attr[0].value.u32, sai_buffer_pool_test_size_2);
+    EXPECT_EQ (get_attr[0].value.u32, shared_size_2);
 
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->remove_buffer_profile (profile_id));
@@ -1613,6 +1495,8 @@ TEST_F(qos_buffer, queue_buffer_profile_replace_test)
     sai_object_id_t pool_id[4] = {0};
     sai_object_id_t port_id = sai_qos_port_id_get (0);
     sai_object_id_t queue_obj = SAI_NULL_OBJECT_ID;
+    int shared_size_2 = sai_buffer_pool_test_size_2 * MAX_SWITCH_TILES;
+    int shared_size_1 = sai_buffer_pool_test_size_1 * MAX_SWITCH_TILES;
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_create_buffer_pool(sai_buffer_api_table, &pool_id[0],
               sai_buffer_pool_test_size_1, SAI_BUFFER_POOL_TYPE_EGRESS, SAI_BUFFER_POOL_THRESHOLD_MODE_DYNAMIC));
@@ -1663,7 +1547,7 @@ TEST_F(qos_buffer, queue_buffer_profile_replace_test)
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->get_buffer_pool_attr (
                                                pool_id[0], 1,  get_attr));
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_1 - sai_buffer_profile_test_size_1));
+              (shared_size_1 - sai_buffer_profile_test_size_1));
 
     set_attr.value.oid = profile_id[2];
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_queue_api_table->set_queue_attribute
@@ -1673,14 +1557,14 @@ TEST_F(qos_buffer, queue_buffer_profile_replace_test)
     get_attr[0].id = SAI_BUFFER_POOL_ATTR_SHARED_SIZE;
     ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->get_buffer_pool_attr (
                                                pool_id[0], 1,  get_attr));
-    EXPECT_EQ (get_attr[0].value.u32,sai_buffer_pool_test_size_1);
+    EXPECT_EQ (get_attr[0].value.u32, shared_size_1);
 
     memset(get_attr, 0, sizeof(get_attr));
     get_attr[0].id = SAI_BUFFER_POOL_ATTR_SHARED_SIZE;
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->get_buffer_pool_attr (pool_id[1], 1, get_attr));
     EXPECT_EQ (get_attr[0].value.u32,
-              (sai_buffer_pool_test_size_2 - sai_buffer_profile_test_size_1));
+              (shared_size_2 - sai_buffer_profile_test_size_1));
 
     set_attr.id = SAI_QUEUE_ATTR_BUFFER_PROFILE_ID;
     set_attr.value.oid = SAI_NULL_OBJECT_ID;
@@ -1921,14 +1805,6 @@ TEST_F(qos_buffer, pg_stats_clear)
                sai_buffer_api_table->remove_buffer_profile (profile_id));
     ASSERT_EQ (SAI_STATUS_SUCCESS,
                sai_buffer_api_table->remove_buffer_pool (pool_id));
-}
-
-sai_status_t sai_break_test()
-{
-    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
-
-    printf ("SAI STATUS in sai_break_test %d", sai_rc);
-    return sai_rc;
 }
 
 
@@ -3077,7 +2953,7 @@ TEST_F(qos_buffer, qos_ing_egr_admn_ctrl_pfc_test)
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_create_buffer_profile(sai_buffer_api_table, &ing_profile_id,
               0x17 , ing_pool_id, 9216, SAI_BUFFER_PROFILE_THRESHOLD_MODE_STATIC,
-              0, 12480000,
+              0, 0,
               0, 0));
 
     ASSERT_EQ(SAI_STATUS_SUCCESS, sai_create_buffer_profile(sai_buffer_api_table, &egr_profile_id,
@@ -3208,252 +3084,5 @@ TEST_F(qos_buffer, qos_ing_egr_admn_ctrl_pfc_test)
     ASSERT_EQ(SAI_STATUS_SUCCESS,
               sai_buffer_api_table->remove_buffer_pool (egr_pfc_pool_id));
 
-}
-
-/** TODO - MOve this to internal UT, after adding comparision checks with internal DB's */
-TEST_F(qos_buffer, tomahawk_buffer_profile_pg_tile_test)
-{
-    sai_attribute_t set_attr;
-    sai_attribute_t get_attr[6];
-    sai_object_id_t profile_id = 0;
-    sai_object_id_t profile_id_1 = 0;
-    sai_object_id_t pool_id_1 = 0;
-    sai_object_id_t port_id = sai_qos_port_id_get (0);
-    sai_object_id_t pg_obj[10] = {0} /*SAI_NULL_OBJECT_ID */;
-
-    unsigned int sai_buffer_pool_test_size_1 = (sai_total_buffer_size * 2.5)/4;
-    unsigned int sai_buffer_pool_test_size_2 = sai_total_buffer_size/4;
-    unsigned int sai_buffer_pool_test_size_3 = (sai_total_buffer_size * 0.5)/4;
-
-    unsigned int sai_buffer_profile_test_size_1 = 262144;// 0.25MB
-    unsigned int sai_buffer_profile_test_size_2 = 1048576;// 1MB
-
-    printf("Total buffer size - %d bytes\r\n", sai_total_buffer_size);
-    printf("sai_buffer_pool_test_size_1 - %d bytes\r\n", sai_buffer_pool_test_size_1);
-    printf("sai_buffer_pool_test_size_2 - %d bytes\r\n", sai_buffer_pool_test_size_2);
-    printf("sai_buffer_pool_test_size_3 - %d bytes\r\n", sai_buffer_pool_test_size_3);
-    printf("sai_buffer_profile_test_size_1 - %d bytes\r\n", sai_buffer_profile_test_size_1);
-    printf("sai_buffer_profile_test_size_2 - %d bytes\r\n", sai_buffer_profile_test_size_2);
-
-    // pool 10MB in dynamic mode
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_create_buffer_pool(sai_buffer_api_table, &pool_id_1,
-                                  sai_buffer_pool_test_size_1, SAI_BUFFER_POOL_TYPE_INGRESS,
-                                  SAI_BUFFER_POOL_THRESHOLD_MODE_DYNAMIC));
-
-    // profile_id = reserved size 1MB, static - 0 hdrm - 0.25MB
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_create_buffer_profile(sai_buffer_api_table, &profile_id,
-                                  0x6b ,pool_id_1, sai_buffer_profile_test_size_2, 0, 1, 0,
-                                  sai_buffer_profile_test_size_1, sai_buffer_profile_test_size_1));
-
-    // profile_id_1 = reserved size 1MB, static - 0 hdrm - 0.25MB
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_create_buffer_profile(sai_buffer_api_table, &profile_id_1,
-                                  0x6b ,pool_id_1, sai_buffer_profile_test_size_2, 0, 1, 0,
-                                  sai_buffer_profile_test_size_1, sai_buffer_profile_test_size_1));
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               0         0MB         0      0
-     * shared size            2.5MB     2.5MB     2.5MB   2.5MB
-     *
-     */
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_qos_buffer_get_first_pg(sai_port_api_table, port_id, &pg_obj[0]));
-    // tile 0
-    set_attr.id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
-    set_attr.value.oid = profile_id;
-    ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->set_ingress_priority_group_attr
-                                               (pg_obj[0], (const sai_attribute_t *)&set_attr));
-
-    memset(get_attr, 0, sizeof(get_attr));
-    get_attr[0].id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
-    ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->
-               get_ingress_priority_group_attr (pg_obj[0], 1, get_attr));
-
-    EXPECT_EQ (get_attr[0].value.oid, profile_id);
-
-    ASSERT_EQ (SAI_STATUS_OBJECT_IN_USE,
-               sai_buffer_api_table->remove_buffer_profile (profile_id));
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               1.25MB    0          0      0
-     * shared size            1.25MB    1.25MB    1.25MB  1.25MB
-     *
-     */
-    printf("Apply profile on tile 2 \r\n");
-    // tile 1
-    port_id = sai_qos_port_id_get (9);
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_qos_buffer_get_first_pg(sai_port_api_table, port_id, &pg_obj[1]));
-
-    set_attr.id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
-    set_attr.value.oid = profile_id;
-    ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->set_ingress_priority_group_attr
-                                               (pg_obj[1], (const sai_attribute_t *)&set_attr));
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               1.25MB    1.25MB     0       0
-     * shared size            1.25MB    1.25MB    1.25MB  1.25MB
-     *
-     */
-    // tile 2
-    port_id = sai_qos_port_id_get (18);
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_qos_buffer_get_first_pg(sai_port_api_table, port_id, &pg_obj[2]));
-
-    set_attr.id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
-    set_attr.value.oid = profile_id;
-    ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->set_ingress_priority_group_attr
-                                               (pg_obj[2], (const sai_attribute_t *)&set_attr));
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               1.25MB    1.25MB    1.25MB   0
-     * shared size            1.25MB    1.25MB    1.25MB  1.25MB
-     *
-     */
-    // tile 3
-    port_id = sai_qos_port_id_get (27);
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_qos_buffer_get_first_pg(sai_port_api_table, port_id, &pg_obj[3]));
-
-    set_attr.id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
-    set_attr.value.oid = profile_id;
-    ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->set_ingress_priority_group_attr
-                                               (pg_obj[3], (const sai_attribute_t *)&set_attr));
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               1.25MB    1.25MB    1.25MB  1.25MB
-     * shared size            1.25MB    1.25MB    1.25MB  1.25MB
-     *
-     */
-    // update tile 0 with 1.25MB reserved size
-     port_id = sai_qos_port_id_get (2);
-    ASSERT_EQ(SAI_STATUS_SUCCESS, sai_qos_buffer_get_first_pg(sai_port_api_table, port_id, &pg_obj[4]));
-
-    set_attr.id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
-    set_attr.value.oid = profile_id;
-    ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->set_ingress_priority_group_attr
-                                               (pg_obj[4], (const sai_attribute_t *)&set_attr));
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               2.5MB    1.25MB    1.25MB  1.25MB
-     * shared size            0MB      0MB       0MB     0MB
-     *
-     */
-    printf("After updating tile 0 with 2.5MB\r\n");
-
-    printf("Reduce Reserved size to 0.25MB\r\n");
-    // profile size update - reduce reserved size to 0.25MB
-    set_attr.id = SAI_BUFFER_PROFILE_ATTR_BUFFER_SIZE;
-    set_attr.value.u32 = /*208 * 10083 */sai_buffer_profile_test_size_1;
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_buffer_api_table->set_buffer_profile_attr (profile_id,
-                                              (const sai_attribute_t *)&set_attr));
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               1MB       0.5MB     0.5MB  0.5MB
-     * shared size            1.5MB     1.5MB     1.5MB  1.5MB
-     *
-     */
-
-    printf("Increase Reserved size to 0.75MB  xoff 0.25MB\r\n");
-    // profile update - increase reserved siz to 0.75MB
-    set_attr.id = SAI_BUFFER_PROFILE_ATTR_BUFFER_SIZE;
-    set_attr.value.u32 = sai_buffer_profile_test_size_1 * 3; // 0.75 MB
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_buffer_api_table->set_buffer_profile_attr (profile_id,
-                                              (const sai_attribute_t *)&set_attr));
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               2MB       1MB       1MB      1MB
-     * shared size            0.5MB     0.5MB     0.5MB    0.5MB
-     *
-     */
-    printf("Xoff size set 0.25MB to 0.5MB, reserved size 0.75MB\r\n");
-    set_attr.id = SAI_BUFFER_PROFILE_ATTR_XOFF_TH;
-    set_attr.value.u32 = sai_buffer_profile_test_size_1 * 2;
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_buffer_api_table->set_buffer_profile_attr (profile_id,
-                                              (const sai_attribute_t *)&set_attr));
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               2.5MB       1.25MB  1.25MB  1.25MB
-     * shared size            0MB         0MB     0MB     0MB
-     *
-     */
-    printf("Xoff size set 0.5MB to 0.75MB, reserved size 0.75MB\r\n");
-
-    set_attr.id = SAI_BUFFER_PROFILE_ATTR_XOFF_TH;
-    set_attr.value.u32 = sai_buffer_profile_test_size_1 * 3;
-    ASSERT_EQ (SAI_STATUS_INSUFFICIENT_RESOURCES,
-               sai_buffer_api_table->set_buffer_profile_attr (profile_id,
-                                              (const sai_attribute_t *)&set_attr));
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               2.5MB       1.25MB  1.25MB  1.25MB
-     * shared size            0MB         0MB     0MB     0MB
-     *
-     */
-
-    printf("Apply profile id 1 to pg_obj on tile 0 \r\n");
-
-    // update tile 0 port 2 with new profile id of size 1.25MB reserved size
-    set_attr.id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
-    set_attr.value.oid = profile_id_1;
-    ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->set_ingress_priority_group_attr
-                                               (pg_obj[4], (const sai_attribute_t *)&set_attr));
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               2.5MB       1.25MB  1.25MB  1.25MB
-     * shared size            0MB         0MB     0MB     0MB
-     *
-     */
-    // remove profiles
-
-    printf("Removeing profile from PG\r\n");
-    for (int idx = 0; idx < 10 ; idx++)
-    {
-        set_attr.id = SAI_INGRESS_PRIORITY_GROUP_ATTR_BUFFER_PROFILE;
-        set_attr.value.oid = SAI_NULL_OBJECT_ID;
-        if (pg_obj[idx]) {
-            ASSERT_EQ (SAI_STATUS_SUCCESS, sai_buffer_api_table->set_ingress_priority_group_attr
-                       (pg_obj[idx], (const sai_attribute_t *)&set_attr));
-        }
-    }
-
-    /*  Max resevred size in pool = 4 * max(tiles reserved size )
-     *  Shared Size per tile = ( Pool Size - (Max resevred size in pool)/max tiles.
-     *                        Tile 0    Tile 1    Tile 2  Tile 3
-     * Reserved               0MB       0MB       0MB     0MB
-     * shared size            2.5MB     2.5MB     2.5MB   2.5MB
-     *
-     */
-
-    printf("After Removeing profiles from PG\r\n");
-
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_buffer_api_table->remove_buffer_profile (profile_id));
-
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_buffer_api_table->remove_buffer_profile (profile_id_1));
-
-    printf("After Removeing profiles\r\n");
-
-    ASSERT_EQ (SAI_STATUS_SUCCESS,
-               sai_buffer_api_table->remove_buffer_pool (pool_id_1));
 
 }

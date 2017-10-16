@@ -66,15 +66,6 @@ static sai_status_t sai_tunnel_object_id_bitmap_init (void)
         return SAI_STATUS_NO_MEMORY;
     }
 
-    /* Create the tunnel map index bitmap */
-    p_global_param->tunnel_map_id_bitmap =
-        std_bitmap_create_array (SAI_TUNNEL_MAP_OBJ_MAX_ID);
-    if (NULL == p_global_param->tunnel_map_id_bitmap) {
-
-        SAI_TUNNEL_LOG_CRIT ("Failed to allocate tunnel map index bitmap.");
-
-        return SAI_STATUS_NO_MEMORY;
-    }
 
     /* Create the tunnel termination entry index bitmap */
     p_global_param->tunnel_term_id_bitmap =
@@ -97,9 +88,6 @@ static void sai_tunnel_object_id_bitmap_deinit (void)
         std_bitmaparray_free_data (p_global_param->tunnel_obj_id_bitmap);
     }
 
-    if (p_global_param->tunnel_map_id_bitmap != NULL) {
-        std_bitmaparray_free_data (p_global_param->tunnel_map_id_bitmap);
-    }
 
     if (p_global_param->tunnel_term_id_bitmap != NULL) {
         std_bitmaparray_free_data (p_global_param->tunnel_term_id_bitmap);
@@ -149,13 +137,23 @@ sai_status_t sai_tunnel_init (void)
             break;
         }
 
-        p_global_param->tunnel_mapper_db =
+        p_global_param->tunnel_map_db =
                std_rbtree_create_simple ("tunnel_map_tree",
-                    STD_STR_OFFSET_OF (dn_sai_tunnel_map_t, mapper_id),
-                    STD_STR_SIZE_OF (dn_sai_tunnel_map_t, mapper_id));
+                    STD_STR_OFFSET_OF (dn_sai_tunnel_map_t, map_id),
+                    STD_STR_SIZE_OF (dn_sai_tunnel_map_t, map_id));
 
-        if (NULL == p_global_param->tunnel_mapper_db) {
+        if (NULL == p_global_param->tunnel_map_db) {
             SAI_TUNNEL_LOG_CRIT ("Failed to allocate memory for tunnel map db.");
+            break;
+        }
+
+        p_global_param->tunnel_map_entry_db =
+            std_rbtree_create_simple ("tunnel_map_entry_tree",
+                       STD_STR_OFFSET_OF (dn_sai_tunnel_map_entry_t, tunnel_map_entry_id),
+                       STD_STR_SIZE_OF (dn_sai_tunnel_map_entry_t, tunnel_map_entry_id));
+
+        if (NULL == p_global_param->tunnel_map_entry_db) {
+            SAI_TUNNEL_LOG_CRIT ("Failed to allocate memory for tunnel map entry db.");
 
             break;
         }
@@ -173,6 +171,8 @@ sai_status_t sai_tunnel_init (void)
 
             break;
         }
+        dn_sai_tunnel_map_init();
+        dn_sai_tunnel_map_entry_init();
 
         p_global_param->is_init_complete = true;
 
@@ -209,8 +209,8 @@ void sai_tunnel_deinit (void)
         std_rbtree_destroy (p_global_param->tunnel_term_table_db);
     }
 
-    if (p_global_param->tunnel_mapper_db != NULL) {
-        std_rbtree_destroy (p_global_param->tunnel_mapper_db);
+    if (p_global_param->tunnel_map_db != NULL) {
+        std_rbtree_destroy (p_global_param->tunnel_map_db);
     }
 
     sai_tunnel_object_id_bitmap_deinit ();
@@ -288,8 +288,7 @@ static sai_status_t dn_sai_tunnel_type_set (dn_sai_tunnel_t *p_tunnel_obj,
 static sai_status_t dn_sai_tunnel_intf_set (dn_sai_tunnel_t *p_tunnel_obj,
                                             const sai_attribute_t  *p_attr)
 {
-    sai_object_id_t  vr_id;
-    sai_status_t     status;
+    sai_fib_router_interface_t *p_rif_node = NULL;
 
     if (!sai_is_obj_id_rif (p_attr->value.oid)) {
 
@@ -298,23 +297,22 @@ static sai_status_t dn_sai_tunnel_intf_set (dn_sai_tunnel_t *p_tunnel_obj,
         return SAI_STATUS_INVALID_OBJECT_TYPE;
     }
 
-    status = sai_fib_get_vr_id_for_rif (p_attr->value.oid, &vr_id);
+    p_rif_node = sai_fib_router_interface_node_get (p_attr->value.oid);
+    if (NULL ==  p_rif_node) {
 
-    if (status != SAI_STATUS_SUCCESS) {
-
-        SAI_TUNNEL_LOG_ERR ("VRF ID not found for RIF Id 0x%"PRIx64".",
+        SAI_TUNNEL_LOG_ERR ("RIF Id 0x%"PRIx64" not found.",
                             p_attr->value.oid);
-        return status;
+        return SAI_STATUS_INVALID_OBJECT_ID;
     }
 
     if (p_attr->id == SAI_TUNNEL_ATTR_UNDERLAY_INTERFACE) {
-        p_tunnel_obj->underlay_vrf = vr_id;
+        p_tunnel_obj->underlay_vrf = p_rif_node->vrf_id;
         p_tunnel_obj->underlay_rif = p_attr->value.oid;
 
         SAI_TUNNEL_LOG_DEBUG ("Tunnel Underlay RIF/VR set to 0x%"PRIx64"/0x%"PRIx64".",
                               p_tunnel_obj->underlay_rif, p_tunnel_obj->underlay_vrf);
     } else {
-        p_tunnel_obj->overlay_vrf = vr_id;
+        p_tunnel_obj->overlay_vrf = p_rif_node->vrf_id;
         p_tunnel_obj->overlay_rif = p_attr->value.oid;
 
         SAI_TUNNEL_LOG_DEBUG ("Tunnel Overlay RIF/VR set to 0x%"PRIx64"/0x%"PRIx64".",
@@ -432,12 +430,140 @@ static sai_status_t dn_sai_tunnel_ttl_set (dn_sai_tunnel_t *p_tunnel_obj,
     return SAI_STATUS_SUCCESS;
 }
 
-static sai_status_t dn_sai_tunnel_mapper_set (dn_sai_tunnel_t *p_tunnel_obj,
+static void dn_sai_tunnel_mapper_clean(sai_object_id_t tunnel_id,
+                                       sai_object_list_t *p_objlist)
+{
+    uint_t idx = 0;
+    sai_status_t sai_rc = SAI_STATUS_FAILURE;
+    dn_sai_tunnel_map_t *p_tunnel_map = NULL;
+
+    for(idx = 0; idx < p_objlist->count; idx++) {
+        p_tunnel_map = dn_sai_tunnel_map_get(p_objlist->list[idx]);
+        if(p_tunnel_map != NULL) {
+
+            sai_rc = dn_sai_tunnel_map_dep_tunnel_remove(p_tunnel_map->map_id,
+                                                         tunnel_id);
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+
+                SAI_TUNNEL_LOG_ERR ("Failed to clean up tunnel_id 0x%"PRIx64
+                                    "from tunnel map 0x%"PRIx64"",
+                                    tunnel_id, p_tunnel_map->map_id);
+            }
+
+            if ( p_tunnel_map->ref_count > 0) {
+                p_tunnel_map->ref_count--;
+            }
+        }
+    }
+
+    p_objlist->count = 0;
+    free(p_objlist->list);
+    p_objlist->list = NULL;
+}
+
+static sai_status_t dn_sai_tunnel_mapper_set (dn_sai_tunnel_t *p_tunnel,
                                               const sai_attribute_t  *p_attr)
 {
-    /* @TODO Implement for the VxLAN case */
+    uint_t idx = 0;
+    const sai_object_list_t *p_objlist = NULL;
+    sai_object_list_t *p_new_objlist = NULL;
+    dn_sai_tunnel_map_t *p_tunnel_map = NULL;
+    bool bridge_to_vnid_map_found = false;
+    bool vnid_to_bridge_map_found = false;
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
 
-    return SAI_STATUS_SUCCESS;
+    p_objlist = &p_attr->value.objlist;
+
+    if(NULL == p_objlist->list) {
+        SAI_TUNNEL_LOG_ERR("Invalid tunnel mapper list");
+        return SAI_STATUS_INVALID_PARAMETER;
+    }
+
+    p_new_objlist = (p_attr->id == SAI_TUNNEL_ATTR_ENCAP_MAPPERS) ?
+                    &p_tunnel->tunnel_encap_mapper_list :
+                    &p_tunnel->tunnel_decap_mapper_list;
+
+    p_new_objlist->list = calloc(p_objlist->count, sizeof(sai_object_id_t));
+    if(NULL == p_new_objlist->list) {
+        SAI_TUNNEL_LOG_ERR("Failed to allocate memory for tunnel mapper list");
+        return SAI_STATUS_NO_MEMORY;
+    }
+
+    p_new_objlist->count = 0;
+
+    for(idx = 0; idx < p_objlist->count; idx++) {
+
+        p_tunnel_map = dn_sai_tunnel_map_get(p_objlist->list[idx]);
+
+        if(NULL == p_tunnel_map) {
+
+            SAI_TUNNEL_LOG_ERR("Invalid tunnel map id %"PRIx64" in tunnel "
+                               "mapper list",p_objlist->list[idx]);
+
+            sai_rc = SAI_STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        if(p_attr->id == SAI_TUNNEL_ATTR_ENCAP_MAPPERS) {
+
+            if(!dn_tunnel_map_is_encap_map_type(p_tunnel_map->type)) {
+
+                SAI_TUNNEL_LOG_ERR("Decap tunnel map given in encap mapper list");
+                sai_rc = SAI_STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+            if(p_tunnel_map->type == SAI_TUNNEL_MAP_TYPE_BRIDGE_IF_TO_VNI) {
+
+                if(bridge_to_vnid_map_found) {
+                    SAI_TUNNEL_LOG_ERR("Encap tunnel map of same type already exists");
+                    sai_rc = SAI_STATUS_INVALID_PARAMETER;
+                    break;
+                }
+                bridge_to_vnid_map_found = true;
+            }
+
+        } else {
+
+            if(dn_tunnel_map_is_encap_map_type(p_tunnel_map->type)) {
+
+                SAI_TUNNEL_LOG_ERR("Encap tunnel map given in decap mapper list");
+                sai_rc = SAI_STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+            if(p_tunnel_map->type == SAI_TUNNEL_MAP_TYPE_VNI_TO_BRIDGE_IF) {
+
+                if(vnid_to_bridge_map_found) {
+                    sai_rc = SAI_STATUS_INVALID_PARAMETER;
+                    SAI_TUNNEL_LOG_ERR("Decap tunnel map of same type already exists");
+                    break;
+                }
+
+                vnid_to_bridge_map_found = true;
+            }
+        }
+
+        sai_rc = dn_sai_tunnel_map_dep_tunnel_add(p_tunnel_map->map_id,
+                                                  p_tunnel->tunnel_id);
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+
+            SAI_TUNNEL_LOG_ERR("Failed to add dep tunnel 0x%"PRIx64" to tunnel map  0x%"
+                               PRIx64"",p_tunnel->tunnel_id,p_tunnel_map->map_id);
+            break;
+        }
+
+        p_tunnel_map->ref_count++;
+        p_new_objlist->list[idx] = p_objlist->list[idx];
+        p_new_objlist->count++;
+    }
+
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+
+        dn_sai_tunnel_mapper_clean(p_tunnel->tunnel_id, p_new_objlist);
+    }
+
+    return sai_rc;
 }
 
 static sai_status_t dn_sai_tunnel_attr_set (dn_sai_tunnel_t *p_tunnel_obj,
@@ -445,8 +571,10 @@ static sai_status_t dn_sai_tunnel_attr_set (dn_sai_tunnel_t *p_tunnel_obj,
                                             const sai_attribute_t *attr_list)
 {
     uint_t                  attr_idx;
-    sai_status_t            status;
+    sai_status_t            status = SAI_STATUS_FAILURE;
     const sai_attribute_t  *p_attr;
+    bool encap_mapper_present = false;
+    bool decap_mapper_present = false;
 
     for (attr_idx = 0, p_attr = attr_list; (attr_idx < attr_count);
          ++attr_idx, ++p_attr) {
@@ -490,7 +618,11 @@ static sai_status_t dn_sai_tunnel_attr_set (dn_sai_tunnel_t *p_tunnel_obj,
                 break;
 
             case SAI_TUNNEL_ATTR_ENCAP_MAPPERS:
+                encap_mapper_present = true;
+                status = dn_sai_tunnel_mapper_set (p_tunnel_obj, p_attr);
+                break;
             case SAI_TUNNEL_ATTR_DECAP_MAPPERS:
+                decap_mapper_present = true;
                 status = dn_sai_tunnel_mapper_set (p_tunnel_obj, p_attr);
                 break;
 
@@ -505,7 +637,8 @@ static sai_status_t dn_sai_tunnel_attr_set (dn_sai_tunnel_t *p_tunnel_obj,
                                 "Attribute Id: %d, Error: %d.", attr_idx,
                                 p_attr->id, status);
 
-            return (sai_get_indexed_ret_val (status, attr_idx));
+            status = sai_get_indexed_ret_val (status, attr_idx);
+            break;
         }
 
         status = sai_tunnel_npu_api_get()->tunnel_obj_attr_validate (p_attr);
@@ -516,11 +649,30 @@ static sai_status_t dn_sai_tunnel_attr_set (dn_sai_tunnel_t *p_tunnel_obj,
                                 "Attribute Id: %d, Error: %d.", attr_idx,
                                 p_attr->id, status);
 
-            return (sai_get_indexed_ret_val (status, attr_idx));
+            status = sai_get_indexed_ret_val (status, attr_idx);
+            break;
         }
     }
 
-    return SAI_STATUS_SUCCESS;
+    if((status == SAI_STATUS_SUCCESS) &&
+       (dn_sai_is_vxlan_tunnel(p_tunnel_obj))) {
+
+        if(!encap_mapper_present || !decap_mapper_present) {
+
+            SAI_TUNNEL_LOG_ERR ("Encap and decap mappers are mandatory for "
+                                "VXLAN tunnel");
+            status = SAI_STATUS_MANDATORY_ATTRIBUTE_MISSING;
+        }
+    }
+
+    if (status != SAI_STATUS_SUCCESS) {
+            dn_sai_tunnel_mapper_clean(p_tunnel_obj->tunnel_id,
+                                       &p_tunnel_obj->tunnel_encap_mapper_list);
+            dn_sai_tunnel_mapper_clean(p_tunnel_obj->tunnel_id,
+                                       &p_tunnel_obj->tunnel_decap_mapper_list);
+    }
+
+    return status;
 }
 
 static sai_status_t dn_sai_tunnel_create (sai_object_id_t *tunnel_id,
@@ -545,17 +697,6 @@ static sai_status_t dn_sai_tunnel_create (sai_object_id_t *tunnel_id,
         return status;
     }
 
-    tunnel_index = std_find_first_bit (dn_sai_tunnel_obj_id_bitmap(),
-                                       SAI_TUNNEL_OBJ_MAX_ID, 1);
-
-    if (tunnel_index < 0) {
-
-        SAI_TUNNEL_LOG_INFO ("No free index in tunnel object index bitmap of "
-                             "size %d.", SAI_TUNNEL_OBJ_MAX_ID);
-
-        return SAI_STATUS_INSUFFICIENT_RESOURCES;
-    }
-
     p_tunnel_obj = dn_sai_tunnel_object_alloc();
 
     if (p_tunnel_obj == NULL) {
@@ -567,8 +708,24 @@ static sai_status_t dn_sai_tunnel_create (sai_object_id_t *tunnel_id,
 
     std_dll_init (&p_tunnel_obj->tunnel_encap_nh_list);
     std_dll_init (&p_tunnel_obj->tunnel_term_entry_list);
+    dn_sai_tunnel_lock();
+    sai_fib_lock ();
 
     do {
+        tunnel_index = std_find_first_bit (dn_sai_tunnel_obj_id_bitmap(),
+                                           SAI_TUNNEL_OBJ_MAX_ID, 1);
+
+        if (tunnel_index < 0) {
+
+            SAI_TUNNEL_LOG_INFO ("No free index in tunnel object index bitmap of "
+                                 "size %d.", SAI_TUNNEL_OBJ_MAX_ID);
+
+            status = SAI_STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        p_tunnel_obj->tunnel_id = sai_uoid_create (SAI_OBJECT_TYPE_TUNNEL,
+                                                   tunnel_index);
         /* Validate and fill the attribute values passed in the list */
         status = dn_sai_tunnel_attr_set (p_tunnel_obj, attr_count, attr_list);
 
@@ -587,8 +744,6 @@ static sai_status_t dn_sai_tunnel_create (sai_object_id_t *tunnel_id,
             break;
         }
 
-        p_tunnel_obj->tunnel_id = sai_uoid_create (SAI_OBJECT_TYPE_TUNNEL,
-                                                   tunnel_index);
 
         t_std_error rc = std_rbtree_insert (dn_sai_tunnel_tree_handle (),
                                             p_tunnel_obj);
@@ -601,12 +756,21 @@ static sai_status_t dn_sai_tunnel_create (sai_object_id_t *tunnel_id,
 
             break;
         }
+        sai_rif_increment_ref_count(p_tunnel_obj->underlay_rif);
+        sai_rif_increment_ref_count(p_tunnel_obj->overlay_rif);
 
         STD_BIT_ARRAY_CLR (dn_sai_tunnel_obj_id_bitmap(), tunnel_index);
+        *tunnel_id = p_tunnel_obj->tunnel_id;
 
     } while (0);
+    sai_fib_unlock ();
+    dn_sai_tunnel_unlock();
 
     if (status != SAI_STATUS_SUCCESS) {
+        dn_sai_tunnel_mapper_clean(p_tunnel_obj->tunnel_id,
+                                   &p_tunnel_obj->tunnel_encap_mapper_list);
+        dn_sai_tunnel_mapper_clean(p_tunnel_obj->tunnel_id,
+                                   &p_tunnel_obj->tunnel_decap_mapper_list);
 
         dn_sai_tunnel_object_free (p_tunnel_obj);
 
@@ -614,7 +778,6 @@ static sai_status_t dn_sai_tunnel_create (sai_object_id_t *tunnel_id,
 
     } else {
 
-        *tunnel_id = p_tunnel_obj->tunnel_id;
 
         SAI_TUNNEL_LOG_INFO ("Created SAI Tunnel Id: 0x%"PRIx64".", *tunnel_id);
     }
@@ -637,6 +800,7 @@ static sai_status_t dn_sai_tunnel_remove (sai_object_id_t  tunnel_id)
     }
 
     dn_sai_tunnel_lock();
+    sai_fib_lock ();
 
     do {
 
@@ -683,10 +847,18 @@ static sai_status_t dn_sai_tunnel_remove (sai_object_id_t  tunnel_id)
         STD_BIT_ARRAY_SET (dn_sai_tunnel_obj_id_bitmap(),
                            sai_uoid_npu_obj_id_get (tunnel_id));
 
+        sai_rif_decrement_ref_count(p_tunnel_obj->underlay_rif);
+        sai_rif_decrement_ref_count(p_tunnel_obj->overlay_rif);
+
+        dn_sai_tunnel_mapper_clean(tunnel_id,
+                                   &p_tunnel_obj->tunnel_encap_mapper_list);
+        dn_sai_tunnel_mapper_clean(tunnel_id,
+                                   &p_tunnel_obj->tunnel_decap_mapper_list);
         dn_sai_tunnel_object_free (p_tunnel_obj);
 
     } while (0);
 
+    sai_fib_unlock ();
     dn_sai_tunnel_unlock();
 
     SAI_TUNNEL_LOG_INFO ("SAI Tunnel object Id 0x%"PRIx64" remove status: %d.",
@@ -708,12 +880,101 @@ static sai_status_t dn_sai_tunnel_get_attr (sai_object_id_t tunnel_id,
     return SAI_STATUS_NOT_IMPLEMENTED;
 }
 
+static sai_status_t dn_sai_tunnel_stats_get (sai_object_id_t tunnel_id,
+                                             uint32_t num_counters,
+                                             const sai_tunnel_stat_t *counter_ids,
+                                             uint64_t *counters)
+{
+    sai_status_t sai_rc = SAI_STATUS_FAILURE;
+    dn_sai_tunnel_t *p_tunnel = NULL;
+
+    if((num_counters == 0) || (counter_ids == NULL) ||
+       (counters == NULL)) {
+
+        SAI_TUNNEL_LOG_ERR ("Invalid paramter supplied for getting tunnel statistics");
+        return SAI_STATUS_INVALID_PARAMETER;
+    }
+
+    dn_sai_tunnel_lock();
+
+    do {
+
+        p_tunnel = dn_sai_tunnel_obj_get (tunnel_id);
+
+        if (p_tunnel == NULL) {
+
+            SAI_TUNNEL_LOG_ERR ("Tunnel object not found for OID: 0x%"PRIx64".",
+                                tunnel_id);
+            sai_rc = SAI_STATUS_INVALID_OBJECT_ID;
+            break;
+        }
+
+        sai_rc = sai_tunnel_npu_api_get()->tunnel_stats_get(tunnel_id, num_counters,
+                                                            counter_ids, counters);
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+
+            SAI_TUNNEL_LOG_ERR ("Failed to get tunnel stats for tunnel 0x%"
+                                PRIx64" from NPU",tunnel_id);
+            break;
+        }
+
+    } while(0);
+
+    dn_sai_tunnel_unlock();
+
+    return sai_rc;
+}
+
+static sai_status_t dn_sai_tunnel_stats_clear (sai_object_id_t tunnel_id,
+                                               uint32_t num_counters,
+                                               const sai_tunnel_stat_t *counter_ids)
+{
+    sai_status_t sai_rc = SAI_STATUS_FAILURE;
+    dn_sai_tunnel_t *p_tunnel = NULL;
+
+    if((num_counters == 0) || (counter_ids == NULL)) {
+
+        SAI_TUNNEL_LOG_ERR ("Invalid paramter supplied for clearing tunnel statistics");
+        return SAI_STATUS_INVALID_PARAMETER;
+    }
+
+    dn_sai_tunnel_lock();
+
+    do {
+
+        p_tunnel = dn_sai_tunnel_obj_get (tunnel_id);
+
+        if (p_tunnel == NULL) {
+
+            SAI_TUNNEL_LOG_ERR ("Tunnel object not found for OID: 0x%"PRIx64".",
+                                tunnel_id);
+            sai_rc = SAI_STATUS_INVALID_OBJECT_ID;
+            break;
+        }
+
+        sai_rc = sai_tunnel_npu_api_get()->tunnel_stats_clear(tunnel_id, num_counters,
+                                                              counter_ids);
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+
+            SAI_TUNNEL_LOG_ERR ("Failed to clear tunnel stats for tunnel 0x%"
+                                PRIx64" from NPU",tunnel_id);
+            break;
+        }
+
+    } while(0);
+
+    dn_sai_tunnel_unlock();
+
+    return sai_rc;
+}
 void dn_sai_tunnel_obj_api_fill (sai_tunnel_api_t *api_table)
 {
     api_table->create_tunnel = dn_sai_tunnel_create;
     api_table->remove_tunnel = dn_sai_tunnel_remove;
     api_table->set_tunnel_attribute = dn_sai_tunnel_set_attr;
     api_table->get_tunnel_attribute = dn_sai_tunnel_get_attr;
+    api_table->get_tunnel_stats = dn_sai_tunnel_stats_get;
+    api_table->clear_tunnel_stats = dn_sai_tunnel_stats_clear;
 }
 
 /*
@@ -725,6 +986,8 @@ sai_tunnel_api_t *sai_tunnel_api_query (void)
 
     dn_sai_tunnel_obj_api_fill (&sai_tunnel_api_method_table);
     dn_sai_tunnel_term_obj_api_fill (&sai_tunnel_api_method_table);
+    dn_sai_tunnel_map_obj_api_fill (&sai_tunnel_api_method_table);
+    dn_sai_tunnel_map_entry_obj_api_fill (&sai_tunnel_api_method_table);
 
     return (&sai_tunnel_api_method_table);
 }

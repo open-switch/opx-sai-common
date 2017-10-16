@@ -30,7 +30,7 @@ static std_code_text_t sai_vlan_tagging_mode_str_tbl[]={
     {SAI_VLAN_TAGGING_MODE_PRIORITY_TAGGED, "PRIORITY_TAGGED"}
 };
 
-inline const char *sai_vlan_tagging_mode_to_str(sai_vlan_tagging_mode_t tagging_mode)
+static inline const char *sai_vlan_tagging_mode_to_str(sai_vlan_tagging_mode_t tagging_mode)
 {
     const char *tagging_mode_str = NULL;
 

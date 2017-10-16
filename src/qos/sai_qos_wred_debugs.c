@@ -33,30 +33,38 @@ void sai_qos_wred_dump_help (void)
 void sai_qos_wred_dump_node(dn_sai_qos_wred_t  *p_wred_node)
 {
     size_t color = 0;
-    dn_sai_qos_queue_t *p_queue_node = NULL;
+    void *p_wred_link_node = NULL;
+    dn_sai_qos_wred_link_t  wred_link_type = DN_SAI_QOS_WRED_LINK_QUEUE;
     if(p_wred_node == NULL){
-        SAI_DEBUG("Wred node is NULL");
+        SAI_DEBUG("WRED node is NULL");
         return;
     }
 
-    SAI_DEBUG("Wredid : 0x%"PRIx64" weight: %d ecn_mark_enable: %d",
-              p_wred_node->key.wred_id, p_wred_node->weight, p_wred_node->ecn_mark_enable);
+    SAI_DEBUG("WRED ID : 0x%"PRIx64" weight: %d ecn_mark_mode: %d",
+              p_wred_node->key.wred_id, p_wred_node->weight, p_wred_node->ecn_mark_mode);
 
-    SAI_DEBUG("Wred Thresholds:");
+    SAI_DEBUG("WRED Thresholds:");
     for(color = 0; color < SAI_QOS_MAX_PACKET_COLORS; color ++){
         SAI_DEBUG("Color %ld", color);
-        SAI_DEBUG("Enable: %d Minlimit: %d Maxlimit: %d Dropprobability: %d",
+        SAI_DEBUG("Enable: %d Minlimit: %d Maxlimit: %d Drop Probability: %d",
                   p_wred_node->threshold[color].enable, p_wred_node->threshold[color].min_limit,
                   p_wred_node->threshold[color].max_limit,p_wred_node->threshold[color].drop_probability);
     }
 
-    p_queue_node = sai_qos_queue_node_from_wred_get(p_wred_node);
+    for(wred_link_type = DN_SAI_QOS_WRED_LINK_QUEUE;
+            wred_link_type < DN_SAI_QOS_WRED_LINK_MAX;
+            wred_link_type++) {
+        p_wred_link_node = sai_qos_wred_link_node_get_first(p_wred_node, wred_link_type);
 
-    while(p_queue_node != NULL){
-        SAI_DEBUG("Wrednode applied on queue id 0x%"PRIx64"", p_queue_node->key.queue_id);
-        p_queue_node = sai_qos_next_queue_node_from_wred_get(p_wred_node, p_queue_node);
+        while(p_wred_link_node != NULL) {
+            SAI_DEBUG("WRED applied on %s ID 0x%"PRIx64"",
+                    sai_qos_wred_link_str(wred_link_type),
+                    sai_qos_wred_link_oid_get(p_wred_link_node, wred_link_type));
+            p_wred_link_node =
+                sai_qos_wred_link_node_get_next(p_wred_node, p_wred_link_node, wred_link_type);
     }
 
+    }
 }
 
 void sai_qos_wred_dump(sai_object_id_t wred_id)

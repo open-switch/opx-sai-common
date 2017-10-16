@@ -854,7 +854,7 @@ static sai_status_t sai_qos_map_remove(sai_object_id_t map_id)
         p_qos_port_node  = sai_qos_maps_get_port_node_from_map(p_map_node);
 
         if(p_qos_port_node != NULL){
-            SAI_MAPS_LOG_ERR("Mapid is in use");
+            SAI_MAPS_LOG_ERR("Mapid 0x%"PRIx64" is in use", map_id);
             sai_rc = SAI_STATUS_OBJECT_IN_USE;
             break;
         }
@@ -879,7 +879,7 @@ static sai_status_t sai_qos_map_remove(sai_object_id_t map_id)
     }
     else
     {
-        SAI_MAPS_LOG_ERR("Map id removal failed",map_id);
+        SAI_MAPS_LOG_ERR("Map id 0x%"PRIx64" removal failed",map_id);
     }
 
     return sai_rc;

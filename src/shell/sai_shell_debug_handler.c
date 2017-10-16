@@ -21,8 +21,7 @@
 #include "sai_debug_utils.h"
 #include "sai_common_acl.h"
 #include "string.h"
-#include "sai_fdb_api.h"
-#include "sai_l3_api.h"
+#include "sai_fdb_main.h"
 #include "sai_vlan_common.h"
 #include "sai_common_infra.h"
 #include "sai_debug_utils.h"
@@ -30,6 +29,8 @@
 #include "sai_mirror_api.h"
 #include "sai_samplepacket_api.h"
 #include "sai_qos_debug.h"
+#include "sai_l3_api_utils.h"
+#include "sai_bridge_main.h"
 
 static void sai_shell_debug_vlan_help(void)
 {
@@ -71,26 +72,26 @@ static void sai_shell_debug_l3_help(void)
 
 static void sai_shell_debug_qos_help(void)
 {
-    SAI_DEBUG("::debug qos port\r\n");
-    SAI_DEBUG("\t- Debug commands related to QOS port related information\r\n");
-    SAI_DEBUG("::debug qos scheduler-group\r\n");
-    SAI_DEBUG("\t- Debug commands related to Scheduler-group\r\n");
-    SAI_DEBUG("::debug qos scheduler\r\n");
-    SAI_DEBUG("\t- Debug commands related to Sceduler\r\n");
-    SAI_DEBUG("::debug qos queue\r\n");
-    SAI_DEBUG("\t- Debug commands related to Queue\r\n");
-    SAI_DEBUG("::debug qos ingress-pg\r\n");
-    SAI_DEBUG("\t- Debug commands related to Ingress priority group\r\n");
-    SAI_DEBUG("::debug qos buffer-pool\r\n");
-    SAI_DEBUG("\t- Debug commands related to Buffer pool\r\n");
-    SAI_DEBUG("::debug qos buffer-profile\r\n");
-    SAI_DEBUG("\t- Debug commands related to Buffer profile\r\n");
-    SAI_DEBUG("::debug qos maps\r\n");
-    SAI_DEBUG("\t- Debug commands related to Qos Maps\r\n");
-    SAI_DEBUG("::debug qos wred\r\n");
-    SAI_DEBUG("\t- Debug commands related to Wred\r\n");
-    SAI_DEBUG("::debug qos policer\r\n");
-    SAI_DEBUG("\t- Debug commands related to Policer\r\n");
+    SAI_DEBUG("::debug qos port");
+    SAI_DEBUG("\t- Debug commands related to QOS port related information");
+    SAI_DEBUG("::debug qos scheduler-group");
+    SAI_DEBUG("\t- Debug commands related to Scheduler-group");
+    SAI_DEBUG("::debug qos scheduler");
+    SAI_DEBUG("\t- Debug commands related to Sceduler");
+    SAI_DEBUG("::debug qos queue");
+    SAI_DEBUG("\t- Debug commands related to Queue");
+    SAI_DEBUG("::debug qos ingress-pg");
+    SAI_DEBUG("\t- Debug commands related to Ingress priority group");
+    SAI_DEBUG("::debug qos buffer-pool");
+    SAI_DEBUG("\t- Debug commands related to Buffer pool");
+    SAI_DEBUG("::debug qos buffer-profile");
+    SAI_DEBUG("\t- Debug commands related to Buffer profile");
+    SAI_DEBUG("::debug qos maps");
+    SAI_DEBUG("\t- Debug commands related to Qos Maps");
+    SAI_DEBUG("::debug qos wred");
+    SAI_DEBUG("\t- Debug commands related to Wred");
+    SAI_DEBUG("::debug qos policer");
+    SAI_DEBUG("\t- Debug commands related to Policer");
 }
 
 static void sai_shell_debug_vr_help(void)
@@ -161,88 +162,106 @@ static void sai_shell_debug_sflow_help(void)
 
 static void sai_shell_debug_qos_port_help(void)
 {
-    SAI_DEBUG("::debug qos port <port-id>\r\n");
-    SAI_DEBUG("\t- Dumps all QOS configs applied on the port\r\n");
-    SAI_DEBUG("::debug qos port hierarchy <port-id> \r\n");
-    SAI_DEBUG("\t- Dumps QOS port hierarchy on the port.\r\n");
+    SAI_DEBUG("::debug qos port <port-id>");
+    SAI_DEBUG("\t- Dumps all QOS configs applied on the port");
+    SAI_DEBUG("::debug qos port hierarchy <port-id> ");
+    SAI_DEBUG("\t- Dumps QOS port hierarchy on the port.");
 }
 
 static void sai_shell_debug_queue_help(void)
 {
-    SAI_DEBUG("::debug qos queue <queue-id>\r\n");
-    SAI_DEBUG("\t- Dumps the queue info\r\n");
-    SAI_DEBUG("::debug qos queue all \r\n");
-    SAI_DEBUG("\t- Dumps all the queue info\r\n");
-    SAI_DEBUG("::debug qos queue parent <queue-id>\r\n");
-    SAI_DEBUG("\t- Dumps all the parents of queue specified\r\n");
+    SAI_DEBUG("::debug qos queue <queue-id>");
+    SAI_DEBUG("\t- Dumps the queue info");
+    SAI_DEBUG("::debug qos queue all ");
+    SAI_DEBUG("\t- Dumps all the queue info");
+    SAI_DEBUG("::debug qos queue parent <queue-id>");
+    SAI_DEBUG("\t- Dumps all the parents of queue specified");
 }
 
 static void sai_shell_debug_sg_help(void)
 {
-    SAI_DEBUG("::debug qos scheduler-group <sg-id>\r\n");
-    SAI_DEBUG("\t- Dumps the sceduler-group info\r\n");
-    SAI_DEBUG("::debug qos scheduler-group all \r\n");
-    SAI_DEBUG("\t- Dumps all the scheduler-group info\r\n");
-    SAI_DEBUG("::debug qos scheduler-group parent <sg-id>\r\n");
-    SAI_DEBUG("\t- Dumps all the parents of sceduler-group specified\r\n");
+    SAI_DEBUG("::debug qos scheduler-group <sg-id>");
+    SAI_DEBUG("\t- Dumps the sceduler-group info");
+    SAI_DEBUG("::debug qos scheduler-group all ");
+    SAI_DEBUG("\t- Dumps all the scheduler-group info");
+    SAI_DEBUG("::debug qos scheduler-group parent <sg-id>");
+    SAI_DEBUG("\t- Dumps all the parents of sceduler-group specified");
 }
 
 static void sai_shell_debug_scheduler_help(void)
 {
-    SAI_DEBUG("::debug qos scheduler <scheduler-id>\r\n");
-    SAI_DEBUG("\t- Dumps the sceduler info\r\n");
-    SAI_DEBUG("::debug qos scheduler all \r\n");
-    SAI_DEBUG("\t- Dumps all the scheduler info\r\n");
+    SAI_DEBUG("::debug qos scheduler <scheduler-id>");
+    SAI_DEBUG("\t- Dumps the sceduler info");
+    SAI_DEBUG("::debug qos scheduler all ");
+    SAI_DEBUG("\t- Dumps all the scheduler info");
 }
 
 static void sai_shell_debug_pg_help(void)
 {
-    SAI_DEBUG("::debug qos ingress-pg <pg-id>\r\n");
-    SAI_DEBUG("\t- Dumps the ingress priority-group info\r\n");
-    SAI_DEBUG("::debug qos ingress-pg all \r\n");
-    SAI_DEBUG("\t- Dumps all the ingress priority-group info\r\n");
+    SAI_DEBUG("::debug qos ingress-pg <pg-id>");
+    SAI_DEBUG("\t- Dumps the ingress priority-group info");
+    SAI_DEBUG("::debug qos ingress-pg all ");
+    SAI_DEBUG("\t- Dumps all the ingress priority-group info");
 }
 
 static void sai_shell_debug_buffer_profile_help(void)
 {
-    SAI_DEBUG("::debug qos buffer-profile <profile-id>\r\n");
-    SAI_DEBUG("\t- Dumps the buffer-profile info\r\n");
-    SAI_DEBUG("::debug qos buffer-profile all \r\n");
-    SAI_DEBUG("\t- Dumps all the buffer-profile info\r\n");
+    SAI_DEBUG("::debug qos buffer-profile <profile-id>");
+    SAI_DEBUG("\t- Dumps the buffer-profile info");
+    SAI_DEBUG("::debug qos buffer-profile all ");
+    SAI_DEBUG("\t- Dumps all the buffer-profile info");
 }
 
 static void sai_shell_debug_buffer_pool_help(void)
 {
-    SAI_DEBUG("::debug qos buffer-pool <pool-id>\r\n");
-    SAI_DEBUG("\t- Dumps the buffer-pool info\r\n");
-    SAI_DEBUG("::debug qos buffer-pool all \r\n");
-    SAI_DEBUG("\t- Dumps all the buffer-pool info\r\n");
+    SAI_DEBUG("::debug qos buffer-pool <pool-id>");
+    SAI_DEBUG("\t- Dumps the buffer-pool info");
+    SAI_DEBUG("::debug qos buffer-pool all ");
+    SAI_DEBUG("\t- Dumps all the buffer-pool info");
 }
 
 static void sai_shell_debug_qos_maps_help(void)
 {
-    SAI_DEBUG("::debug qos maps <maps-id>\r\n");
-    SAI_DEBUG("\t- Dumps the maps info\r\n");
-    SAI_DEBUG("::debug qos maps all \r\n");
-    SAI_DEBUG("\t- Dumps all the maps info\r\n");
+    SAI_DEBUG("::debug qos maps <maps-id>");
+    SAI_DEBUG("\t- Dumps the maps info");
+    SAI_DEBUG("::debug qos maps all ");
+    SAI_DEBUG("\t- Dumps all the maps info");
 }
 
 static void sai_shell_debug_wred_help(void)
 {
-    SAI_DEBUG("::debug qos wred <wred-id>\r\n");
-    SAI_DEBUG("\t- Dumps the wred info\r\n");
-    SAI_DEBUG("::debug qos wred all \r\n");
-    SAI_DEBUG("\t- Dumps all the wred info\r\n");
+    SAI_DEBUG("::debug qos wred <wred-id>");
+    SAI_DEBUG("\t- Dumps the wred info");
+    SAI_DEBUG("::debug qos wred all ");
+    SAI_DEBUG("\t- Dumps all the wred info");
 }
 
 static void sai_shell_debug_policer_help(void)
 {
-    SAI_DEBUG("::debug qos policer <policer-id>\r\n");
-    SAI_DEBUG("\t- Dumps the policer info\r\n");
-    SAI_DEBUG("::debug qos policer all \r\n");
-    SAI_DEBUG("\t- Dumps all the policer info\r\n");
+    SAI_DEBUG("::debug qos policer <policer-id>");
+    SAI_DEBUG("\t- Dumps the policer info");
+    SAI_DEBUG("::debug qos policer all ");
+    SAI_DEBUG("\t- Dumps all the policer info");
 }
 
+static void sai_shell_debug_bridge_help(void)
+{
+    SAI_DEBUG("::debug bridge all");
+    SAI_DEBUG("\t- Dumps all the bridge info");
+    SAI_DEBUG("::debug bridge ids");
+    SAI_DEBUG("\t- Dumps all the bridge ids");
+    SAI_DEBUG("::debug bridge default");
+    SAI_DEBUG("\t- Dumps all the default 1Q bridge");
+    SAI_DEBUG("::debug bridge info <bridge-id>");
+    SAI_DEBUG("\t- Dumps the bridge info");
+    SAI_DEBUG("::debug bridge port all");
+    SAI_DEBUG("\t- Dumps all the bridge port info");
+    SAI_DEBUG("::debug bridge port ids");
+    SAI_DEBUG("\t- Dumps all the bridge port ids");
+    SAI_DEBUG("::debug bridge port info <bridge-port-id>");
+    SAI_DEBUG("\t- Dumps the bridge port info");
+
+}
 static void sai_shell_debug_vlan(std_parsed_string_t handle)
 {
     size_t ix=1;
@@ -1208,6 +1227,58 @@ static void sai_shell_debug_mirror(std_parsed_string_t handle)
     return;
 }
 
+static void sai_shell_debug_bridge(std_parsed_string_t handle)
+{
+    size_t ix=1;
+    const char *token = NULL;
+    sai_object_id_t bridge_id;
+    sai_object_id_t bridge_port_id;
+
+    if((token = std_parse_string_next(handle,&ix))!= NULL) {
+        if(strcmp(token,"help") == 0){
+            sai_shell_debug_bridge_help();
+        } else if(strcmp(token,"all") == 0) {
+            sai_bridge_dump_all_bridge_info();
+        } else if(strcmp(token, "ids") == 0){
+            sai_bridge_dump_all_bridge_ids();
+        } else if(strcmp(token,"default") == 0) {
+            sai_brige_dump_default_bridge();
+        } else if(strcmp(token,"info") == 0) {
+            token = std_parse_string_next(handle,&ix);
+            if(NULL != token) {
+                sscanf(token,"%lx",&bridge_id);
+                sai_bridge_dump_bridge_info(bridge_id);
+            } else {
+                SAI_DEBUG("Error - missing bridge id");
+            }
+        } else if(strcmp(token,"port") == 0) {
+            token = std_parse_string_next(handle,&ix);
+            if(NULL != token) {
+                if(strcmp(token,"all") == 0) {
+                    sai_bridge_dump_all_bridge_port_info();
+                }else if(strcmp(token, "ids") == 0){
+                    sai_bridge_dump_all_bridge_port_ids();
+                } else if( strcmp(token,"info") == 0) {
+                    token = std_parse_string_next(handle,&ix);
+                    if(NULL != token) {
+                        sscanf(token,"%lx",&bridge_port_id);
+                        sai_bridge_dump_bridge_port_info(bridge_port_id);
+                    } else {
+                        SAI_DEBUG("Error - missing bridge port id");
+                    }
+                } else {
+                    sai_shell_debug_bridge_help();
+                }
+            } else {
+                sai_shell_debug_bridge_help();
+            }
+        } else {
+            sai_shell_debug_bridge_help();
+        }
+    } else {
+        sai_shell_debug_bridge_help();
+    }
+}
 static void sai_shell_debug_help(void)
 {
     SAI_DEBUG("::debug acl");
@@ -1261,6 +1332,8 @@ static void sai_shell_debug(std_parsed_string_t handle)
             sai_shell_debug_sflow(handle);
         } else if(strcmp(token,"qos") == 0) {
             sai_shell_debug_qos(handle);
+        } else if(strcmp(token,"bridge") == 0) {
+            sai_shell_debug_bridge(handle);
         } else {
             sai_shell_debug_help();
         }

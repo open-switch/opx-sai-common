@@ -72,4 +72,16 @@ sai_status_t sai_l2_deregister_fdb_entry(const sai_fdb_entry_t *fdb_entry);
 
 void sai_l2_fdb_register_internal_callback (sai_fdb_internal_callback_fn
                                                        fdb_internal_callback);
+void sai_dump_all_fdb_entry_nodes (void);
+
+void sai_dump_all_fdb_entry_count (void);
+
+void sai_dump_all_fdb_registered_nodes (void);
+
+void sai_dump_fdb_entry_nodes_per_port (sai_object_id_t port_id);
+
+void sai_dump_fdb_entry_nodes_per_vlan (sai_vlan_id_t vlan_id);
+
+void sai_dump_fdb_entry_nodes_per_port_vlan (sai_object_id_t port_id,
+                                             sai_vlan_id_t vlan_id);
 #endif

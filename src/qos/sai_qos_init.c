@@ -28,6 +28,7 @@
 #include "sai_modules_init.h"
 #include "sai_common_infra.h"
 #include "sai_switch_init_config.h"
+#include "sai_qos_port_util.h"
 
 #include "saistatus.h"
 
@@ -478,6 +479,15 @@ sai_status_t sai_qos_init (void)
            SAI_QOS_LOG_CRIT ("SAI QOS port event init failed.");
            break;
        }
+        /* Initialize Port pool tree */
+        sai_rc = sai_qos_port_pool_tree_init();
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+            SAI_PORT_LOG_ERR("Port pool tree init failed, sai_rc%d", sai_rc);
+            return sai_rc;
+        }
+
+        /* Initialize Port pool SAI oid generator */
+        sai_qos_port_pool_oid_gen_init();
 
         sai_rc = sai_qos_port_all_init ();
 

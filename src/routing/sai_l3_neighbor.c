@@ -272,15 +272,24 @@ static sai_status_t sai_fib_neighbor_entry_validate (
                                    const sai_neighbor_entry_t *neighbor_entry)
 {
     sai_status_t  status;
+    sai_fib_router_interface_t *p_rif_node = NULL;
 
     STD_ASSERT (neighbor_entry != NULL);
 
-    if (!(sai_fib_router_interface_node_get (neighbor_entry->rif_id))) {
+    p_rif_node = sai_fib_router_interface_node_get (neighbor_entry->rif_id);
+    if (p_rif_node == NULL) {
 
         SAI_NEIGHBOR_LOG_ERR ("Invalid Neighbor RIF id: 0x%"PRIx64".",
                               neighbor_entry->rif_id);
 
         return SAI_STATUS_INVALID_OBJECT_ID;
+    }
+
+    if (p_rif_node->type == SAI_ROUTER_INTERFACE_TYPE_LOOPBACK) {
+
+        SAI_NEIGHBOR_LOG_ERR ("Loopback RIF id 0x%"PRIx64" is not valid "
+                              "in Neighbor entry", neighbor_entry->rif_id);
+        return SAI_STATUS_INVALID_PARAMETER;
     }
 
     status = sai_fib_next_hop_ip_address_validate (&neighbor_entry->ip_address);
@@ -300,6 +309,7 @@ static sai_status_t sai_fib_neighbor_ip_next_hop_node_key_fill (
     p_nh_key->nh_type  = SAI_NEXT_HOP_TYPE_IP;
     p_nh_key->rif_id   = neighbor_entry->rif_id;
 
+    p_nh_key->tunnel_type = SAI_FIB_TUNNEL_TYPE_NONE;
     p_ip_addr = &p_nh_key->info.ip_nh.ip_addr;
 
     status = sai_fib_ip_addr_copy (p_ip_addr, &neighbor_entry->ip_address);
@@ -627,7 +637,8 @@ static sai_status_t sai_fib_neighbor_node_create (sai_fib_nh_t *nh_info,
     /* Check if there is an existing next hop node */
     p_nh_node = sai_fib_ip_next_hop_node_get (SAI_NEXT_HOP_TYPE_IP,
                                               nh_info->key.rif_id,
-                                              sai_fib_next_hop_ip_addr (nh_info));
+                                              sai_fib_next_hop_ip_addr (nh_info),
+                                              SAI_FIB_TUNNEL_TYPE_NONE);
     if (p_nh_node) {
 
         if (sai_fib_is_owner_neighbor (p_nh_node)) {
@@ -798,7 +809,8 @@ static sai_status_t sai_fib_neighbor_remove (
         /* Get the neighbor node */
         p_nh_node = sai_fib_ip_next_hop_node_get (SAI_NEXT_HOP_TYPE_IP,
                                                   neighbor_entry->rif_id,
-                                                  p_ip_addr);
+                                                  p_ip_addr,
+                                                  SAI_FIB_TUNNEL_TYPE_NONE);
 
         if ((!p_nh_node)) {
 
@@ -906,7 +918,8 @@ static sai_status_t sai_fib_neighbor_attribute_set (
         /* Get the neighbor node */
         p_nh_node = sai_fib_ip_next_hop_node_get (SAI_NEXT_HOP_TYPE_IP,
                                                   neighbor_entry->rif_id,
-                                                  p_ip_addr);
+                                                  p_ip_addr,
+                                                  SAI_FIB_TUNNEL_TYPE_NONE);
 
         if ((!p_nh_node)) {
 
@@ -1032,7 +1045,8 @@ static sai_status_t sai_fib_neighbor_attribute_get (
         /* Get the neighbor node */
         p_nh_node = sai_fib_ip_next_hop_node_get (SAI_NEXT_HOP_TYPE_IP,
                                                   neighbor_entry->rif_id,
-                                                  p_ip_addr);
+                                                  p_ip_addr,
+                                                  SAI_FIB_TUNNEL_TYPE_NONE);
 
         if ((!p_nh_node)) {
 
@@ -1173,7 +1187,7 @@ static sai_status_t sai_fib_neighbor_port_id_set (const sai_fdb_entry_t *fdb_ent
 }
 
 sai_status_t sai_neighbor_fdb_callback (uint_t num_upd,
-                                        sai_fdb_notification_data_t *fdb_upd)
+                                        sai_fdb_internal_notification_data_t *fdb_upd)
 {
     uint_t            count;
     sai_object_id_t   port_id = SAI_NULL_OBJECT_ID;

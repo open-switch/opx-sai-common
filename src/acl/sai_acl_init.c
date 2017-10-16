@@ -126,7 +126,8 @@ static void sai_acl_cleanup(void)
         std_rbtree_destroy(acl_node->sai_acl_table_group_member_tree);
     }
 
-    if (acl_node->sai_acl_range_tree) {
+    if(acl_node->sai_acl_range_tree)
+    {
         std_rbtree_destroy(acl_node->sai_acl_range_tree);
     }
 
@@ -208,6 +209,7 @@ sai_status_t sai_acl_init(void)
         }
 
         sai_acl_table_id_generate();
+        sai_acl_counter_init();
 
         sai_acl_table_group_init();
 

@@ -38,6 +38,39 @@
 #include <string.h>
 #include <inttypes.h>
 
+static dn_sai_id_gen_info_t acl_counter_obj_info;
+
+static bool sai_is_acl_counter_id_in_use(uint64_t obj_id)
+{
+    acl_node_pt acl_node = sai_acl_get_acl_node();
+
+    sai_object_id_t acl_counter_id =
+        sai_uoid_create(SAI_OBJECT_TYPE_ACL_COUNTER,obj_id);
+
+    if(sai_acl_cntr_find(acl_node->sai_acl_counter_tree,
+                                acl_counter_id) != NULL) {
+        return true;
+    }
+    return false;
+}
+
+static sai_object_id_t sai_acl_counter_id_create(void)
+{
+    if(SAI_STATUS_SUCCESS ==
+       dn_sai_get_next_free_id(&acl_counter_obj_info)) {
+        return (sai_uoid_create(SAI_OBJECT_TYPE_ACL_COUNTER,
+                                acl_counter_obj_info.cur_id));
+    }
+    return SAI_NULL_OBJECT_ID;
+}
+
+void sai_acl_counter_init(void)
+{
+    acl_counter_obj_info.cur_id = 0;
+    acl_counter_obj_info.is_wrappped = false;
+    acl_counter_obj_info.mask = SAI_UOID_NPU_OBJ_ID_MASK;
+    acl_counter_obj_info.is_id_in_use = sai_is_acl_counter_id_in_use;
+}
 static void sai_acl_cntr_free(sai_acl_counter_t *acl_cntr)
 {
     STD_ASSERT(acl_cntr != NULL);
@@ -205,6 +238,13 @@ sai_status_t sai_create_acl_counter(sai_object_id_t *acl_counter_id,
                            acl_cntr->table_id);
                 break;
             }
+        }
+        acl_cntr->counter_key.counter_id = sai_acl_counter_id_create();
+
+        if(acl_cntr->counter_key.counter_id == SAI_NULL_OBJECT_ID)
+        {
+            rc = SAI_STATUS_FAILURE;
+            break;
         }
 
         /* Before creating SAI ACL Software database, program the hardware.*/
@@ -579,6 +619,7 @@ static sai_status_t sai_acl_cntr_get_value(sai_acl_counter_t *acl_counter,
     uint64_t counter_value[fetch_counter];
 
     if (fetch_counter != 0) {
+        memset(&counter_value, 0, sizeof(counter_value));
 
         rc = sai_acl_npu_api_get()->get_acl_cntr(acl_counter, fetch_counter, counter_value);
 

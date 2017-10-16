@@ -51,8 +51,8 @@
  * Router Interface functionality related macros.
  */
 #define SAI_FIB_RIF_MAX_ATTR_COUNT         (8)
-#define SAI_FIB_RIF_MANDATORY_ATTR_COUNT   (3)
-#define SAI_FIB_RIF_TYPE_MAX               (SAI_ROUTER_INTERFACE_TYPE_VLAN)
+#define SAI_FIB_RIF_MANDATORY_ATTR_COUNT   (2)
+#define SAI_FIB_RIF_TYPE_MAX               (SAI_ROUTER_INTERFACE_TYPE_LOOPBACK)
 #define SAI_FIB_RIF_TYPE_NONE              (SAI_FIB_RIF_TYPE_MAX + 1)
 
 /*
@@ -136,6 +136,10 @@ sai_status_t sai_fib_next_hop_rif_set (sai_fib_nh_t *p_nh_info,
 sai_fib_nh_t *sai_fib_ip_next_hop_node_create (sai_object_id_t vrf_id,
                                                sai_fib_nh_t *p_nh_info,
                                                sai_status_t *p_status);
+sai_status_t sai_fib_ip_next_hop_create (sai_fib_nh_t *p_nh_info,
+                                        sai_fib_nh_t **p_out_next_hop_node);
+
+sai_status_t sai_fib_ip_next_hop_remove (sai_fib_nh_t *p_nh_node);
 
 sai_status_t sai_fib_check_and_delete_ip_next_hop_node (
                                             sai_object_id_t vrf_id,
@@ -158,7 +162,7 @@ sai_status_t sai_rif_lag_callback (sai_object_id_t lag_id,
                                    const sai_object_list_t *port_list);
 
 sai_status_t sai_neighbor_fdb_callback (uint_t num_upd,
-                                        sai_fdb_notification_data_t *fdb_upd);
+                                        sai_fdb_internal_notification_data_t *fdb_upd);
 
 sai_status_t sai_fib_get_vr_id_for_rif (sai_object_id_t rif_id,
                                         sai_object_id_t *vr_id);
@@ -208,5 +212,30 @@ sai_status_t sai_fib_lag_rif_mapping_remove (sai_object_id_t lag_id,
 
 sai_status_t sai_fib_get_rif_id_from_lag_id (sai_object_id_t lag_id,
                                              sai_object_id_t *rif_id);
+void sai_fib_dump_vr (sai_object_id_t vr_id);
+
+void sai_fib_dump_all_vr (void);
+
+void sai_fib_dump_rif (sai_object_id_t rif_id);
+
+void sai_fib_dump_all_rif_in_vr (sai_object_id_t vr_id);
+
+void sai_fib_dump_all_rif (void);
+
+void sai_fib_dump_all_route_in_vr (sai_object_id_t vrf);
+
+void sai_fib_dump_nh (sai_object_id_t nh_id);
+
+void sai_fib_dump_all_nh (void);
+
+void sai_fib_dump_all_neighbor_in_vr (sai_object_id_t vrf);
+
+void sai_fib_dump_nh_group (sai_object_id_t group_id);
+
+void sai_fib_dump_all_nh_group (void);
+
+void sai_fib_dump_nh_list_from_nh_group (sai_object_id_t group_id);
+
+void sai_fib_dump_neighbor_mac_entry_tree (void);
 
 #endif /* __SAI_L3_API_UTILS_H__ */

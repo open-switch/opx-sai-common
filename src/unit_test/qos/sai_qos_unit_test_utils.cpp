@@ -529,4 +529,140 @@ sai_status_t sai_test_queue_remove(sai_object_id_t queue_id)
 
     return sai_rc;
 }
+sai_status_t sai_create_buffer_pool(sai_buffer_api_t* buffer_api_table,
+                                    sai_object_id_t *pool_id, unsigned int size,
+                                    sai_buffer_pool_type_t type,
+                                    sai_buffer_pool_threshold_mode_t th_mode)
+{
+    sai_status_t sai_rc;
+
+    sai_attribute_t attr[3];
+
+    attr[0].id = SAI_BUFFER_POOL_ATTR_TYPE;
+    attr[0].value.s32 = type;
+
+    attr[1].id = SAI_BUFFER_POOL_ATTR_SIZE;
+    attr[1].value.u32 = size;
+
+    attr[2].id = SAI_BUFFER_POOL_ATTR_THRESHOLD_MODE;
+    attr[2].value.s32 = th_mode;
+
+    sai_rc = buffer_api_table->create_buffer_pool(pool_id, switch_id, 3, attr);
+    return sai_rc;
+}
+
+sai_status_t sai_create_buffer_profile(sai_buffer_api_t* buffer_api_table,
+                                       sai_object_id_t *profile_id, unsigned int attr_bmp,
+                                       sai_object_id_t pool_id, unsigned int size, int th_mode,
+                                       int dynamic_th, unsigned int static_th,
+                                       unsigned int xoff_th, unsigned int xon_th)
+{
+    sai_status_t sai_rc;
+
+    sai_attribute_t attr[7];
+    unsigned int attr_idx = 0;
+
+    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_POOL_ID)) {
+        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_POOL_ID;
+        attr[attr_idx].value.oid = pool_id;
+        attr_idx++;
+    }
+
+    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_BUFFER_SIZE)) {
+        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_BUFFER_SIZE;
+        attr[attr_idx].value.u32 = size;
+        attr_idx++;
+    }
+
+    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_THRESHOLD_MODE)) {
+        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_THRESHOLD_MODE;
+        attr[attr_idx].value.s32 = th_mode;
+        attr_idx++;
+    }
+
+    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_SHARED_DYNAMIC_TH)) {
+        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_SHARED_DYNAMIC_TH;
+        attr[attr_idx].value.s8 = dynamic_th;
+        attr_idx++;
+    }
+
+    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_SHARED_STATIC_TH)) {
+        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_SHARED_STATIC_TH;
+        attr[attr_idx].value.u32 = static_th;
+        attr_idx++;
+    }
+
+    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_XOFF_TH)) {
+        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_XOFF_TH;
+        attr[attr_idx].value.u32 = xoff_th;
+        attr_idx++;
+    }
+
+    if (attr_bmp & (1 << SAI_BUFFER_PROFILE_ATTR_XON_TH)) {
+        attr[attr_idx].id = SAI_BUFFER_PROFILE_ATTR_XON_TH;
+        attr[attr_idx].value.u32 = xon_th;
+        attr_idx++;
+    }
+
+    sai_rc = buffer_api_table->create_buffer_profile(profile_id, switch_id, attr_idx, attr);
+    return sai_rc;
+}
+
+sai_status_t sai_qos_buffer_get_first_pg (sai_port_api_t* sai_port_api_table,
+                                          sai_object_id_t port_id, sai_object_id_t *pg_obj)
+{
+    unsigned int num_pg = 0;
+    sai_attribute_t get_attr[1];
+    sai_status_t sai_rc;
+
+    get_attr[0].id = SAI_PORT_ATTR_NUMBER_OF_INGRESS_PRIORITY_GROUPS;
+    sai_rc = sai_port_api_table->get_port_attribute (port_id, 1, get_attr);
+
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        return sai_rc;
+    }
+
+    num_pg = get_attr[0].value.u32;
+    sai_object_id_t pg_id[num_pg];
+
+    get_attr[0].id = SAI_PORT_ATTR_INGRESS_PRIORITY_GROUP_LIST;
+    get_attr[0].value.objlist.count = num_pg;
+    get_attr[0].value.objlist.list = pg_id;
+    sai_rc = sai_port_api_table->get_port_attribute (port_id, 1, get_attr);
+
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        return sai_rc;
+    }
+    *pg_obj = get_attr[0].value.objlist.list[0];
+    return SAI_STATUS_SUCCESS;
+}
+
+sai_status_t sai_qos_buffer_get_first_queue (sai_port_api_t* sai_port_api_table,
+                                             sai_object_id_t port_id, sai_object_id_t *queue_obj)
+{
+    unsigned int num_queue = 0;
+    sai_attribute_t get_attr[1];
+    sai_status_t sai_rc;
+
+    get_attr[0].id = SAI_PORT_ATTR_QOS_NUMBER_OF_QUEUES;
+    sai_rc = sai_port_api_table->get_port_attribute (port_id, 1, get_attr);
+
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        return sai_rc;
+    }
+
+    num_queue = get_attr[0].value.u32;
+    sai_object_id_t queue_id[num_queue];
+
+    get_attr[0].id = SAI_PORT_ATTR_QOS_QUEUE_LIST;
+    get_attr[0].value.objlist.count = num_queue;
+    get_attr[0].value.objlist.list = queue_id;
+    sai_rc = sai_port_api_table->get_port_attribute (port_id, 1, get_attr);
+
+    if(sai_rc != SAI_STATUS_SUCCESS) {
+        return sai_rc;
+    }
+    *queue_obj = get_attr[0].value.objlist.list[0];
+    return SAI_STATUS_SUCCESS;
+}
 

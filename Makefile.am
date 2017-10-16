@@ -36,7 +36,16 @@ src/switching/sai_stp.c  src/switching/sai_stp_debug.c \
 src/switching/sai_stp_utils.c  src/switching/sai_vlan.c \
 src/switching/sai_vlan_debug.c \
 src/tunnel/sai_tunnel_obj.c  src/tunnel/sai_tunnel_term_obj.c \
-src/udf/sai_udf.c  src/udf/sai_udf_group.c  src/udf/sai_udf_utils.c
+src/udf/sai_udf.c  src/udf/sai_udf_group.c  src/udf/sai_udf_utils.c \
+src/switching/sai_fdb_debug.c \
+src/switching/sai_l2mc_group.c \
+src/switching/sai_l2mc.c \
+src/routing/sai_l3_debug.c \
+src/tunnel/sai_tunnel_encap_nh.c \
+src/tunnel/sai_tunnel_map_obj.c \
+src/bridge/sai_bridge.c \
+src/bridge/sai_bridge_debug.c
+
 
 libopx_sai_common_la_CFLAGS= -I$(top_srcdir)/inc/opx -I$(includedir)/opx
 libopx_sai_common_la_LDFLAGS= -shared -version-info 1:1:0

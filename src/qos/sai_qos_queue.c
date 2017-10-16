@@ -71,6 +71,7 @@ sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node)
 
     do {
         if(p_queue_node->buffer_profile_id != SAI_NULL_OBJECT_ID) {
+            sai_qos_wred_link_update_cache(p_queue_node->key.queue_id);
             sai_rc = sai_qos_obj_update_buffer_profile(p_queue_node->key.queue_id, SAI_NULL_OBJECT_ID);
 
             if(sai_rc != SAI_STATUS_SUCCESS) {
@@ -82,10 +83,8 @@ sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node)
             buffer_profile_removed = true;
         }
         if(p_queue_node->wred_id != SAI_NULL_OBJECT_ID) {
-            set_attr.id = SAI_QUEUE_ATTR_WRED_PROFILE_ID;
-            set_attr.value.oid = SAI_NULL_OBJECT_ID;
-
-            sai_rc = sai_qos_wred_set_on_queue (p_queue_node->key.queue_id, &set_attr);
+            sai_rc = sai_qos_wred_link_set(p_queue_node->key.queue_id,
+                    SAI_NULL_OBJECT_ID, DN_SAI_QOS_WRED_LINK_QUEUE);
 
             if(sai_rc != SAI_STATUS_SUCCESS) {
                 SAI_QUEUE_LOG_ERR ("Error: Unable to remove WRED profile from queue:0x%"PRIx64"",
@@ -121,13 +120,12 @@ sai_status_t sai_qos_queue_remove_configs(dn_sai_qos_queue_t *p_queue_node)
                                     p_queue_node->key.queue_id, rev_sai_rc);
             } else {
                 p_queue_node->buffer_profile_id = buffer_profile_id;
+                sai_qos_wred_link_apply_cache(p_queue_node->key.queue_id);
             }
         }
         if(wred_removed) {
-            set_attr.id = SAI_QUEUE_ATTR_WRED_PROFILE_ID;
-            set_attr.value.oid = wred_id;
-
-            rev_sai_rc = sai_qos_wred_set_on_queue (p_queue_node->key.queue_id, &set_attr);
+            rev_sai_rc = sai_qos_wred_link_set(p_queue_node->key.queue_id,
+                    wred_id, DN_SAI_QOS_WRED_LINK_QUEUE);
             if(rev_sai_rc != SAI_STATUS_SUCCESS) {
                 SAI_QUEUE_LOG_ERR ("Unable to revert wred profile on queue 0x%"PRIx64" Error:%d",
                                     p_queue_node->key.queue_id, rev_sai_rc);
@@ -467,6 +465,7 @@ static sai_status_t sai_qos_queue_create_internal(sai_object_id_t *queue_id,
     bool                 is_queue_set_in_port_list = false;
     sai_attribute_t      attr;
     bool                 attach = false;
+    sai_object_id_t     buffer_profile_id = SAI_NULL_OBJECT_ID;
 
 
     sai_rc = sai_qos_queue_attributes_validate (attr_count, attr_list,
@@ -561,28 +560,33 @@ static sai_status_t sai_qos_queue_create_internal(sai_object_id_t *queue_id,
         }
 
         if(p_queue_node->wred_id != SAI_NULL_OBJECT_ID) {
-            attr.id = SAI_QUEUE_ATTR_WRED_PROFILE_ID;
-            attr.value.oid = p_queue_node->wred_id;
+            if(p_queue_node->queue_type != SAI_QUEUE_TYPE_UNICAST){
+                SAI_QUEUE_LOG_ERR("Queue 0x%"PRIx64" is not of type unicast to apply WRED.", *queue_id);
+                sai_rc = SAI_STATUS_INVALID_ATTR_VALUE_0;
+                break;
+            }
 
-            sai_rc = sai_qos_wred_set_on_queue (*queue_id, &attr);
+            sai_rc = sai_qos_wred_link_set(*queue_id, p_queue_node->wred_id, DN_SAI_QOS_WRED_LINK_QUEUE);
 
             if(sai_rc != SAI_STATUS_SUCCESS) {
-                SAI_QUEUE_LOG_ERR ("Failed to apply WRED profile 0x%"PRIx64""
-                                   "to queue:0x%"PRIx64"",  p_queue_node->wred_id,
-                                   *queue_id);
+                SAI_QUEUE_LOG_ERR ("Failed to apply WRED profile 0x%"PRIx64" to Queue 0x%"PRIx64".",
+                        p_queue_node->wred_id, *queue_id);
                 break;
             }
         }
 
         if(p_queue_node->buffer_profile_id != SAI_NULL_OBJECT_ID) {
-            sai_rc = sai_qos_obj_update_buffer_profile(*queue_id, p_queue_node->buffer_profile_id);
+            buffer_profile_id = p_queue_node->buffer_profile_id;
+            p_queue_node->buffer_profile_id = SAI_NULL_OBJECT_ID;
 
+            sai_rc = sai_qos_obj_update_buffer_profile(*queue_id, buffer_profile_id);
             if(sai_rc != SAI_STATUS_SUCCESS) {
-                SAI_QUEUE_LOG_ERR ("Failed to apply buffer profile 0x%"PRIx64""
-                                   "to queue:0x%"PRIx64"", p_queue_node->buffer_profile_id,
-                                   *queue_id);
+                SAI_QUEUE_LOG_ERR ("Failed to apply buffer profile 0x%"PRIx64" to queue:0x%"PRIx64"",
+                        buffer_profile_id, *queue_id);
                 break;
             }
+            p_queue_node->buffer_profile_id = buffer_profile_id;
+            sai_qos_wred_link_apply_cache(*queue_id);
         }
 
     } while (0);
@@ -773,12 +777,23 @@ static sai_status_t sai_qos_queue_attribute_set (sai_object_id_t queue_id,
                 break;
 
             case SAI_QUEUE_ATTR_WRED_PROFILE_ID:
-                sai_rc = sai_qos_wred_set_on_queue(queue_id, p_attr);
+                if(p_queue_node->queue_type != SAI_QUEUE_TYPE_UNICAST){
+                    SAI_QUEUE_LOG_ERR("Queue 0x%"PRIx64" is not of type unicast to apply WRED.", queue_id);
+                    sai_rc = SAI_STATUS_INVALID_ATTR_VALUE_0;
+                } else {
+                    sai_rc = sai_qos_wred_link_set(queue_id, p_attr->value.oid, DN_SAI_QOS_WRED_LINK_QUEUE);
+                }
                 break;
 
             case SAI_QUEUE_ATTR_BUFFER_PROFILE_ID:
-                sai_rc = sai_qos_obj_update_buffer_profile(queue_id,
-                                                           p_attr->value.oid);
+                sai_qos_wred_link_update_cache(queue_id);
+
+                sai_rc = sai_qos_obj_update_buffer_profile(queue_id, p_attr->value.oid);
+                if(SAI_STATUS_SUCCESS == sai_rc) {
+                    p_queue_node->buffer_profile_id = p_attr->value.oid;
+                }
+
+                sai_qos_wred_link_apply_cache(queue_id);
                 break;
             default:
                 sai_rc = sai_queue_npu_api_get()->queue_attribute_set(p_queue_node,

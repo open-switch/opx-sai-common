@@ -137,7 +137,7 @@ static sai_status_t sai_qos_map_update_ingress_maps(dn_sai_qos_port_t *p_qos_por
             map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DSCP_TO_TC];
 
             SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
-                               map_type, map_id);
+                               SAI_QOS_MAP_TYPE_DSCP_TO_TC, map_id);
 
             sai_rc = sai_qos_map_npu_api_get()->port_map_set
                 (p_qos_port_node->port_id, map_id,
@@ -150,7 +150,7 @@ static sai_status_t sai_qos_map_update_ingress_maps(dn_sai_qos_port_t *p_qos_por
             map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DSCP_TO_COLOR];
 
             SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
-                               map_type, map_id);
+                               SAI_QOS_MAP_TYPE_DSCP_TO_COLOR, map_id);
 
             sai_rc = sai_qos_map_npu_api_get()->port_map_set
                 (p_qos_port_node->port_id, map_id,
@@ -163,7 +163,7 @@ static sai_status_t sai_qos_map_update_ingress_maps(dn_sai_qos_port_t *p_qos_por
             map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR];
 
             SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
-                               map_type, map_id);
+                               SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR, map_id);
 
             sai_rc = sai_qos_map_npu_api_get()->port_map_set
                 (p_qos_port_node->port_id, map_id,
@@ -175,12 +175,24 @@ static sai_status_t sai_qos_map_update_ingress_maps(dn_sai_qos_port_t *p_qos_por
     else if((map_type == SAI_QOS_MAP_TYPE_DSCP_TO_TC) ||
             (map_type == SAI_QOS_MAP_TYPE_DSCP_TO_COLOR) ||
             (map_type == SAI_QOS_MAP_TYPE_DSCP_TO_TC_AND_COLOR)){
+        if ((p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_TC] == SAI_NULL_OBJECT_ID) &&
+            (p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR] == SAI_NULL_OBJECT_ID) &&
+            (p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR] == SAI_NULL_OBJECT_ID)) {
+
+            SAI_MAPS_LOG_TRACE("Ingress map update for SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR with default mapid");
+
+            sai_rc = sai_qos_map_npu_api_get()->port_map_set
+                     (p_qos_port_node->port_id, SAI_NULL_OBJECT_ID,
+                      SAI_QOS_MAP_TYPE_DOT1P_TO_TC, true);
+            return sai_rc;
+
+        } else {
 
         if(p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_TC] != SAI_NULL_OBJECT_ID){
             map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_TC];
 
             SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
-                                   map_type, map_id);
+                                   SAI_QOS_MAP_TYPE_DOT1P_TO_TC, map_id);
 
             sai_rc = sai_qos_map_npu_api_get()->port_map_set
                 (p_qos_port_node->port_id, map_id,
@@ -192,7 +204,7 @@ static sai_status_t sai_qos_map_update_ingress_maps(dn_sai_qos_port_t *p_qos_por
             map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR];
 
             SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
-                                   map_type, map_id);
+                                   SAI_QOS_MAP_TYPE_DOT1P_TO_COLOR, map_id);
 
             sai_rc = sai_qos_map_npu_api_get()->port_map_set
                 (p_qos_port_node->port_id, map_id,
@@ -204,12 +216,13 @@ static sai_status_t sai_qos_map_update_ingress_maps(dn_sai_qos_port_t *p_qos_por
             map_id = p_qos_port_node->maps_id[SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR];
 
             SAI_MAPS_LOG_TRACE("Ingress map update for maptype %d mapid 0x%"PRIx64"",
-                                   map_type, map_id);
+                                   SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR, map_id);
 
             sai_rc = sai_qos_map_npu_api_get()->port_map_set
                 (p_qos_port_node->port_id, map_id,
                  SAI_QOS_MAP_TYPE_DOT1P_TO_TC_AND_COLOR, true);
             return sai_rc;
+            }
         }
     }
 

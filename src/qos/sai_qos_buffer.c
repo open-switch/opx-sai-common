@@ -87,6 +87,7 @@ static sai_status_t sai_qos_create_buffer_pool(sai_object_id_t* pool_id,
     sai_status_t sai_rc;
     dn_sai_qos_buffer_pool_t  *p_buf_pool_node = NULL;
     bool npu_conf = false;
+    sai_object_id_t wred_id = SAI_NULL_OBJECT_ID;
 
     STD_ASSERT (attr_list != NULL);
     STD_ASSERT (pool_id != NULL);
@@ -118,6 +119,18 @@ static sai_status_t sai_qos_create_buffer_pool(sai_object_id_t* pool_id,
             break;
         }
 
+        if((SAI_NULL_OBJECT_ID != p_buf_pool_node->wred_id) &&
+                (SAI_BUFFER_POOL_TYPE_INGRESS == p_buf_pool_node->pool_type)) {
+            SAI_BUFFER_LOG_ERR ("WRED can't be applied on Ingress Buffer pool.");
+            sai_rc = SAI_STATUS_INVALID_ATTR_VALUE_0;
+            break;
+        }
+
+        sai_rc = sai_qos_validate_shared_buffer_pool_size(NULL,
+                                                          p_buf_pool_node);
+        if(sai_rc != SAI_STATUS_SUCCESS) {
+            break;
+        }
         sai_rc = sai_buffer_npu_api_get()->buffer_pool_create (p_buf_pool_node,
                                                                pool_id);
 
@@ -129,6 +142,22 @@ static sai_status_t sai_qos_create_buffer_pool(sai_object_id_t* pool_id,
         p_buf_pool_node->key.pool_id = *pool_id;
 
         sai_rc = sai_qos_buffer_pool_node_insert_to_tree(p_buf_pool_node);
+        if(SAI_STATUS_SUCCESS == sai_rc) {
+            if(SAI_NULL_OBJECT_ID != p_buf_pool_node->wred_id) {
+                wred_id = p_buf_pool_node->wred_id;
+                p_buf_pool_node->wred_id = SAI_NULL_OBJECT_ID;
+
+                if((sai_rc = sai_qos_wred_link_set(p_buf_pool_node->key.pool_id,
+                                wred_id, DN_SAI_QOS_WRED_LINK_BUFFER_POOL)) != SAI_STATUS_SUCCESS) {
+                    SAI_BUFFER_LOG_ERR("Failed to link WRED ID 0x%"PRIx64" for Buffer pool 0x%"PRIx64".",
+                            p_buf_pool_node->wred_id, p_buf_pool_node->key.pool_id);
+                    sai_qos_buffer_pool_node_remove_from_tree(p_buf_pool_node);
+                    break;
+                }
+
+                p_buf_pool_node->wred_id = wred_id;
+            }
+        }
     } while(0);
 
     if( sai_rc != SAI_STATUS_SUCCESS ) {
@@ -190,8 +219,8 @@ static sai_status_t sai_qos_buffer_pool_attr_set (sai_object_id_t pool_id,
                                                   const sai_attribute_t *attr)
 {
     dn_sai_qos_buffer_pool_t *p_buf_pool_node = NULL;
-    dn_sai_qos_buffer_pool_t  old_buf_pool_node;
-    sai_status_t sai_rc;
+    dn_sai_qos_buffer_pool_t  new_buf_pool_node;
+    sai_status_t sai_rc = SAI_STATUS_FAILURE;
 
     STD_ASSERT (attr != NULL);
 
@@ -201,7 +230,7 @@ static sai_status_t sai_qos_buffer_pool_attr_set (sai_object_id_t pool_id,
         return sai_rc;
     }
 
-    memset(&old_buf_pool_node, 0, sizeof(old_buf_pool_node));
+    memset(&new_buf_pool_node, 0, sizeof(new_buf_pool_node));
     sai_qos_lock ();
 
     do {
@@ -212,9 +241,9 @@ static sai_status_t sai_qos_buffer_pool_attr_set (sai_object_id_t pool_id,
             break;
         }
 
-        memcpy(&old_buf_pool_node, p_buf_pool_node, sizeof(dn_sai_qos_buffer_pool_t));
+        memcpy(&new_buf_pool_node, p_buf_pool_node, sizeof(dn_sai_qos_buffer_pool_t));
 
-        sai_rc = sai_qos_update_buffer_pool_node (p_buf_pool_node, 1, attr);
+        sai_rc = sai_qos_update_buffer_pool_node (&new_buf_pool_node, 1, attr);
         if(sai_rc != SAI_STATUS_SUCCESS) {
             SAI_BUFFER_LOG_WARN ("Unable to update buffer pool DB for pool ID"
                                  "0x%"PRIx64"", pool_id);
@@ -222,10 +251,44 @@ static sai_status_t sai_qos_buffer_pool_attr_set (sai_object_id_t pool_id,
         }
 
         switch (attr->id) {
+            case SAI_BUFFER_POOL_ATTR_XOFF_SIZE:
+                 /* Validation should be done after releasing/adding xoff_th on buffer profiles.
+                    Pool shared buffer size will modify based in xoff_size */
+                 if (new_buf_pool_node.pool_type != SAI_BUFFER_POOL_TYPE_INGRESS) {
+                     sai_rc = SAI_STATUS_ATTR_NOT_SUPPORTED_0;
+                 } else {
+                     sai_rc =
+                         sai_buffer_npu_api_get()->buffer_pool_attr_set(p_buf_pool_node, attr);
+                 }
+                 break;
             case SAI_BUFFER_POOL_ATTR_SIZE:
                 sai_rc =
-                   sai_buffer_npu_api_get()->buffer_pool_attr_set (&old_buf_pool_node,
-                                                                    attr);
+                     sai_qos_validate_shared_buffer_pool_size(p_buf_pool_node, &new_buf_pool_node);
+                 if(sai_rc != SAI_STATUS_SUCCESS) {
+                     SAI_BUFFER_LOG_WARN ("Unable to update buffer pool ID"
+                                          "0x%"PRIx64".", pool_id);
+                     break;
+                 }
+
+                sai_rc =
+                   sai_buffer_npu_api_get()->buffer_pool_attr_set(p_buf_pool_node, attr);
+                break;
+
+            case SAI_BUFFER_POOL_ATTR_WRED_PROFILE_ID:
+                if(new_buf_pool_node.wred_id != p_buf_pool_node->wred_id) {
+                    if(SAI_BUFFER_POOL_TYPE_INGRESS == p_buf_pool_node->pool_type) {
+                        SAI_BUFFER_LOG_ERR("WRED can't be applied on Ingress Buffer pool.");
+                        sai_rc = SAI_STATUS_INVALID_ATTR_VALUE_0;
+                    } else {
+                        if((sai_rc = sai_qos_wred_link_set(
+                                        p_buf_pool_node->key.pool_id,
+                                        new_buf_pool_node.wred_id,
+                                        DN_SAI_QOS_WRED_LINK_BUFFER_POOL)) != SAI_STATUS_SUCCESS) {
+                            SAI_BUFFER_LOG_ERR("Failed to link WRED ID 0x%"PRIx64" for Buffer pool 0x%"PRIx64".",
+                                    new_buf_pool_node.wred_id, p_buf_pool_node->key.pool_id);
+                        }
+                    }
+                }
                 break;
 
             case SAI_BUFFER_POOL_ATTR_THRESHOLD_MODE:
@@ -240,9 +303,11 @@ static sai_status_t sai_qos_buffer_pool_attr_set (sai_object_id_t pool_id,
         }
     } while (0);
 
-    if(sai_rc != SAI_STATUS_SUCCESS) {
-        if (p_buf_pool_node != NULL) {
-            memcpy(p_buf_pool_node, &old_buf_pool_node, sizeof(dn_sai_qos_buffer_pool_t));
+    /* Buffer pool node will be modified when handling WRED for dll glue*/
+    if((attr->id != SAI_BUFFER_POOL_ATTR_WRED_PROFILE_ID) &&
+            (attr->id != SAI_BUFFER_POOL_ATTR_XOFF_SIZE)) {
+        if((sai_rc == SAI_STATUS_SUCCESS) && (p_buf_pool_node != NULL)) {
+            memcpy(p_buf_pool_node, &new_buf_pool_node, sizeof(dn_sai_qos_buffer_pool_t));
         }
     }
 
@@ -277,9 +342,13 @@ static sai_status_t sai_qos_buffer_pool_attr_get (sai_object_id_t pool_id,
             sai_rc = SAI_STATUS_ITEM_NOT_FOUND;
             break;
         }
+        if (sai_buffer_npu_api_get()->buffer_pool_attr_get != NULL) {
+            sai_rc =
+                sai_buffer_npu_api_get()->buffer_pool_attr_get (p_buf_pool_node, attr_count, attr_list);
+        } else {
+          sai_rc = SAI_STATUS_NOT_SUPPORTED;
+        }
 
-        sai_rc =  sai_qos_read_buffer_pool_node(p_buf_pool_node, attr_count,
-                                                attr_list);
     } while (0);
 
     sai_qos_unlock ();
@@ -706,15 +775,18 @@ static sai_status_t  sai_qos_check_buffer_size (const sai_attribute_t *attr,
                                                 *p_buf_profile_node,
                                                 uint_t *buf_size, bool *is_add)
 {
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
     STD_ASSERT (attr != NULL);
     STD_ASSERT (p_buf_profile_node != NULL);
     STD_ASSERT (buf_size != NULL);
     STD_ASSERT (is_add != NULL);
 
     if(attr->id == SAI_BUFFER_PROFILE_ATTR_POOL_ID) {
-        *buf_size = (p_buf_profile_node->num_ref*(p_buf_profile_node->size + p_buf_profile_node->xoff_th));
+        *buf_size = (p_buf_profile_node->num_ref*(p_buf_profile_node->size +
+                    sai_qos_buffer_profile_get_reserved_xoff_th_get(p_buf_profile_node)));
         if(!sai_qos_is_buffer_pool_available (attr->value.oid, *buf_size)) {
-            SAI_BUFFER_LOG_WARN ("Error not enough memory in buffer pool");
+            SAI_BUFFER_LOG_WARN ("Error not enough memory in buffer pool 0x"PRIx64"",
+                                  p_buf_profile_node->buffer_pool_id);
             return SAI_STATUS_INSUFFICIENT_RESOURCES;
         }
     }
@@ -726,7 +798,15 @@ static sai_status_t  sai_qos_check_buffer_size (const sai_attribute_t *attr,
 
             if(!sai_qos_is_buffer_pool_available(p_buf_profile_node->buffer_pool_id,
                                                  *buf_size)) {
-                SAI_BUFFER_LOG_WARN ("Error not enough memory in buffer pool");
+                SAI_BUFFER_LOG_WARN ("Error not enough memory in buffer pool 0x"PRIx64"",
+                                     p_buf_profile_node->buffer_pool_id);
+                return SAI_STATUS_INSUFFICIENT_RESOURCES;
+            }
+            sai_rc = sai_buffer_npu_api_get()->check_buffer_size(p_buf_profile_node->buffer_pool_id,
+                                               p_buf_profile_node, (attr->value.u32 - p_buf_profile_node->size));
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_BUFFER_LOG_WARN ("Error not enough memory in buffer pool 0x"PRIx64"",
+                                      p_buf_profile_node->buffer_pool_id);
                 return SAI_STATUS_INSUFFICIENT_RESOURCES;
             }
             *is_add = true;
@@ -738,13 +818,31 @@ static sai_status_t  sai_qos_check_buffer_size (const sai_attribute_t *attr,
     }
 
     if (attr->id == SAI_BUFFER_PROFILE_ATTR_XOFF_TH) {
+        if (sai_qos_is_buffer_pool_xoff_size_configured(p_buf_profile_node->buffer_pool_id) == true) {
+           *is_add = true;
+           *buf_size = 0;
+           SAI_BUFFER_LOG_TRACE ("Buffer pool XOFF_SIZE is confiured, "
+                                 "Skip checking buffer availbality for pool 0x"PRIx64"",
+                                 p_buf_profile_node->buffer_pool_id);
+           return SAI_STATUS_SUCCESS;
+        }
         if(attr->value.u32 > p_buf_profile_node->xoff_th) {
             *buf_size = ((p_buf_profile_node->num_ref)*
                     (attr->value.u32 - p_buf_profile_node->xoff_th));
 
             if(!sai_qos_is_buffer_pool_available(p_buf_profile_node->buffer_pool_id,
                                                  *buf_size)) {
-                SAI_BUFFER_LOG_WARN ("Error not enough memory in buffer pool");
+                SAI_BUFFER_LOG_WARN ("Error not enough memory in buffer pool 0x"PRIx64"",
+                                      p_buf_profile_node->buffer_pool_id);
+                return SAI_STATUS_INSUFFICIENT_RESOURCES;
+            }
+
+            sai_rc = sai_buffer_npu_api_get()->check_buffer_size(p_buf_profile_node->buffer_pool_id,
+                                                                 p_buf_profile_node,
+                                                    (attr->value.u32 - p_buf_profile_node->xoff_th));
+            if (sai_rc != SAI_STATUS_SUCCESS) {
+                SAI_BUFFER_LOG_WARN ("Error not enough memory in buffer pool 0x"PRIx64"",
+                                      p_buf_profile_node->buffer_pool_id);
                 return SAI_STATUS_INSUFFICIENT_RESOURCES;
             }
             *is_add = true;
@@ -938,7 +1036,7 @@ sai_status_t sai_qos_obj_update_buffer_profile (sai_object_id_t object_id,
             return SAI_STATUS_INVALID_PARAMETER;
         }
 
-        new_size = p_buf_profile_node->size + p_buf_profile_node->xoff_th;
+        new_size = p_buf_profile_node->size + sai_qos_buffer_profile_get_reserved_xoff_th_get(p_buf_profile_node);
         new_pool_id = p_buf_profile_node->buffer_pool_id;
     } else {
         memset(&def_buf_profile, 0, sizeof(dn_sai_qos_buffer_profile_t));
@@ -953,7 +1051,7 @@ sai_status_t sai_qos_obj_update_buffer_profile (sai_object_id_t object_id,
                                 old_profile_id);
             return SAI_STATUS_ITEM_NOT_FOUND;
         }
-        old_size = p_old_buf_profile_node->size + p_old_buf_profile_node->xoff_th;
+        old_size = p_old_buf_profile_node->size + sai_qos_buffer_profile_get_reserved_xoff_th_get(p_old_buf_profile_node);
         old_pool_id = p_old_buf_profile_node->buffer_pool_id;
         if(p_old_buf_profile_node->profile_th_enable) {
             check_th = false;

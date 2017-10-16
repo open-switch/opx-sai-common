@@ -28,7 +28,8 @@ extern "C" {
 #include "saistatus.h"
 #include <inttypes.h>
 }
-#define SAI_MAX_GROUPS_PER_LEVEL 3
+#define SAI_MAX_GROUPS_PER_LEVEL 10
+#define SAI_TEST_GROUPS_PER_LEVEL 3
 #define SAI_MAX_HIERARCHY_LEVELS 10
 #define SAI_MAX_QUEUES_PER_PORT  40
 #define SAI_MAX_UC_QUEUES_PER_SG 10
@@ -36,6 +37,7 @@ extern "C" {
 
 #define SAI_MAX_QUEUES_PER_TEST  2
 
+bool   is_fixed_hqos;
 static const unsigned int default_port = 0;
 static sai_object_id_t    default_port_id  = 0;
 static sai_object_id_t    sg_id_list[SAI_MAX_HIERARCHY_LEVELS][SAI_MAX_GROUPS_PER_LEVEL];
@@ -435,6 +437,61 @@ static sai_status_t sai_sched_group_max_hierarchy_level_get(void)
     return sai_rc;
 }
 
+static sai_status_t sai_sched_group_test_hierarchy_get (void)
+{
+    sai_status_t     sai_rc = SAI_STATUS_SUCCESS;
+    unsigned int     level = 0;
+    unsigned int     group = 0;
+
+    unsigned int    attr_count = 1;
+    sai_attribute_t attr_list[attr_count];
+    unsigned int    max_sg_count = 0;
+    unsigned int    i = 0;
+
+    sai_rc = sai_test_port_sched_group_id_count_get(default_port_id,
+                                                    &max_sg_count);
+    EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+
+    sai_object_id_t sg_id_list_all[max_sg_count];
+
+    memset (&sg_id_list[0][0], 0, sizeof(sg_id_list));
+
+    sai_rc = sai_test_port_sched_group_id_list_get (default_port_id, max_sg_count,
+                                                    &sg_id_list_all[0]);
+    for (i = 0; i < max_sg_count; i++) {
+        sai_rc = sai_test_sched_group_attr_get (sg_id_list_all[i], &attr_list[0], attr_count,
+                                                SAI_SCHEDULER_GROUP_ATTR_LEVEL);
+        if (sai_rc != SAI_STATUS_SUCCESS) {
+            return SAI_STATUS_FAILURE;
+        }
+
+        level = attr_list[0].value.u32;
+        if (level < SAI_MAX_HIERARCHY_LEVELS) {
+            for (group = 0; group < SAI_MAX_GROUPS_PER_LEVEL; group++) {
+                if (sg_id_list[level][group])
+                    continue;
+                sg_id_list[level][group] = sg_id_list_all[i];
+                break;
+            }
+        }
+    }
+
+    for (level = 0; level < SAI_MAX_HIERARCHY_LEVELS; level++) {
+        for (group = 0; group < SAI_MAX_GROUPS_PER_LEVEL; group++) {
+            if (sg_id_list[level][group])
+                printf ("sg_id_list[%d][%d] sg :0x%" PRIx64 " \r\n",
+                         level, group, sg_id_list[level][group]);
+        }
+    }
+
+    unsigned int     max_queues = 0;
+
+    sai_rc = sai_test_port_max_number_queues_get (default_port_id,
+                                                  &max_queues);
+    sai_rc = sai_test_port_queue_id_list_get (default_port_id, max_queues,
+                                              &queue_id_list[0]);
+    return SAI_STATUS_SUCCESS;
+}
 static sai_status_t sai_sched_group_create_test_hierarchy (void)
 {
     sai_object_id_t  parent_sg_id = SAI_NULL_OBJECT_ID;
@@ -472,10 +529,10 @@ static sai_status_t sai_sched_group_create_test_hierarchy (void)
 
     parent_sg_id = sg_id_list[0][0];
 
-    /* Create SAI_MAX_GROUPS_PER_LEVEL at each level */
+    /* Create SAI_TEST_GROUPS_PER_LEVEL at each level */
     /* Add childs SG's at level N+1 to parent level N */
     for (level = 1; level < hqos_levels; level++) {
-        for (group = 0; group < SAI_MAX_GROUPS_PER_LEVEL; group++) {
+        for (group = 0; group < SAI_TEST_GROUPS_PER_LEVEL; group++) {
             sai_rc = sai_test_sched_group_create (
                               &sg_id_list[level][group], 5,
                               SAI_SCHEDULER_GROUP_ATTR_PORT_ID, default_port_id,
@@ -561,6 +618,8 @@ static sai_status_t sai_sched_group_remove_test_hierarchy (void)
     unsigned int     group = 0;
     unsigned int     queue = 0;
 
+    if (is_fixed_hqos)
+        return sai_rc;
     /* Remove queues as child */
     printf("Remove Queues from parent SG's at leaf level\r\n");
     for (queue = 0; queue < SAI_MAX_UC_QUEUES_PER_SG; queue++) {
@@ -576,7 +635,7 @@ static sai_status_t sai_sched_group_remove_test_hierarchy (void)
 
     printf("Remove SG's created at all levels\r\n");
     for (level = (int) hqos_levels - 1; level >= 0; level--) {
-        for (group = 0; group < SAI_MAX_GROUPS_PER_LEVEL; group++) {
+        for (group = 0; group < SAI_TEST_GROUPS_PER_LEVEL; group++) {
             if (sg_id_list[level][group] != 0) {
             printf("Remove SG 0x%" PRIx64 " at level %d and group %d \r\n",
                    sg_id_list[level][group], level, group);
@@ -633,6 +692,8 @@ TEST (saiQosSchedulerGroupTest, sched_group_create_and_remove)
     unsigned int max_childs = 1;
     sai_object_id_t parent_sg_id = default_port_id;
     sai_object_id_t sched_id = SAI_NULL_OBJECT_ID;
+    if (is_fixed_hqos)
+        return;
 
     printf("Create default Scheduler profile\r\n");
     /* Create Schduler Profile */
@@ -689,6 +750,8 @@ TEST (saiQosSchedulerGroupTest, sched_group_create_and_remove)
 TEST (saiQosSchedulerGroupTest, sched_group_create_and_mandatory_attribute)
 {
     sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    if (is_fixed_hqos)
+        return;
 
     /* Create Level 1 node */
     sai_rc = sai_test_sched_group_create (&sg_id_list[1][0], 1,
@@ -719,7 +782,10 @@ TEST (saiQosSchedulerGroupTest, modify_parent)
     sai_status_t     sai_rc = SAI_STATUS_SUCCESS;
     sai_attribute_t  attr = {0};
     unsigned int     child_count = 0;
-    sai_object_id_t  child_list[SAI_MAX_GROUPS_PER_LEVEL] = {0};
+    sai_object_id_t  child_list[SAI_TEST_GROUPS_PER_LEVEL] = {0};
+
+    if (is_fixed_hqos)
+        return;
 
     printf("Create Scheduler groups hierarchy at all levels \r\n");
     sai_rc = sai_sched_group_create_test_hierarchy();
@@ -744,7 +810,7 @@ TEST (saiQosSchedulerGroupTest, modify_parent)
         sai_rc = sai_test_sched_group_child_count_get(sg_id_list[1][0], &child_count);
         printf("Child count of L1.0 is %u\r\n", child_count);
 
-        memset(child_list, 0, SAI_MAX_GROUPS_PER_LEVEL);
+        memset(child_list, 0, SAI_TEST_GROUPS_PER_LEVEL);
         if (child_count > 0)
         {
             printf("Child List of L1.0 \r\n");
@@ -775,7 +841,7 @@ TEST (saiQosSchedulerGroupTest, modify_parent)
         sai_rc = sai_test_sched_group_child_count_get(sg_id_list[1][0], &child_count);
         printf("Child count of L1.0 is %u\r\n", child_count);
 
-        memset(child_list, 0, SAI_MAX_GROUPS_PER_LEVEL);
+        memset(child_list, 0, SAI_TEST_GROUPS_PER_LEVEL);
         if (child_count > 0)
         {
             printf("Child List of L1.0 \r\n");
@@ -799,6 +865,8 @@ TEST (saiQosSchedulerGroupTest, sched_group_attribute_get)
     unsigned int     attr_count = 4;
     sai_attribute_t  attr_list[attr_count];
     sai_object_id_t  sched_id = SAI_NULL_OBJECT_ID;
+    if (is_fixed_hqos)
+        return;
 
     printf("Create default Scheduler profile\r\n");
     /* Create Schduler Profile */
@@ -854,6 +922,7 @@ TEST (saiQosSchedulerGroupTest, sched_group_child_list_attribute_get)
     sai_object_id_t  child_list[SAI_MAX_GROUPS_PER_LEVEL];
     sai_object_id_t  queue_list[SAI_MAX_QUEUES_PER_PORT];
 
+    if (is_fixed_hqos == false)
     sai_rc = sai_sched_group_create_test_hierarchy();
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
@@ -866,7 +935,9 @@ TEST (saiQosSchedulerGroupTest, sched_group_child_list_attribute_get)
                                                          &child_list[0]);
         EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-        for (child = 0; child < SAI_MAX_GROUPS_PER_LEVEL; child++) {
+        for (child = 0; child < (is_fixed_hqos == true ?
+             SAI_MAX_GROUPS_PER_LEVEL : SAI_TEST_GROUPS_PER_LEVEL); child++) {
+            if (sg_id_list[next_level][child])
             EXPECT_EQ (sg_id_list[next_level][child], child_list[child]);
         }
     }
@@ -899,6 +970,8 @@ TEST (saiQosSchedulerGroupTest, sched_group_attribute_set)
     sai_attribute_t  attr;
     sai_object_id_t  child_id;
     sai_object_id_t  sched_id = SAI_NULL_OBJECT_ID;
+    if (is_fixed_hqos)
+        return;
 
     printf("Create default Scheduler profile\r\n");
     /* Create Schduler Profile */
@@ -968,15 +1041,17 @@ TEST (saiQosSchedulerGroupTest, sched_group_scheduler_profile_attribute_set)
     unsigned int     group = 0;
     sai_attribute_t  attr;
 
+    if (is_fixed_hqos == false) {
     sai_rc = sai_sched_group_create_test_hierarchy();
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
+        sai_rc =  sai_test_scheduler_remove (default_sched_id);
+        EXPECT_EQ (SAI_STATUS_OBJECT_IN_USE, sai_rc);
+    }
     /* Set scheduler in SG's for all levels, except ROOT */
     attr.id = SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID;
     attr.value.oid = SAI_NULL_OBJECT_ID;
 
-    sai_rc =  sai_test_scheduler_remove (default_sched_id);
-    EXPECT_EQ (SAI_STATUS_OBJECT_IN_USE, sai_rc);
 
     sai_object_id_t  sched_id_2 = SAI_NULL_OBJECT_ID;
     /* Create New Schduler Group */
@@ -995,7 +1070,7 @@ TEST (saiQosSchedulerGroupTest, sched_group_scheduler_profile_attribute_set)
     attr.value.oid = sched_id_2;
 
     for (level = 1; level < hqos_levels; level++) {
-        for (group = 0; (group < SAI_MAX_GROUPS_PER_LEVEL) &&
+        for (group = 0; (group < SAI_TEST_GROUPS_PER_LEVEL) &&
                         (sg_id_list[level][group] != 0); group++) {
                 sai_rc = p_sai_qos_sg_api_table->set_scheduler_group_attribute (sg_id_list[level][group],
                                                                                 &attr);
@@ -1015,7 +1090,7 @@ TEST (saiQosSchedulerGroupTest, sched_group_scheduler_profile_attribute_set)
     attr.value.oid = SAI_NULL_OBJECT_ID;
 
     for (level = 1; level < hqos_levels; level++) {
-        for (group = 0; (group < SAI_MAX_GROUPS_PER_LEVEL) &&
+        for (group = 0; (group < SAI_TEST_GROUPS_PER_LEVEL) &&
                         (sg_id_list[level][group] != 0); group++) {
             sai_rc = p_sai_qos_sg_api_table->set_scheduler_group_attribute (sg_id_list[level][group],
                                                                             &attr);
@@ -1056,8 +1131,10 @@ TEST (saiQosSchedulerGroupTest, sched_group_modify_scheduler_attributes)
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
+    if (is_fixed_hqos == false) {
     sai_rc = sai_sched_group_create_test_hierarchy();
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+    }
 
     attr.id = SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID;
     attr.value.oid = sched_id;
@@ -1124,8 +1201,10 @@ TEST (saiQosSchedulerGroupTest, scheduler_strict_priority_on_scheduler_group)
 
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
+    if (is_fixed_hqos == false) {
     sai_rc = sai_sched_group_create_test_hierarchy();
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+    }
 
     attr.id = SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID;
     attr.value.oid = sched_id;
@@ -1135,11 +1214,14 @@ TEST (saiQosSchedulerGroupTest, scheduler_strict_priority_on_scheduler_group)
     sai_rc = p_sai_qos_sg_api_table->set_scheduler_group_attribute (sg_id, &attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
+    if (hqos_levels > 2)
+    {
     /* Apply Scheduler to Level 2.0 node */
     sg_id = sg_id_list[2][0];
     sai_rc = p_sai_qos_sg_api_table->set_scheduler_group_attribute (sg_id, &attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
+    }
     /* SP + NO MAX Rate & Burst */
     attr.id = SAI_SCHEDULER_ATTR_MAX_BANDWIDTH_RATE;
     attr.value.u64 = 0;
@@ -1169,10 +1251,12 @@ TEST (saiQosSchedulerGroupTest, scheduler_strict_priority_on_scheduler_group)
     attr.id = SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID;
     attr.value.oid = SAI_NULL_OBJECT_ID;
 
+    if (hqos_levels > 2) {
     sg_id = sg_id_list[2][0];
     sai_rc = p_sai_qos_sg_api_table->set_scheduler_group_attribute (sg_id, &attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
+    }
     sg_id = sg_id_list[1][0];
     sai_rc = p_sai_qos_sg_api_table->set_scheduler_group_attribute (sg_id, &attr);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
@@ -1191,6 +1275,8 @@ TEST (saiQosSchedulerGroupTest, sched_group_attribute_create_set)
 {
     sai_status_t     sai_rc = SAI_STATUS_SUCCESS;
     sai_object_id_t  sg_id = SAI_NULL_OBJECT_ID;
+    if (is_fixed_hqos)
+        return;
 
     sai_rc = sai_test_sched_group_create (&sg_id, 5,
                                           SAI_SCHEDULER_GROUP_ATTR_PORT_ID,
@@ -1213,15 +1299,18 @@ TEST (saiQosSchedulerGroupTest, sched_group_inuse)
     unsigned int     group = 0;
     sai_attribute_t  attr;
 
+    if (is_fixed_hqos == false) {
     sai_rc = sai_sched_group_create_test_hierarchy();
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
-    sai_object_id_t  sched_id = SAI_NULL_OBJECT_ID;
 
     if (sg_id_list[0][0] != 0) {
         sai_rc =  sai_test_sched_group_remove (sg_id_list[0][0]);
         EXPECT_EQ (SAI_STATUS_OBJECT_IN_USE, sai_rc);
     }
+    }
+
+    sai_object_id_t  sched_id = SAI_NULL_OBJECT_ID;
 
     /* Create Schduler Profile */
     sai_rc = sai_test_scheduler_create (&sched_id, 7,
@@ -1240,7 +1329,7 @@ TEST (saiQosSchedulerGroupTest, sched_group_inuse)
     attr.value.oid = sched_id;
 
     for (level = 1; level < hqos_levels; level++) {
-        for (group = 0; (group < SAI_MAX_GROUPS_PER_LEVEL) &&
+        for (group = 0; (group < SAI_TEST_GROUPS_PER_LEVEL) &&
                         (sg_id_list[level][group] != 0); group++) {
              sai_rc = p_sai_qos_sg_api_table->set_scheduler_group_attribute (sg_id_list[level][group],
                                                                                 &attr);
@@ -1257,7 +1346,7 @@ TEST (saiQosSchedulerGroupTest, sched_group_inuse)
     attr.value.oid = SAI_NULL_OBJECT_ID;
 
     for (level = 1; level < hqos_levels; level++) {
-        for (group = 0; (group < SAI_MAX_GROUPS_PER_LEVEL) &&
+        for (group = 0; (group < SAI_TEST_GROUPS_PER_LEVEL) &&
                         (sg_id_list[level][group] != 0); group++) {
             sai_rc = p_sai_qos_sg_api_table->set_scheduler_group_attribute (sg_id_list[level][group],
                                                                             &attr);
@@ -1270,12 +1359,14 @@ TEST (saiQosSchedulerGroupTest, sched_group_inuse)
         }
     }
 
+    if (is_fixed_hqos == false) {
     sai_rc =  sai_test_sched_group_remove (sg_id_list[1][0]);
     EXPECT_EQ (SAI_STATUS_OBJECT_IN_USE, sai_rc);
 
     sai_rc = sai_sched_group_remove_test_hierarchy();
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 
+    }
     sai_rc =  sai_test_scheduler_remove (sched_id);
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
 }
@@ -1297,8 +1388,10 @@ TEST (saiQosSchedulerGroupTest, two_strict_priority)
     sai_attribute_t  attr;
     sai_attribute_t  get_attr;
 
+    if (is_fixed_hqos == false) {
     sai_rc = sai_sched_group_create_test_hierarchy();
     EXPECT_EQ (SAI_STATUS_SUCCESS, sai_rc);
+    }
 
     for (int iLoop = 0; iLoop < 3; iLoop++) {
         sai_rc = sai_test_scheduler_create (&sp_sched_id[iLoop], 6,
@@ -1350,6 +1443,7 @@ TEST (saiQosSchedulerGroupTest, two_strict_priority)
     sai_rc = p_sai_qos_sg_api_table->get_scheduler_group_attribute (sg_id, 1, &get_attr);
     EXPECT_EQ (sp_sched_id[2], get_attr.value.oid);
 
+    if (hqos_levels > 2) {
     /* Apply SP scheduler on L1 nodes */
     sg_id = sg_id_list[2][2];
     attr.value.oid = sp_sched_id[1];
@@ -1367,6 +1461,7 @@ TEST (saiQosSchedulerGroupTest, two_strict_priority)
     sai_rc = p_sai_qos_sg_api_table->get_scheduler_group_attribute (sg_id, 1, &get_attr);
     EXPECT_EQ (sp_sched_id[0], get_attr.value.oid);
 
+    }
     attr.id = SAI_SCHEDULER_GROUP_ATTR_SCHEDULER_PROFILE_ID;
     attr.value.oid = wrr_sched_id;
 
@@ -1384,6 +1479,9 @@ int main (int argc, char **argv)
     SetUpTestCase ();
     default_port_id = sai_qos_port_id_get (default_port);
     sai_sched_group_max_hierarchy_level_get();
+    sai_sched_group_test_hierarchy_get();
+    /* TODO - Get this by switch attribute, TH set this to true */
+    is_fixed_hqos = false;
     return RUN_ALL_TESTS();
 }
 

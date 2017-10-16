@@ -103,5 +103,19 @@ extern sai_status_t sai_test_port_queue_count_and_id_list_get(sai_object_id_t po
                                                     unsigned int *max_queues,
                                                     sai_object_id_t *queue_id_list);
 
+sai_status_t sai_create_buffer_pool(sai_buffer_api_t* buffer_api_table,
+                                    sai_object_id_t *pool_id, unsigned int size,
+                                    sai_buffer_pool_type_t type,
+                                    sai_buffer_pool_threshold_mode_t th_mode);
+sai_status_t sai_create_buffer_profile(sai_buffer_api_t* buffer_api_table,
+                                       sai_object_id_t *profile_id, unsigned int attr_bmp,
+                                       sai_object_id_t pool_id, unsigned int size, int th_mode,
+                                       int dynamic_th, unsigned int static_th,
+                                       unsigned int xoff_th, unsigned int xon_th);
+sai_status_t sai_qos_buffer_get_first_pg (sai_port_api_t* sai_port_api_table,
+                                          sai_object_id_t port_id, sai_object_id_t *pg_obj);
+sai_status_t sai_qos_buffer_get_first_queue (sai_port_api_t* sai_port_api_table,
+                                             sai_object_id_t port_id,
+                                             sai_object_id_t *queue_obj);
 
 #endif /* __SAI_QOS_UNIT_TEST_H__ */

@@ -168,7 +168,7 @@ TEST_F(qosMap, duplicate_map)
 
     set_attr.id = SAI_PORT_ATTR_QOS_DOT1P_TO_TC_AND_COLOR_MAP;
     set_attr.value.oid = map_id;
-    ASSERT_EQ(SAI_STATUS_ITEM_ALREADY_EXISTS,sai_port_api_table->set_port_attribute
+    ASSERT_EQ(SAI_STATUS_SUCCESS,sai_port_api_table->set_port_attribute
               (sai_qos_port_id_get(test_port_id), (const sai_attribute_t *)&set_attr));
 
 }

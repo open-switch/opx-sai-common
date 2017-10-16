@@ -384,7 +384,7 @@ const sai_route_entry_t *p_uc_route)
     p_ip_prefix = &p_uc_route->destination;
 
     if (p_ip_prefix->addr_family == SAI_IP_ADDR_FAMILY_IPV4) {
-        prefix_len = std_ip_v4_mask_to_prefix_len (p_ip_prefix->mask.ip4);
+        prefix_len = std_ip_v4_mask_to_prefix_len (ntohl(p_ip_prefix->mask.ip4));
     } else if (p_ip_prefix->addr_family == SAI_IP_ADDR_FAMILY_IPV6) {
         prefix_len =
             std_ip_v6_mask_to_prefix_len ((uint8_t *)p_ip_prefix->mask.ip6,

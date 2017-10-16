@@ -66,5 +66,6 @@ void sai_hash_obj_deinit (void);
 sai_status_t sai_tunnel_init (void);
 
 void sai_tunnel_deinit (void);
+sai_status_t sai_l2mc_init (void);
 
 #endif

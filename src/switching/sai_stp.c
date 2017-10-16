@@ -996,8 +996,8 @@ sai_status_t sai_stp_port_attribute_get(sai_object_id_t stp_port_id,
 sai_status_t sai_stp_port_bulk_create(
         sai_object_id_t switch_id,
         uint32_t object_count,
-        uint32_t *attr_count,
-        sai_attribute_t **attrs,
+        const uint32_t *attr_count,
+        const sai_attribute_t **attrs,
         sai_bulk_op_type_t type,
         sai_object_id_t *object_id,
         sai_status_t *object_statuses)
@@ -1007,7 +1007,7 @@ sai_status_t sai_stp_port_bulk_create(
 
 sai_status_t sai_stp_port_bulk_remove(
         uint32_t object_count,
-        sai_object_id_t *object_id,
+        const sai_object_id_t *object_id,
         sai_bulk_op_type_t type,
         sai_status_t *object_statuses)
 {

@@ -43,8 +43,8 @@
 static std_thread_create_param_t _thread;
 static int sai_fdb_fd[SAI_FDB_MAX_FD];
 static sai_fdb_event_notification_fn sai_l2_fdb_notification_fn = NULL;
-static bool npu_flush_registered = false;
-static sai_fdb_event_notification_data_t valid_data[SAI_FDB_MAX_MACS_PER_CALLBACK];
+static sai_fdb_event_notification_data_t valid_notification_data[SAI_FDB_MAX_MACS_PER_CALLBACK];
+static bool sai_fdb_delete_entry_by_entry_on_flush = true;
 
 static void * _sai_fdb_internal_notif(void * param) {
     int len = 0;
@@ -98,10 +98,198 @@ sai_status_t sai_fdb_init(void)
         return SAI_STATUS_FAILURE;
     }
 
-    sai_fdb_npu_flush_callback_cache_update(sai_fdb_npu_api_get()->flush_fdb_entry);
-    npu_flush_registered = true;
 
     return SAI_STATUS_SUCCESS;
+}
+static void sai_delete_all_fdb_entry_nodes (bool delete_all, sai_fdb_flush_entry_type_t flush_entry_type)
+{
+    sai_fdb_entry_node_t *fdb_entry_node = NULL;
+    sai_fdb_entry_key_t fdb_key;
+    sai_fdb_entry_type_t entry_type = sai_get_sai_fdb_entry_type_for_flush(flush_entry_type);
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    char mac_str[SAI_MAC_STR_LEN] = {0};
+    sai_fdb_entry_t fdb_entry;
+    bool remove_fdb_from_cache = true;
+
+    memset(&fdb_key, 0, sizeof(fdb_key));
+
+    fdb_entry_node = sai_get_next_fdb_entry_node (&fdb_key);
+
+    while(fdb_entry_node != NULL) {
+        memcpy(&fdb_key,&(fdb_entry_node->fdb_key),
+               sizeof(sai_fdb_entry_key_t));
+        if ((delete_all == true) ||
+            (entry_type == fdb_entry_node->entry_type)) {
+            if(sai_fdb_delete_entry_by_entry_on_flush) {
+                fdb_entry.vlan_id = fdb_entry_node->fdb_key.vlan_id;
+                memcpy(fdb_entry.mac_address, fdb_entry_node->fdb_key.mac_address,
+                       sizeof(sai_mac_t));
+                sai_rc = sai_fdb_npu_api_get()->flush_fdb_entry(&fdb_entry, false);
+
+                if(sai_rc != SAI_STATUS_SUCCESS) {
+                    SAI_FDB_LOG_TRACE ("Delete failed for for MAC:%s vlan:%d Error code %d",
+                                       std_mac_to_string((const sai_mac_t *)
+                                       &(fdb_entry.mac_address), mac_str,
+                                       sizeof(mac_str)), fdb_entry.vlan_id, sai_rc);
+                    remove_fdb_from_cache = false;
+                } else {
+                    remove_fdb_from_cache = true;
+                }
+
+            }
+            if(remove_fdb_from_cache) {
+                sai_remove_fdb_entry_node(fdb_entry_node);
+            }
+        }
+        fdb_entry_node = sai_get_next_fdb_entry_node (&fdb_key);
+    }
+}
+
+static void sai_delete_fdb_entry_nodes_per_port (sai_object_id_t port_id, bool delete_all,
+                                                 sai_fdb_flush_entry_type_t flush_entry_type)
+{
+    sai_fdb_entry_node_t *fdb_entry_node = NULL;
+    sai_fdb_entry_key_t fdb_key;
+    sai_fdb_entry_type_t entry_type = sai_get_sai_fdb_entry_type_for_flush(flush_entry_type);
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    char mac_str[SAI_MAC_STR_LEN] = {0};
+    sai_fdb_entry_t fdb_entry;
+    bool remove_fdb_from_cache = true;
+
+    memset(&fdb_key, 0, sizeof(fdb_key));
+    fdb_entry_node = sai_get_next_fdb_entry_node (&fdb_key);
+    while(fdb_entry_node != NULL) {
+        memcpy(&fdb_key,&(fdb_entry_node->fdb_key),
+               sizeof(sai_fdb_entry_key_t));
+        if(fdb_entry_node->port_id == port_id){
+            if ((delete_all == true) ||
+                (entry_type == fdb_entry_node->entry_type)) {
+                if(sai_fdb_delete_entry_by_entry_on_flush) {
+                    fdb_entry.vlan_id = fdb_entry_node->fdb_key.vlan_id;
+                    memcpy(fdb_entry.mac_address, fdb_entry_node->fdb_key.mac_address,
+                           sizeof(sai_mac_t));
+                    sai_rc = sai_fdb_npu_api_get()->flush_fdb_entry(&fdb_entry, true);
+
+                    if(sai_rc != SAI_STATUS_SUCCESS) {
+                        SAI_FDB_LOG_TRACE ("Delete failed for for MAC:%s vlan:%d Error code %d",
+                                           std_mac_to_string((const sai_mac_t *)
+                                           &(fdb_entry.mac_address), mac_str,
+                                           sizeof(mac_str)), fdb_entry.vlan_id, sai_rc);
+                        remove_fdb_from_cache = false;
+                    } else {
+                        remove_fdb_from_cache = true;
+                    }
+
+                }
+                if(remove_fdb_from_cache) {
+                    sai_remove_fdb_entry_node(fdb_entry_node);
+                }
+
+            }
+        }
+        fdb_entry_node = sai_get_next_fdb_entry_node (&fdb_key);
+    }
+
+}
+
+static void sai_delete_fdb_entry_nodes_per_vlan (sai_vlan_id_t vlan_id, bool delete_all,
+                                                 sai_fdb_flush_entry_type_t flush_entry_type)
+{
+    sai_fdb_entry_node_t *fdb_entry_node = NULL;
+    sai_fdb_entry_key_t fdb_key;
+    sai_fdb_entry_type_t entry_type = sai_get_sai_fdb_entry_type_for_flush(flush_entry_type);
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    char mac_str[SAI_MAC_STR_LEN] = {0};
+    sai_fdb_entry_t fdb_entry;
+    bool remove_fdb_from_cache = true;
+
+
+    memset(&fdb_key, 0, sizeof(fdb_key));
+    fdb_key.vlan_id = vlan_id;
+
+    fdb_entry_node = sai_get_next_fdb_entry_node (&fdb_key);
+
+    while(fdb_entry_node != NULL) {
+        memcpy(&fdb_key,&(fdb_entry_node->fdb_key),
+              sizeof(sai_fdb_entry_key_t));
+        if(fdb_key.vlan_id != vlan_id){
+            break;
+        }
+        if(delete_all == true || entry_type == fdb_entry_node->entry_type) {
+            if(sai_fdb_delete_entry_by_entry_on_flush) {
+                fdb_entry.vlan_id = fdb_entry_node->fdb_key.vlan_id;
+                memcpy(fdb_entry.mac_address, fdb_entry_node->fdb_key.mac_address,
+                       sizeof(sai_mac_t));
+                sai_rc = sai_fdb_npu_api_get()->flush_fdb_entry(&fdb_entry, false);
+
+                if(sai_rc != SAI_STATUS_SUCCESS) {
+                    SAI_FDB_LOG_TRACE ("Delete failed for for MAC:%s vlan:%d Error code %d",
+                                       std_mac_to_string((const sai_mac_t *)
+                                       &(fdb_entry.mac_address), mac_str,
+                                       sizeof(mac_str)), fdb_entry.vlan_id, sai_rc);
+                    remove_fdb_from_cache = false;
+                } else {
+                    remove_fdb_from_cache = true;
+                }
+
+            }
+            if(remove_fdb_from_cache) {
+                sai_remove_fdb_entry_node(fdb_entry_node);
+            }
+        }
+        fdb_entry_node = sai_get_next_fdb_entry_node (&fdb_key);
+    }
+}
+
+static void sai_delete_fdb_entry_nodes_per_port_vlan (sai_object_id_t port_id,
+                                                      sai_vlan_id_t vlan_id, bool delete_all,
+                                                      sai_fdb_flush_entry_type_t flush_entry_type)
+{
+    sai_fdb_entry_node_t *fdb_entry_node = NULL;
+    sai_fdb_entry_key_t fdb_key;
+    sai_fdb_entry_type_t entry_type = sai_get_sai_fdb_entry_type_for_flush(flush_entry_type);
+    sai_fdb_entry_t fdb_entry;
+    bool remove_fdb_from_cache = true;
+
+    memset(&fdb_key, 0, sizeof(fdb_key));
+    fdb_key.vlan_id = vlan_id;
+    sai_status_t sai_rc = SAI_STATUS_SUCCESS;
+    char mac_str[SAI_MAC_STR_LEN] = {0};
+
+    fdb_entry_node = sai_get_next_fdb_entry_node (&fdb_key);
+
+    while(fdb_entry_node != NULL) {
+        memcpy(&fdb_key,&(fdb_entry_node->fdb_key),
+               sizeof(sai_fdb_entry_key_t));
+        if(fdb_key.vlan_id != vlan_id){
+            break;
+        }
+        if ((fdb_entry_node->port_id == port_id)){
+            if ((delete_all == true) || (entry_type == fdb_entry_node->entry_type)) {
+                if(sai_fdb_delete_entry_by_entry_on_flush) {
+                    fdb_entry.vlan_id = fdb_entry_node->fdb_key.vlan_id;
+                    memcpy(fdb_entry.mac_address, fdb_entry_node->fdb_key.mac_address,
+                           sizeof(sai_mac_t));
+                    sai_rc = sai_fdb_npu_api_get()->flush_fdb_entry(&fdb_entry, true);
+
+                    if(sai_rc != SAI_STATUS_SUCCESS) {
+                        SAI_FDB_LOG_TRACE ("Delete failed for for MAC:%s vlan:%d Error code %d",
+                                           std_mac_to_string((const sai_mac_t *)
+                                           &(fdb_entry.mac_address), mac_str,
+                                           sizeof(mac_str)), fdb_entry.vlan_id, sai_rc);
+                        remove_fdb_from_cache = false;
+                    } else {
+                        remove_fdb_from_cache = true;
+                    }
+
+                }
+                if(remove_fdb_from_cache) {
+                    sai_remove_fdb_entry_node(fdb_entry_node);
+                }
+            }
+        }
+        fdb_entry_node = sai_get_next_fdb_entry_node (&fdb_key);
+    }
 }
 static sai_status_t sai_l2_flush_fdb_entry (sai_object_id_t switch_id, unsigned int attr_count,
                                             const sai_attribute_t *attr_list)
@@ -160,7 +348,7 @@ static sai_status_t sai_l2_flush_fdb_entry (sai_object_id_t switch_id, unsigned 
             return SAI_STATUS_INVALID_PARAMETER;
     }
     sai_fdb_lock();
-    if(!npu_flush_registered) {
+    if(!sai_fdb_delete_entry_by_entry_on_flush) {
         ret_val = sai_fdb_npu_api_get()->flush_all_fdb_entries (port_id, vlan_id,
                                                                 delete_all, flush_type);
         if(ret_val != SAI_STATUS_SUCCESS) {
@@ -193,6 +381,7 @@ static sai_status_t sai_l2_remove_fdb_entry(const sai_fdb_entry_t *fdb_entry)
 {
     char mac_str[SAI_MAC_STR_LEN] = {0};
     sai_status_t ret_val = SAI_STATUS_SUCCESS;
+    sai_fdb_entry_node_t *fdb_entry_node = NULL;
 
     STD_ASSERT(fdb_entry != NULL);
     if(!sai_is_valid_vlan_id(fdb_entry->vlan_id)) {
@@ -204,14 +393,15 @@ static sai_status_t sai_l2_remove_fdb_entry(const sai_fdb_entry_t *fdb_entry)
                         std_mac_to_string(&(fdb_entry->mac_address), mac_str,
                                     sizeof(mac_str)), fdb_entry->vlan_id);
     sai_fdb_lock();
-    if(!npu_flush_registered) {
         ret_val = sai_fdb_npu_api_get()->flush_fdb_entry(fdb_entry , false);
         if(ret_val != SAI_STATUS_SUCCESS) {
             sai_fdb_unlock();
             return ret_val;
         }
+    fdb_entry_node = sai_get_fdb_entry_node(fdb_entry);
+    if(fdb_entry_node != NULL) {
+         sai_remove_fdb_entry_node(fdb_entry_node);
     }
-    ret_val = sai_delete_fdb_entry_node(fdb_entry);
     sai_fdb_unlock();
     sai_fdb_wake_notification_thread ();
     return ret_val;
@@ -505,9 +695,7 @@ static bool sai_is_valid_fdb_learn (const sai_fdb_entry_t *fdb_entry, sai_object
     return true;
 }
 
-static void sai_common_fdb_event_notification (uint32_t count,
-                                               sai_fdb_event_notification_data_t *data,
-                                               sai_fdb_even_additional_data_t *additional_data)
+static void sai_common_fdb_event_notification (uint32_t count, sai_fdb_event_data_t *data)
 {
     sai_fdb_entry_node_t *fdb_entry_node = NULL;
     sai_fdb_entry_node_t fdb_entry_node_data;
@@ -515,53 +703,53 @@ static void sai_common_fdb_event_notification (uint32_t count,
     unsigned int entry_idx = 0;
     uint_t valid_count = 0;
     sai_status_t sai_rc;
+    sai_fdb_event_notification_data_t *notification_data;
 
     STD_ASSERT(data != NULL);
-    STD_ASSERT(additional_data != NULL);
     if((count == 0) || count > SAI_FDB_MAX_MACS_PER_CALLBACK) {
         SAI_FDB_LOG_ERR("Invalid FDB num count %d",count);
         return;
     }
     sai_fdb_lock();
-    memset(valid_data, 0, sizeof(valid_data));
+    memset(valid_notification_data, 0, sizeof(valid_notification_data));
     for(entry_idx = 0; entry_idx < count; entry_idx++) {
-        STD_ASSERT(data[entry_idx].attr != NULL);
+        notification_data = data[entry_idx].notification_data;
 
         memset(&fdb_entry_node_data, 0, sizeof(fdb_entry_node_data));
-        for(attr_idx = 0; attr_idx < data[entry_idx].attr_count; attr_idx++) {
-            if(data[entry_idx].attr[attr_idx].id == SAI_FDB_ENTRY_ATTR_PORT_ID) {
-                fdb_entry_node_data.port_id = data[entry_idx].attr[attr_idx].value.oid;
-            } else if(data[entry_idx].attr[attr_idx].id == SAI_FDB_ENTRY_ATTR_TYPE) {
-                fdb_entry_node_data.entry_type = (sai_fdb_entry_type_t)data[entry_idx].attr[attr_idx].value.s32;
-            } else if(data[entry_idx].attr[attr_idx].id == SAI_FDB_ENTRY_ATTR_PACKET_ACTION) {
-                fdb_entry_node_data.action = (sai_packet_action_t)data[entry_idx].attr[attr_idx].value.s32;
-            } else if (data[entry_idx].attr[attr_idx].id == SAI_FDB_ENTRY_ATTR_META_DATA) {
-                fdb_entry_node_data.metadata = data[entry_idx].attr[attr_idx].value.u32;
+        for(attr_idx = 0; attr_idx < notification_data->attr_count; attr_idx++) {
+            if(notification_data->attr[attr_idx].id == SAI_FDB_ENTRY_ATTR_PORT_ID) {
+                fdb_entry_node_data.port_id = notification_data->attr[attr_idx].value.oid;
+            } else if(notification_data->attr[attr_idx].id == SAI_FDB_ENTRY_ATTR_TYPE) {
+                fdb_entry_node_data.entry_type = (sai_fdb_entry_type_t)notification_data->attr[attr_idx].value.s32;
+            } else if(notification_data->attr[attr_idx].id == SAI_FDB_ENTRY_ATTR_PACKET_ACTION) {
+                fdb_entry_node_data.action = (sai_packet_action_t)notification_data->attr[attr_idx].value.s32;
+            } else if (notification_data->attr[attr_idx].id == SAI_FDB_ENTRY_ATTR_META_DATA) {
+                fdb_entry_node_data.metadata = notification_data->attr[attr_idx].value.u32;
             }
         }
 
-        fdb_entry_node_data.is_pending_entry = additional_data[entry_idx].is_pending_entry;
+        fdb_entry_node_data.is_pending_entry = data[entry_idx].is_pending_entry;
 
-        if((data[entry_idx].event_type == SAI_FDB_EVENT_LEARNED) ||
-           (data[entry_idx].event_type == SAI_FDB_EVENT_MOVE)) {
-            if(!sai_is_valid_fdb_learn ((const sai_fdb_entry_t*)&data[entry_idx].fdb_entry,
+        if((notification_data->event_type == SAI_FDB_EVENT_LEARNED) ||
+           (notification_data->event_type == SAI_FDB_EVENT_MOVE)) {
+            if(!sai_is_valid_fdb_learn ((const sai_fdb_entry_t*)&notification_data->fdb_entry,
                                          fdb_entry_node_data.port_id)) {
-                sai_fdb_npu_api_get()->flush_fdb_entry(&data[entry_idx].fdb_entry, false);
+                sai_fdb_npu_api_get()->flush_fdb_entry(&notification_data->fdb_entry, false);
             } else {
-                sai_rc = sai_insert_fdb_entry_node((const sai_fdb_entry_t*)&data[entry_idx].fdb_entry,
+                sai_rc = sai_insert_fdb_entry_node((const sai_fdb_entry_t*)&notification_data->fdb_entry,
                                                    &fdb_entry_node_data);
                 if((sai_rc == SAI_STATUS_SUCCESS) ||
                    (sai_rc == SAI_STATUS_ITEM_ALREADY_EXISTS)) {
-                    valid_data[valid_count] = data[entry_idx];
+                    valid_notification_data[valid_count] = *notification_data;
                     valid_count++;
                 }
             }
-        } else if((data[entry_idx].event_type == SAI_FDB_EVENT_AGED) ||
-                 (data[entry_idx].event_type == SAI_FDB_EVENT_FLUSHED)) {
-            fdb_entry_node = sai_get_fdb_entry_node(&data[entry_idx].fdb_entry);
+        } else if((notification_data->event_type == SAI_FDB_EVENT_AGED) ||
+                 (notification_data->event_type == SAI_FDB_EVENT_FLUSHED)) {
+            fdb_entry_node = sai_get_fdb_entry_node(&notification_data->fdb_entry);
             if(fdb_entry_node != NULL) {
-                sai_remove_fdb_entry_node (fdb_entry_node, false, false);
-                valid_data[valid_count] = data[entry_idx];
+                sai_remove_fdb_entry_node (fdb_entry_node);
+                valid_notification_data[valid_count] = *notification_data;
                 valid_count++;
             }
         }
@@ -569,7 +757,7 @@ static void sai_common_fdb_event_notification (uint32_t count,
     sai_fdb_unlock();
     sai_fdb_wake_notification_thread ();
     if(sai_l2_fdb_notification_fn != NULL) {
-        sai_l2_fdb_notification_fn (valid_count, valid_data);
+        sai_l2_fdb_notification_fn (valid_count, valid_notification_data);
     }
 }
 sai_status_t sai_l2_fdb_register_callback(sai_fdb_event_notification_fn
